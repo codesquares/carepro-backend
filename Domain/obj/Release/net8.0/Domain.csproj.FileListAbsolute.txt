@@ -1,0 +1,13 @@
+C:\Olucrespo\Care-pro\backend\Domain\bin\Release\net8.0\Domain.deps.json
+C:\Olucrespo\Care-pro\backend\Domain\bin\Release\net8.0\Domain.dll
+C:\Olucrespo\Care-pro\backend\Domain\bin\Release\net8.0\Domain.pdb
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.csproj.AssemblyReference.cache
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.AssemblyInfoInputs.cache
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.AssemblyInfo.cs
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.csproj.CoreCompileInputs.cache
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.sourcelink.json
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.dll
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\refint\Domain.dll
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\Domain.pdb
+C:\Olucrespo\Care-pro\backend\Domain\obj\Release\net8.0\ref\Domain.dll
