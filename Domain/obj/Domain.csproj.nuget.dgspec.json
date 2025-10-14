@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Olucrespo\\Care-pro\\backend\\Domain\\Domain.csproj": {}
+    "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj": {}
   },
   "projects": {
-    "C:\\Olucrespo\\Care-pro\\backend\\Domain\\Domain.csproj": {
+    "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Olucrespo\\Care-pro\\backend\\Domain\\Domain.csproj",
+        "projectUniqueName": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj",
         "projectName": "Domain",
-        "projectPath": "C:\\Olucrespo\\Care-pro\\backend\\Domain\\Domain.csproj",
+        "projectPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj",
         "packagesPath": "C:\\Users\\jamesfa\\.nuget\\packages\\",
-        "outputPath": "C:\\Olucrespo\\Care-pro\\backend\\Domain\\obj\\",
+        "outputPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
