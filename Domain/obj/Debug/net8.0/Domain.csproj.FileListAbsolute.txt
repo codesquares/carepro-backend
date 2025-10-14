@@ -10,3 +10,16 @@ C:\Olucrespo\Care-pro\backend\Domain\obj\Debug\net8.0\Domain.dll
 C:\Olucrespo\Care-pro\backend\Domain\obj\Debug\net8.0\refint\Domain.dll
 C:\Olucrespo\Care-pro\backend\Domain\obj\Debug\net8.0\Domain.pdb
 C:\Olucrespo\Care-pro\backend\Domain\obj\Debug\net8.0\ref\Domain.dll
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\bin\Debug\net8.0\Domain.deps.json
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\bin\Debug\net8.0\Domain.dll
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\bin\Debug\net8.0\Domain.pdb
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.csproj.AssemblyReference.cache
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.AssemblyInfoInputs.cache
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.AssemblyInfo.cs
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.csproj.CoreCompileInputs.cache
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.sourcelink.json
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.dll
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\refint\Domain.dll
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\Domain.pdb
+C:\Users\jamesfa\Music\CarePro\carepro-backend\Domain\obj\Debug\net8.0\ref\Domain.dll

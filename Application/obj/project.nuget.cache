@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "uIiGjIS3OSk=",
+  "dgSpecHash": "/oX5bw1dghc=",
   "success": true,
-  "projectFilePath": "C:\\Olucrespo\\Care-pro\\backend\\Application\\Application.csproj",
+  "projectFilePath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Application\\Application.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\jamesfa\\.nuget\\packages\\entityframework\\6.1.0\\entityframework.6.1.0.nupkg.sha512",
     "C:\\Users\\jamesfa\\.nuget\\packages\\microsoft.aspnet.identity.core\\2.2.4\\microsoft.aspnet.identity.core.2.2.4.nupkg.sha512",
