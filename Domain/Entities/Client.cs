@@ -36,6 +36,13 @@ namespace Domain.Entities
 
         public DateTime CreatedAt { get; set; }
 
+        // Location-related properties for service preferences
+        public string? PreferredCity { get; set; }
+        public string? PreferredState { get; set; }
+        public string? Address { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
         
     }
 }

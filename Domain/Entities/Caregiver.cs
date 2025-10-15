@@ -48,9 +48,12 @@ namespace Domain.Entities
         public string? AboutMe { get; set; }
         public string? IntroVideo { get; set; }
         
-        
-
-
+        // Location-related properties for service delivery
+        public string? ServiceCity { get; set; }
+        public string? ServiceState { get; set; }
+        public string? ServiceAddress { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
 
         
 

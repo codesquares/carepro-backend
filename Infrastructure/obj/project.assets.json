@@ -2300,6 +2300,24 @@
           "buildTransitive/net6.0/_._": {}
         }
       },
+      "Microsoft.Extensions.Http/2.1.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "2.1.0",
+          "Microsoft.Extensions.Logging": "2.1.0",
+          "Microsoft.Extensions.Options": "2.1.0"
+        },
+        "compile": {
+          "lib/netstandard2.0/Microsoft.Extensions.Http.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/Microsoft.Extensions.Http.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Microsoft.Extensions.Identity.Core/8.0.8": {
         "type": "package",
         "dependencies": {
@@ -3036,6 +3054,24 @@
         },
         "runtime": {
           "lib/netstandard2.0/NuGet.Versioning.dll": {}
+        }
+      },
+      "OpenAI/1.11.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Bcl.AsyncInterfaces": "1.1.1",
+          "Microsoft.Extensions.Http": "2.1.0",
+          "Newtonsoft.Json": "13.0.3"
+        },
+        "compile": {
+          "lib/netstandard2.0/OpenAI_API.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/OpenAI_API.dll": {
+            "related": ".xml"
+          }
         }
       },
       "RestSharp/112.1.0": {
@@ -7806,6 +7842,19 @@
         "useSharedDesignerContext.txt"
       ]
     },
+    "Microsoft.Extensions.Http/2.1.0": {
+      "sha512": "vkSkGa1UIZVlAd18oDhrtoawN/q7fDemJcVpT9+28mP7bP0I8zKLSLRwqF++GmPs/7e0Aqlo6jpZm3P7YYS0ag==",
+      "type": "package",
+      "path": "microsoft.extensions.http/2.1.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "lib/netstandard2.0/Microsoft.Extensions.Http.dll",
+        "lib/netstandard2.0/Microsoft.Extensions.Http.xml",
+        "microsoft.extensions.http.2.1.0.nupkg.sha512",
+        "microsoft.extensions.http.nuspec"
+      ]
+    },
     "Microsoft.Extensions.Identity.Core/8.0.8": {
       "sha512": "ICzYDXrPFaJWX2c/fp+AvltzVu2LZIe5eK5+JbxndTjGqYEzAAW9jwKSaBq9c3QF0wM9c3SjI80E2Kcn+l9prg==",
       "type": "package",
@@ -9335,6 +9384,21 @@
         "lib/netstandard2.0/NuGet.Versioning.dll",
         "nuget.versioning.6.11.0.nupkg.sha512",
         "nuget.versioning.nuspec"
+      ]
+    },
+    "OpenAI/1.11.0": {
+      "sha512": "ezjdykDSC/j5zB76S0WWIYuI3GwiOtYtjZZBkaGMMOC6QZgyJX4mzN28XMScTftxXjsY0RTxDF0ZkmXxwQwl9w==",
+      "type": "package",
+      "path": "openai/1.11.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "lib/netstandard2.0/OpenAI_API.dll",
+        "lib/netstandard2.0/OpenAI_API.xml",
+        "nuget_logo.png",
+        "openai.1.11.0.nupkg.sha512",
+        "openai.nuspec"
       ]
     },
     "RestSharp/112.1.0": {
@@ -12674,6 +12738,7 @@
       "Newtonsoft.Json >= 13.0.3",
       "NuGet.Common >= 6.11.0",
       "NuGet.Protocol >= 6.11.0",
+      "OpenAI >= 1.11.0",
       "RestSharp >= 112.1.0",
       "System.IdentityModel.Tokens.Jwt >= 8.9.0",
       "System.Net.Http >= 4.3.4",
@@ -12682,43 +12747,35 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\jamesfa\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "/home/labber/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Infrastructure\\Infrastructure.csproj",
+      "projectUniqueName": "/home/labber/carepro-backend/Infrastructure/Infrastructure.csproj",
       "projectName": "Infrastructure",
-      "projectPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Infrastructure\\Infrastructure.csproj",
-      "packagesPath": "C:\\Users\\jamesfa\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Infrastructure\\obj\\",
+      "projectPath": "/home/labber/carepro-backend/Infrastructure/Infrastructure.csproj",
+      "packagesPath": "/home/labber/.nuget/packages/",
+      "outputPath": "/home/labber/carepro-backend/Infrastructure/obj/",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\jamesfa\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "/home/labber/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Application\\Application.csproj": {
-              "projectPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Application\\Application.csproj"
+            "/home/labber/carepro-backend/Application/Application.csproj": {
+              "projectPath": "/home/labber/carepro-backend/Application/Application.csproj"
             },
-            "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj": {
-              "projectPath": "C:\\Users\\jamesfa\\Music\\CarePro\\carepro-backend\\Domain\\Domain.csproj"
+            "/home/labber/carepro-backend/Domain/Domain.csproj": {
+              "projectPath": "/home/labber/carepro-backend/Domain/Domain.csproj"
             }
           }
         }
@@ -12822,6 +12879,10 @@
             "target": "Package",
             "version": "[6.11.0, )"
           },
+          "OpenAI": {
+            "target": "Package",
+            "version": "[1.11.0, )"
+          },
           "RestSharp": {
             "target": "Package",
             "version": "[112.1.0, )"
@@ -12859,7 +12920,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.303/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/8.0.401/PortableRuntimeIdentifierGraph.json"
       }
     }
   },
