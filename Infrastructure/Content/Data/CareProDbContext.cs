@@ -44,6 +44,8 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<WithdrawalRequest>().ToCollection("WithdrawalRequests");
             modelBuilder.Entity<AdminUser>().ToCollection("AdminUsers");
             modelBuilder.Entity<Review>().ToCollection("Reviews");
+            modelBuilder.Entity<Location>().ToCollection("Locations");
+            modelBuilder.Entity<Contract>().ToCollection("Contracts");
 
         }
 
@@ -64,5 +66,7 @@ namespace Infrastructure.Content.Data
         public DbSet<WithdrawalRequest> WithdrawalRequests { get; set; }
         public DbSet<AdminUser> AdminUsers { get; set; }
         public DbSet<Review> Reviews { get; set; }
+        public DbSet<Location> Locations { get; set; }
+        public DbSet<Contract> Contracts { get; set; }
     }
 }
