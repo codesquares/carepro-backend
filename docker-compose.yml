@@ -1,0 +1,111 @@
+# Docker Compose for CarePro Backend Development
+version: '3.8'
+
+services:
+  # MongoDB service
+  mongodb:
+    image: mongo:6.0
+    container_name: carepro-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: carepro
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongodb/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - carepro-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis service for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: carepro-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - carepro-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # CarePro API service
+  carepro-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carepro-api
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=mongodb://admin:password123@mongodb:27017/carepro?authSource=admin
+      - Redis__ConnectionString=redis:6379
+      - JWT__Secret=your-super-secret-jwt-key-here-change-in-production
+      - JWT__Issuer=CarePro
+      - JWT__Audience=CarePro.Users
+      - JWT__ExpirationInMinutes=60
+      - OpenAI__ApiKey=${OPENAI_API_KEY}
+      - GoogleMaps__ApiKey=${GOOGLE_MAPS_API_KEY}
+      - Email__SmtpServer=smtp.gmail.com
+      - Email__SmtpPort=587
+      - Email__FromEmail=${EMAIL_FROM}
+      - Email__Password=${EMAIL_PASSWORD}
+    ports:
+      - "5000:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - carepro-network
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Nginx reverse proxy (optional, for production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: carepro-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - carepro-api
+    networks:
+      - carepro-network
+
+# Named volumes for data persistence
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Custom network
+networks:
+  carepro-network:
+    driver: bridge

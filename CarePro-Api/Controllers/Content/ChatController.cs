@@ -272,15 +272,15 @@ namespace CarePro_Api.Controllers.Content
 
     public class SendMessageRequest
     {
-        public string SenderId { get; set; }
-        public string ReceiverId { get; set; }
-        public string Message { get; set; }
+        public string? SenderId { get; set; }
+        public string? ReceiverId { get; set; }
+        public string? Message { get; set; }
         public DateTime? Timestamp { get; set; }
     }
 
     public class MarkAllReadRequest
     {
-        public string SenderId { get; set; }
-        public string ReceiverId { get; set; }
+        public string? SenderId { get; set; }
+        public string? ReceiverId { get; set; }
     }
 }

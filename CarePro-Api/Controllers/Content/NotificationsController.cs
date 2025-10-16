@@ -163,7 +163,7 @@ namespace CarePro_Api.Controllers.Content
 
     public class TestNotificationRequest
     {
-        public string RecipientId { get; set; }
-        public string Message { get; set; }
+        public string? RecipientId { get; set; }
+        public string? Message { get; set; }
     }
 }

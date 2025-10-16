@@ -1,0 +1,123 @@
+# Docker ignore file for CarePro Backend
+# This file specifies which files and directories should be excluded from Docker build context
+
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+*.md
+
+# CI/CD files
+.github/
+azure-pipelines.yml
+.travis.yml
+.circleci/
+
+# IDE and editor files
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.idea/
+*.userprefs
+*.suo
+*.user
+
+# Build output
+**/bin/
+**/obj/
+**/out/
+**/.build/
+**/.publish/
+
+# Dependencies
+**/node_modules/
+**/packages/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+*.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage reports
+coverage/
+*.coverage
+
+# Test results
+TestResults/
+test-results.xml
+
+# Temporary files
+*.tmp
+*.temp
+.temp/
+.tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Docker files (to avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# SSL certificates (security)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+
+# Package manager lock files (optional, uncomment if needed)
+# package-lock.json
+# yarn.lock
+
+# NuGet packages folder (if using local packages)
+packages/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

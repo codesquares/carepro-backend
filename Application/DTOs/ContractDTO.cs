@@ -3,17 +3,17 @@ namespace Application.DTOs
     // Request DTOs
     public class ContractGenerationRequestDTO
     {
-        public string GigId { get; set; }
-        public string ClientId { get; set; }
-        public string CaregiverId { get; set; }
-        public string PaymentTransactionId { get; set; }
-        public PackageSelectionDTO SelectedPackage { get; set; }
+        public string? GigId { get; set; }
+        public string? ClientId { get; set; }
+        public string? CaregiverId { get; set; }
+        public string? PaymentTransactionId { get; set; }
+        public PackageSelectionDTO? SelectedPackage { get; set; }
         public List<ClientTaskDTO> Tasks { get; set; } = new List<ClientTaskDTO>();
     }
 
     public class PackageSelectionDTO
     {
-        public string PackageType { get; set; }
+        public string? PackageType { get; set; }
         public int VisitsPerWeek { get; set; }
         public decimal PricePerVisit { get; set; }
         public decimal TotalWeeklyPrice { get; set; }
@@ -25,7 +25,7 @@ namespace Application.DTOs
         public string Title { get; set; }
         public string Description { get; set; }
         public string Category { get; set; }
-        public string Priority { get; set; }
+        public string? Priority { get; set; }
         public List<string> SpecialRequirements { get; set; } = new List<string>();
         public int? EstimatedDurationMinutes { get; set; }
     }

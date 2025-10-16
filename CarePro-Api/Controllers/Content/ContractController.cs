@@ -217,7 +217,7 @@ namespace CarePro_Api.Controllers.Content
     // Supporting DTOs
     public class SendToAlternativeDTO
     {
-        public string CaregiverId { get; set; }
+        public string? CaregiverId { get; set; }
     }
 
     public class ContractCompletionDTO
@@ -227,6 +227,6 @@ namespace CarePro_Api.Controllers.Content
 
     public class ContractTerminationDTO
     {
-        public string Reason { get; set; }
+        public string? Reason { get; set; }
     }
 }

@@ -1,0 +1,286 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ staging ]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if tests fail'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/carepro-cnet-backend
+
+jobs:
+  validate-staging:
+    name: Validate Staging Requirements
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore and build
+      run: |
+        dotnet restore
+        dotnet build --configuration Release --no-restore
+
+    - name: Run security checks
+      run: |
+        echo "🔍 Running security validation for staging..."
+        
+        # Check for any hardcoded production secrets
+        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
+          "prod\|production" . | grep -E "(password|secret|key|token)"; then
+          echo "❌ Production references found in code!"
+          exit 1
+        fi
+        
+        echo "✅ Security validation passed"
+
+    - name: Validate configuration
+      run: |
+        echo "🔍 Validating staging configuration..."
+        
+        # Ensure staging appsettings exists or is properly configured
+        if [ ! -f "CarePro-Api/appsettings.Staging.json" ]; then
+          echo "⚠️ appsettings.Staging.json not found"
+          echo "Creating basic staging configuration..."
+          cat > CarePro-Api/appsettings.Staging.json << 'EOF'
+        {
+          "Logging": {
+            "LogLevel": {
+              "Default": "Information",
+              "Microsoft.AspNetCore": "Warning"
+            }
+          },
+          "AllowedHosts": "*",
+          "Environment": "Staging"
+        }
+        EOF
+        fi
+        
+        echo "✅ Configuration validation completed"
+
+  build-staging-image:
+    name: Build Staging Docker Image
+    runs-on: ubuntu-latest
+    needs: validate-staging
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix=staging-{{branch}}-
+          type=raw,value=staging-latest
+
+    - name: Create production Dockerfile
+      run: |
+        cat > Dockerfile << 'EOF'
+        FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+        WORKDIR /app
+        EXPOSE 5005
+        ENV ASPNETCORE_ENVIRONMENT=Staging
+        
+        # Create non-root user
+        RUN groupadd -r appuser && useradd -r -g appuser appuser
+        
+        FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+        WORKDIR /src
+        
+        # Copy project files
+        COPY ["CarePro-Api/CarePro-Api.csproj", "CarePro-Api/"]
+        COPY ["Application/Application.csproj", "Application/"]
+        COPY ["Domain/Domain.csproj", "Domain/"]
+        COPY ["Infrastructure/Infrastructure.csproj", "Infrastructure/"]
+        
+        # Restore dependencies
+        RUN dotnet restore "CarePro-Api/CarePro-Api.csproj"
+        
+        # Copy source code
+        COPY . .
+        WORKDIR "/src/CarePro-Api"
+        
+        # Build application
+        RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build
+        
+        FROM build AS publish
+        RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish \
+            /p:UseAppHost=false \
+            /p:TreatWarningsAsErrors=false
+        
+        FROM base AS final
+        WORKDIR /app
+        
+        # Copy published app
+        COPY --from=publish /app/publish .
+        
+        # Set ownership and permissions
+        RUN chown -R appuser:appuser /app
+        USER appuser
+        
+        # Health check
+        HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+          CMD curl -f http://localhost:5005/health || exit 1
+        
+        ENTRYPOINT ["dotnet", "CarePro-Api.dll"]
+        EOF
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-to-staging:
+    name: Deploy to Staging Environment
+    runs-on: ubuntu-latest
+    needs: build-staging-image
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create deployment manifest
+      run: |
+        mkdir -p deployment
+        
+        cat > deployment/docker-compose.staging.yml << 'EOF'
+        version: '3.8'
+        
+        services:
+          carepro-backend:
+            image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+            container_name: carepro-backend-staging
+            environment:
+              - ASPNETCORE_ENVIRONMENT=Staging
+              - ASPNETCORE_URLS=http://+:5005
+              - JWT__Key=${JWT_KEY}
+              - ConnectionStrings__MongoDbConnection=${MONGODB_CONNECTION}
+              - MailSettings__FromEmail=${MAIL_FROM_EMAIL}
+              - MailSettings__SmtpServer=${MAIL_SMTP_SERVER}
+              - MailSettings__AppPassword=${MAIL_APP_PASSWORD}
+              - GoogleMaps__ApiKey=${GOOGLE_MAPS_API_KEY}
+              - LLMSettings__OpenAI__ApiKey=${OPENAI_API_KEY}
+              - CloudinarySettings__CloudName=${CLOUDINARY_CLOUD_NAME}
+              - CloudinarySettings__ApiKey=${CLOUDINARY_API_KEY}
+              - CloudinarySettings__ApiSecret=${CLOUDINARY_API_SECRET}
+              - Flutterwave__PublicKey=${FLUTTERWAVE_PUBLIC_KEY}
+              - Flutterwave__SecretKey=${FLUTTERWAVE_SECRET_KEY}
+            ports:
+              - "5005:5005"
+            restart: unless-stopped
+            networks:
+              - carepro-network
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+              interval: 30s
+              timeout: 10s
+              retries: 3
+              start_period: 40s
+              
+        networks:
+          carepro-network:
+            driver: bridge
+        EOF
+
+    - name: Create health check endpoint info
+      run: |
+        echo "📋 Staging deployment ready!"
+        echo "Environment: staging"
+        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest"
+        echo ""
+        echo "🔧 Required environment variables for deployment:"
+        echo "  - JWT_KEY"
+        echo "  - MONGODB_CONNECTION" 
+        echo "  - MAIL_FROM_EMAIL"
+        echo "  - MAIL_SMTP_SERVER"
+        echo "  - MAIL_APP_PASSWORD"
+        echo "  - GOOGLE_MAPS_API_KEY"
+        echo "  - OPENAI_API_KEY"
+        echo "  - CLOUDINARY_CLOUD_NAME"
+        echo "  - CLOUDINARY_API_KEY"
+        echo "  - CLOUDINARY_API_SECRET"
+        echo "  - FLUTTERWAVE_PUBLIC_KEY"
+        echo "  - FLUTTERWAVE_SECRET_KEY"
+        echo ""
+        echo "🚀 Deploy with: docker-compose -f deployment/docker-compose.staging.yml up -d"
+
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: staging-deployment
+        path: deployment/
+        retention-days: 30
+
+  staging-smoke-tests:
+    name: Staging Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy-to-staging
+    if: success()
+    
+    steps:
+    - name: Wait for staging deployment
+      run: |
+        echo "⏳ Waiting for staging environment to be ready..."
+        echo "This would normally include:"
+        echo "  - Health check verification"
+        echo "  - Basic API endpoint tests"
+        echo "  - Database connectivity tests"
+        echo "  - Third-party service integration tests"
+        echo ""
+        echo "✅ Smoke tests placeholder completed"
+        echo "💡 Implement actual health checks once staging environment is configured"
+
+  notify-deployment:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-to-staging, staging-smoke-tests]
+    if: always()
+    
+    steps:
+    - name: Deployment notification
+      run: |
+        if [ "${{ needs.deploy-to-staging.result }}" == "success" ] && [ "${{ needs.staging-smoke-tests.result }}" == "success" ]; then
+          echo "✅ Staging deployment successful!"
+          echo "🌐 Staging environment is ready for testing"
+        else
+          echo "❌ Staging deployment failed"
+          echo "Check the workflow logs for details"
+        fi

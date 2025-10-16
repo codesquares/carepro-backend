@@ -1,0 +1,477 @@
+name: Code Quality & Testing
+
+on:
+  pull_request:
+    branches: [ main, staging ]
+  push:
+    branches: [ main, staging, feature/** ]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  code-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Install code analysis tools
+      run: |
+        dotnet tool install --global dotnet-format
+        dotnet tool install --global dotnet-reportgenerator-globaltool
+        # Add more analysis tools as needed
+
+    - name: Build solution
+      run: dotnet build --no-restore --configuration Release --verbosity normal
+
+    - name: Code formatting check
+      run: |
+        echo "🔍 Checking code formatting..."
+        dotnet format --verify-no-changes --verbosity diagnostic
+        if [ $? -ne 0 ]; then
+          echo "❌ Code formatting issues found!"
+          echo "Run 'dotnet format' to fix formatting issues."
+          exit 1
+        fi
+
+    - name: Analyze code complexity
+      run: |
+        echo "🔍 Analyzing code complexity..."
+        
+        # Check for overly complex methods (simple heuristic)
+        COMPLEX_METHODS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          -E "(if.*if.*if|for.*for.*for|while.*while.*while)" . | wc -l)
+        
+        echo "Complex method patterns found: $COMPLEX_METHODS"
+        
+        if [ "$COMPLEX_METHODS" -gt 20 ]; then
+          echo "⚠️  High code complexity detected. Consider refactoring complex methods."
+        else
+          echo "✅ Code complexity is within acceptable limits"
+        fi
+
+    - name: Check code duplication
+      run: |
+        echo "🔍 Checking for code duplication..."
+        
+        # Simple duplication check - look for identical method signatures
+        DUPLICATE_METHODS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          -o "public.*{" . | sort | uniq -d | wc -l)
+        
+        echo "Potential duplicate method signatures: $DUPLICATE_METHODS"
+        
+        if [ "$DUPLICATE_METHODS" -gt 5 ]; then
+          echo "⚠️  Potential code duplication detected. Consider refactoring common functionality."
+        else
+          echo "✅ No significant code duplication detected"
+        fi
+
+    - name: Analyze dependency usage
+      run: |
+        echo "🔍 Analyzing dependency usage..."
+        
+        # Check for unused using statements (simple check)
+        UNUSED_USINGS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "^using.*;" . | grep -v "System" | wc -l)
+        
+        echo "Non-System using statements: $UNUSED_USINGS"
+        
+        # Check for large dependency counts
+        TOTAL_PACKAGES=$(find . -name "*.csproj" -exec grep -l "PackageReference" {} \; | \
+          xargs grep "PackageReference" | wc -l)
+        
+        echo "Total package references: $TOTAL_PACKAGES"
+        
+        if [ "$TOTAL_PACKAGES" -gt 50 ]; then
+          echo "⚠️  High number of dependencies. Consider if all are necessary."
+        else
+          echo "✅ Dependency count is reasonable"
+        fi
+
+  architecture-analysis:
+    name: Architecture & Design Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Analyze project structure
+      run: |
+        echo "🏗️ Analyzing project architecture..."
+        
+        # Check Clean Architecture principles
+        echo "📁 Project Structure Analysis:"
+        echo "================================"
+        
+        # Check if layers are properly separated
+        if [ -d "Domain" ] && [ -d "Application" ] && [ -d "Infrastructure" ]; then
+          echo "✅ Clean Architecture layers present"
+          
+          # Check for circular dependencies (simple check)
+          if grep -r "Infrastructure" Domain/ Application/ 2>/dev/null; then
+            echo "❌ Potential circular dependency: Domain/Application should not reference Infrastructure"
+            exit 1
+          fi
+          
+          if grep -r "CarePro-Api" Domain/ Application/ Infrastructure/ 2>/dev/null; then
+            echo "❌ Potential circular dependency: Lower layers should not reference API layer"
+            exit 1
+          fi
+          
+          echo "✅ No obvious circular dependencies detected"
+        else
+          echo "⚠️  Clean Architecture structure not fully implemented"
+        fi
+
+    - name: Check naming conventions
+      run: |
+        echo "🔍 Checking naming conventions..."
+        
+        # Check interface naming
+        INTERFACE_ISSUES=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "interface [A-Z][a-z]" . | grep -v "interface I[A-Z]" | wc -l)
+        
+        if [ "$INTERFACE_ISSUES" -gt 0 ]; then
+          echo "❌ Interface naming issues found (should start with 'I')"
+          grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+            "interface [A-Z][a-z]" . | grep -v "interface I[A-Z]" | head -5
+        else
+          echo "✅ Interface naming conventions followed"
+        fi
+        
+        # Check async method naming
+        ASYNC_NAMING_ISSUES=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "async.*Task.*(" . | grep -v "Async(" | wc -l)
+        
+        if [ "$ASYNC_NAMING_ISSUES" -gt 0 ]; then
+          echo "⚠️  Async methods should end with 'Async'"
+          echo "Found $ASYNC_NAMING_ISSUES methods that might need renaming"
+        else
+          echo "✅ Async method naming conventions followed"
+        fi
+
+    - name: Check SOLID principles adherence
+      run: |
+        echo "🔍 Checking SOLID principles adherence..."
+        
+        # Single Responsibility - check for classes with too many public methods
+        echo "Checking Single Responsibility Principle..."
+        for cs_file in $(find . -name "*.cs" -not -path "./bin/*" -not -path "./obj/*"); do
+          PUBLIC_METHODS=$(grep -c "public.*(" "$cs_file" 2>/dev/null || echo "0")
+          if [ "$PUBLIC_METHODS" -gt 15 ]; then
+            echo "⚠️  $cs_file has $PUBLIC_METHODS public methods (consider splitting)"
+          fi
+        done
+        
+        # Dependency Inversion - check for constructor injection
+        CONSTRUCTOR_INJECTION=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "public.*(.* [a-zA-Z]*Service " . | wc -l)
+        
+        if [ "$CONSTRUCTOR_INJECTION" -gt 0 ]; then
+          echo "✅ Constructor injection patterns found ($CONSTRUCTOR_INJECTION instances)"
+        else
+          echo "⚠️  No obvious dependency injection patterns found"
+        fi
+
+  test-analysis:
+    name: Test Coverage Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Check for test projects
+      run: |
+        echo "🧪 Analyzing test coverage..."
+        
+        TEST_PROJECTS=$(find . -name "*Test*.csproj" -o -name "*Tests.csproj" | wc -l)
+        
+        if [ "$TEST_PROJECTS" -eq 0 ]; then
+          echo "❌ No test projects found!"
+          echo "📝 Recommendations for test implementation:"
+          echo "1. Create unit test projects for each layer:"
+          echo "   - Domain.Tests"
+          echo "   - Application.Tests" 
+          echo "   - Infrastructure.Tests"
+          echo "   - CarePro-Api.Tests"
+          echo ""
+          echo "2. Add integration tests for:"
+          echo "   - Database operations"
+          echo "   - API endpoints"
+          echo "   - External service integrations"
+          echo ""
+          echo "3. Add the following test packages:"
+          echo "   - xUnit or NUnit"
+          echo "   - Moq for mocking"
+          echo "   - FluentAssertions"
+          echo "   - Microsoft.AspNetCore.Mvc.Testing"
+          echo ""
+          echo "4. Aim for test coverage:"
+          echo "   - Critical business logic: 90%+"
+          echo "   - Services and repositories: 80%+"
+          echo "   - Controllers: 70%+"
+        else
+          echo "✅ Found $TEST_PROJECTS test projects"
+          
+          # Run tests if they exist
+          echo "Running existing tests..."
+          dotnet test --verbosity normal --collect:"XPlat Code Coverage"
+        fi
+
+    - name: Suggest test cases for Smart Contract feature
+      run: |
+        echo "📋 Suggested test cases for Smart Contract Generation feature:"
+        echo "============================================================="
+        echo ""
+        echo "🔧 Unit Tests:"
+        echo "- ContractService.GenerateContractAsync()"
+        echo "- OpenAIContractService mock responses"
+        echo "- ContractNotificationService email sending"
+        echo "- LocationService proximity calculations"
+        echo "- GeocodingService address validation"
+        echo "- Contract status transitions"
+        echo "- Package pricing calculations"
+        echo ""
+        echo "🌐 Integration Tests:"
+        echo "- Contract generation workflow end-to-end"
+        echo "- Payment webhook → contract creation flow"
+        echo "- Database contract CRUD operations"
+        echo "- Email service integration"
+        echo "- Google Maps API integration"
+        echo "- OpenAI API integration (with mocking)"
+        echo ""
+        echo "🎯 API Tests:"
+        echo "- Contract controller endpoints"
+        echo "- Webhook controller payment processing"
+        echo "- Location controller geocoding"
+        echo "- Authentication and authorization"
+        echo "- Error handling and validation"
+
+  performance-analysis:
+    name: Performance Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Build in Release mode
+      run: |
+        dotnet restore
+        dotnet build --configuration Release --no-restore
+
+    - name: Analyze potential performance issues
+      run: |
+        echo "⚡ Analyzing performance patterns..."
+        
+        # Check for async/await patterns
+        ASYNC_METHODS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "async Task" . | wc -l)
+        
+        AWAIT_CALLS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "await " . | wc -l)
+        
+        echo "Async methods: $ASYNC_METHODS"
+        echo "Await calls: $AWAIT_CALLS"
+        
+        # Check for potential performance anti-patterns
+        echo ""
+        echo "🔍 Checking for performance anti-patterns..."
+        
+        # N+1 query patterns
+        N_PLUS_ONE=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "foreach.*await.*" . | wc -l)
+        
+        if [ "$N_PLUS_ONE" -gt 0 ]; then
+          echo "⚠️  Potential N+1 query patterns found: $N_PLUS_ONE"
+          echo "Consider using batch operations or Include() for Entity Framework"
+        fi
+        
+        # Synchronous database calls
+        SYNC_DB_CALLS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "\.Result\|\.Wait()" . | wc -l)
+        
+        if [ "$SYNC_DB_CALLS" -gt 0 ]; then
+          echo "⚠️  Synchronous async calls found: $SYNC_DB_CALLS"
+          echo "These can cause deadlocks. Use await instead of .Result or .Wait()"
+        fi
+        
+        # Large object allocations
+        LARGE_ALLOCATIONS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "new.*\[.*\].*1000\|new.*List.*1000" . | wc -l)
+        
+        if [ "$LARGE_ALLOCATIONS" -gt 0 ]; then
+          echo "⚠️  Large object allocations found: $LARGE_ALLOCATIONS"
+          echo "Consider using memory-efficient alternatives for large collections"
+        fi
+        
+        echo "✅ Performance analysis completed"
+
+  documentation-check:
+    name: Documentation Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check code documentation
+      run: |
+        echo "📚 Checking documentation quality..."
+        
+        # Check for XML documentation comments
+        XML_DOCS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "/// <summary>" . | wc -l)
+        
+        PUBLIC_METHODS=$(grep -r --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "public.*(" . | wc -l)
+        
+        if [ "$PUBLIC_METHODS" -gt 0 ]; then
+          DOC_PERCENTAGE=$((XML_DOCS * 100 / PUBLIC_METHODS))
+          echo "XML documentation coverage: $DOC_PERCENTAGE% ($XML_DOCS/$PUBLIC_METHODS)"
+          
+          if [ "$DOC_PERCENTAGE" -lt 30 ]; then
+            echo "⚠️  Low documentation coverage. Consider adding XML docs to public APIs"
+          else
+            echo "✅ Good documentation coverage"
+          fi
+        fi
+        
+        # Check for README files
+        if [ -f "README.md" ] || [ -f "Readme.md" ]; then
+          echo "✅ README file found"
+        else
+          echo "⚠️  No README.md file found. Consider adding project documentation"
+        fi
+        
+        # Check for API documentation
+        if grep -r --include="*.cs" "SwaggerGen\|OpenApi" .; then
+          echo "✅ OpenAPI/Swagger documentation configured"
+        else
+          echo "⚠️  No OpenAPI/Swagger documentation found"
+        fi
+
+  generate-quality-report:
+    name: Generate Quality Report
+    runs-on: ubuntu-latest
+    needs: [code-analysis, architecture-analysis, test-analysis, performance-analysis, documentation-check]
+    if: always()
+    
+    steps:
+    - name: Generate comprehensive quality report
+      run: |
+        echo "# 📊 Code Quality Report" > quality-report.md
+        echo "" >> quality-report.md
+        echo "**Analysis Date:** $(date)" >> quality-report.md
+        echo "**Repository:** ${{ github.repository }}" >> quality-report.md
+        echo "**Branch:** ${{ github.ref_name }}" >> quality-report.md
+        echo "**Commit:** ${{ github.sha }}" >> quality-report.md
+        echo "" >> quality-report.md
+        
+        echo "## 🎯 Quality Metrics" >> quality-report.md
+        echo "" >> quality-report.md
+        
+        # Summarize results
+        PASSED=0
+        TOTAL=5
+        
+        if [ "${{ needs.code-analysis.result }}" == "success" ]; then
+          echo "✅ **Code Analysis:** PASSED" >> quality-report.md
+          PASSED=$((PASSED + 1))
+        else
+          echo "❌ **Code Analysis:** FAILED" >> quality-report.md
+        fi
+        
+        if [ "${{ needs.architecture-analysis.result }}" == "success" ]; then
+          echo "✅ **Architecture Analysis:** PASSED" >> quality-report.md
+          PASSED=$((PASSED + 1))
+        else
+          echo "❌ **Architecture Analysis:** FAILED" >> quality-report.md
+        fi
+        
+        if [ "${{ needs.test-analysis.result }}" == "success" ]; then
+          echo "✅ **Test Analysis:** PASSED" >> quality-report.md
+          PASSED=$((PASSED + 1))
+        else
+          echo "❌ **Test Analysis:** FAILED" >> quality-report.md
+        fi
+        
+        if [ "${{ needs.performance-analysis.result }}" == "success" ]; then
+          echo "✅ **Performance Analysis:** PASSED" >> quality-report.md
+          PASSED=$((PASSED + 1))
+        else
+          echo "❌ **Performance Analysis:** FAILED" >> quality-report.md
+        fi
+        
+        if [ "${{ needs.documentation-check.result }}" == "success" ]; then
+          echo "✅ **Documentation Check:** PASSED" >> quality-report.md
+          PASSED=$((PASSED + 1))
+        else
+          echo "❌ **Documentation Check:** FAILED" >> quality-report.md
+        fi
+        
+        SCORE=$((PASSED * 100 / TOTAL))
+        echo "" >> quality-report.md
+        echo "**Overall Quality Score: $SCORE% ($PASSED/$TOTAL)**" >> quality-report.md
+        echo "" >> quality-report.md
+        
+        echo "## 📝 Recommendations" >> quality-report.md
+        echo "" >> quality-report.md
+        echo "### High Priority" >> quality-report.md
+        echo "1. **Add Unit Tests:** Create comprehensive test projects for all layers" >> quality-report.md
+        echo "2. **API Documentation:** Implement OpenAPI/Swagger documentation" >> quality-report.md
+        echo "3. **Error Handling:** Implement global exception handling" >> quality-report.md
+        echo "" >> quality-report.md
+        echo "### Medium Priority" >> quality-report.md
+        echo "4. **Code Documentation:** Add XML documentation to public APIs" >> quality-report.md
+        echo "5. **Performance Testing:** Add performance benchmarks" >> quality-report.md
+        echo "6. **Integration Tests:** Add database and API integration tests" >> quality-report.md
+        echo "" >> quality-report.md
+        echo "### Low Priority" >> quality-report.md
+        echo "7. **Code Complexity:** Refactor complex methods for better maintainability" >> quality-report.md
+        echo "8. **Dependency Analysis:** Review and optimize package dependencies" >> quality-report.md
+        
+        cat quality-report.md
+
+    - name: Upload quality report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: quality-report-${{ github.sha }}
+        path: quality-report.md
+        retention-days: 90

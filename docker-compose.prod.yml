@@ -1,0 +1,81 @@
+# Docker Compose for Production Environment
+version: '3.8'
+
+services:
+  # CarePro API service - Production configuration
+  carepro-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carepro-api-prod
+    restart: always
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=${MONGODB_CONNECTION_STRING}
+      - Redis__ConnectionString=${REDIS_CONNECTION_STRING}
+      - JWT__Secret=${JWT_SECRET}
+      - JWT__Issuer=CarePro
+      - JWT__Audience=CarePro.Users
+      - JWT__ExpirationInMinutes=60
+      - OpenAI__ApiKey=${OPENAI_API_KEY}
+      - GoogleMaps__ApiKey=${GOOGLE_MAPS_API_KEY}
+      - Email__SmtpServer=${SMTP_SERVER}
+      - Email__SmtpPort=${SMTP_PORT}
+      - Email__FromEmail=${EMAIL_FROM}
+      - Email__Password=${EMAIL_PASSWORD}
+      - Logging__LogLevel__Default=Information
+      - Logging__LogLevel__Microsoft.AspNetCore=Warning
+    ports:
+      - "8080:8080"
+    networks:
+      - carepro-network
+    volumes:
+      - ./logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  # Nginx reverse proxy with SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: carepro-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/prod-nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+      - /var/log/nginx:/var/log/nginx
+    depends_on:
+      - carepro-api
+    networks:
+      - carepro-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+# Custom network
+networks:
+  carepro-network:
+    driver: bridge

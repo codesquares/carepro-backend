@@ -10,20 +10,20 @@ namespace Application.DTOs
 {
     public class CertificationDTO
     {
-        public string Id { get; set; }
+        public string? Id { get; set; }
 
-        public string CaregiverId { get; set; }
+        public string? CaregiverId { get; set; }
 
 
-        public string CertificateName { get; set; }
+        public string? CertificateName { get; set; }
 
-        public string CertificateIssuer { get; set; }
+        public string? CertificateIssuer { get; set; }
 
-        public string CertificateUrl { get; set; }
+        public string? CertificateUrl { get; set; }
 
         public bool IsVerified { get; set; }
 
-        public string VerificationStatus { get; set; }
+        public string? VerificationStatus { get; set; }
 
         public DateTime YearObtained { get; set; }
 
@@ -32,16 +32,16 @@ namespace Application.DTOs
 
     public class CertificationResponse
     {
-        public string Id { get; set; }
+        public string? Id { get; set; }
 
-        public string CaregiverId { get; set; }
+        public string? CaregiverId { get; set; }
 
 
-        public string CertificateName { get; set; }
+        public string? CertificateName { get; set; }
 
-        public string CertificateIssuer { get; set; }
+        public string? CertificateIssuer { get; set; }
 
-        public string Certificate { get; set; }
+        public string? Certificate { get; set; }
 
         public bool IsVerified { get; set; }
 
@@ -55,13 +55,13 @@ namespace Application.DTOs
 
     public class AddCertificationRequest
     {
-        public string CertificateName { get; set; }
+        public string? CertificateName { get; set; }
 
-        public string CaregiverId { get; set; }
+        public string? CaregiverId { get; set; }
 
-        public string CertificateIssuer { get; set; }
+        public string? CertificateIssuer { get; set; }
 
-        public string Certificate { get; set; }
+        public string? Certificate { get; set; }
 
         public DateTime YearObtained { get; set; }
 

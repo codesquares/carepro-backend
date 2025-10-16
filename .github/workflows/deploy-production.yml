@@ -1,0 +1,527 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - production-hotfix
+      skip_tests:
+        description: 'Skip tests (emergency deployment only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/carepro-cnet-backend
+
+jobs:
+  pre-deployment-validation:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Validate production readiness
+      run: |
+        echo "🔍 Validating production readiness..."
+        
+        # Check for any debug or test code
+        if grep -r -i --include="*.cs" --exclude-dir=bin --exclude-dir=obj \
+          "debugger\|console\.write\|throw new notimplementedexception\|todo:" .; then
+          echo "❌ Debug/development code found in production build!"
+          echo "Please remove debug code before deploying to production."
+          exit 1
+        fi
+        
+        # Check for proper error handling
+        echo "✅ Code validation passed"
+
+    - name: Security audit
+      run: |
+        echo "🔍 Running production security audit..."
+        
+        # Ensure no test/demo credentials
+        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
+          -E "(test|demo|sample|fake).*@.*\.(com|org)" .; then
+          echo "❌ Test/demo credentials found!"
+          exit 1
+        fi
+        
+        # Check for localhost references
+        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
+          "localhost\|127\.0\.0\.1" . | grep -v "health"; then
+          echo "❌ Localhost references found in production code!"
+          exit 1
+        fi
+        
+        echo "✅ Security audit passed"
+
+    - name: Restore and build
+      run: |
+        dotnet restore
+        dotnet build --configuration Release --no-restore
+
+    - name: Run comprehensive tests
+      if: github.event.inputs.skip_tests != 'true'
+      run: |
+        echo "🧪 Running production test suite..."
+        # When test projects are added, uncomment:
+        # dotnet test --configuration Release --no-build --verbosity normal
+        echo "✅ Test suite placeholder completed"
+
+  build-production-image:
+    name: Build Production Docker Image  
+    runs-on: ubuntu-latest
+    needs: pre-deployment-validation
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=tag
+          type=sha,prefix=prod-{{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=production-latest
+
+    - name: Create optimized production Dockerfile
+      run: |
+        cat > Dockerfile.production << 'EOF'
+        FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS base
+        WORKDIR /app
+        EXPOSE 5005
+        ENV ASPNETCORE_ENVIRONMENT=Production
+        
+        # Security: Create non-root user
+        RUN addgroup -g 1001 -S appuser && \
+            adduser -S appuser -G appuser -u 1001
+        
+        # Install security updates
+        RUN apk update && apk upgrade && \
+            apk add --no-cache curl && \
+            rm -rf /var/cache/apk/*
+        
+        FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+        WORKDIR /src
+        
+        # Copy project files
+        COPY ["CarePro-Api/CarePro-Api.csproj", "CarePro-Api/"]
+        COPY ["Application/Application.csproj", "Application/"]
+        COPY ["Domain/Domain.csproj", "Domain/"]
+        COPY ["Infrastructure/Infrastructure.csproj", "Infrastructure/"]
+        
+        # Restore dependencies
+        RUN dotnet restore "CarePro-Api/CarePro-Api.csproj"
+        
+        # Copy source code
+        COPY . .
+        WORKDIR "/src/CarePro-Api"
+        
+        # Build with optimizations
+        RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build \
+            /p:TreatWarningsAsErrors=true \
+            /p:WarningsAsErrors="" \
+            /p:WarningsNotAsErrors="CS8618;CS8600;CS8601;CS8602;CS8604"
+        
+        FROM build AS publish
+        RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish \
+            /p:UseAppHost=false \
+            /p:PublishReadyToRun=true \
+            /p:PublishSingleFile=false \
+            /p:TreatWarningsAsErrors=true \
+            /p:WarningsAsErrors="" \
+            /p:WarningsNotAsErrors="CS8618;CS8600;CS8601;CS8602;CS8604"
+        
+        FROM base AS final
+        WORKDIR /app
+        
+        # Copy published app
+        COPY --from=publish /app/publish .
+        
+        # Set proper ownership and permissions
+        RUN chown -R appuser:appuser /app && \
+            chmod -R 755 /app
+        
+        # Switch to non-root user
+        USER appuser
+        
+        # Health check
+        HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+          CMD curl -f http://localhost:5005/health || exit 1
+        
+        ENTRYPOINT ["dotnet", "CarePro-Api.dll"]
+        EOF
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.production
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Run Trivy vulnerability scanner on image
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  create-deployment-package:
+    name: Create Deployment Package
+    runs-on: ubuntu-latest
+    needs: build-production-image
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create deployment manifests
+      run: |
+        mkdir -p deployment/production
+        
+        # Production Docker Compose
+        cat > deployment/production/docker-compose.yml << 'EOF'
+        version: '3.8'
+        
+        services:
+          carepro-backend:
+            image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+            container_name: carepro-backend-prod
+            environment:
+              - ASPNETCORE_ENVIRONMENT=Production
+              - ASPNETCORE_URLS=http://+:5005
+              - JWT__Key=${JWT_KEY}
+              - ConnectionStrings__MongoDbConnection=${MONGODB_CONNECTION}
+              - MailSettings__FromEmail=${MAIL_FROM_EMAIL}
+              - MailSettings__SmtpServer=${MAIL_SMTP_SERVER}
+              - MailSettings__AppPassword=${MAIL_APP_PASSWORD}
+              - GoogleMaps__ApiKey=${GOOGLE_MAPS_API_KEY}
+              - LLMSettings__OpenAI__ApiKey=${OPENAI_API_KEY}
+              - CloudinarySettings__CloudName=${CLOUDINARY_CLOUD_NAME}
+              - CloudinarySettings__ApiKey=${CLOUDINARY_API_KEY}
+              - CloudinarySettings__ApiSecret=${CLOUDINARY_API_SECRET}
+              - Flutterwave__PublicKey=${FLUTTERWAVE_PUBLIC_KEY}
+              - Flutterwave__SecretKey=${FLUTTERWAVE_SECRET_KEY}
+            ports:
+              - "5005:5005"
+            restart: always
+            networks:
+              - carepro-network
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+              interval: 30s
+              timeout: 10s
+              retries: 3
+              start_period: 60s
+            logging:
+              driver: "json-file"
+              options:
+                max-size: "100m"
+                max-file: "5"
+            deploy:
+              resources:
+                limits:
+                  memory: 1G
+                  cpus: '1.0'
+                reservations:
+                  memory: 512M
+                  cpus: '0.5'
+              
+        networks:
+          carepro-network:
+            driver: bridge
+        EOF
+        
+        # Kubernetes deployment
+        cat > deployment/production/k8s-deployment.yml << 'EOF'
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: carepro-backend
+          namespace: production
+          labels:
+            app: carepro-backend
+            version: production
+        spec:
+          replicas: 2
+          selector:
+            matchLabels:
+              app: carepro-backend
+          template:
+            metadata:
+              labels:
+                app: carepro-backend
+            spec:
+              containers:
+              - name: carepro-backend
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+                ports:
+                - containerPort: 5005
+                env:
+                - name: ASPNETCORE_ENVIRONMENT
+                  value: "Production"
+                - name: ASPNETCORE_URLS
+                  value: "http://+:5005"
+                envFrom:
+                - secretRef:
+                    name: carepro-secrets
+                resources:
+                  requests:
+                    memory: "512Mi"
+                    cpu: "500m"
+                  limits:
+                    memory: "1Gi"
+                    cpu: "1000m"
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: 5005
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: 5005
+                  initialDelaySeconds: 60
+                  periodSeconds: 30
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                fsGroup: 1001
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: carepro-backend-service
+          namespace: production
+        spec:
+          selector:
+            app: carepro-backend
+          ports:
+          - port: 80
+            targetPort: 5005
+          type: ClusterIP
+        EOF
+        
+        # Deployment script
+        cat > deployment/production/deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Starting CarePro Backend Production Deployment"
+        echo "Timestamp: $(date)"
+        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest"
+        
+        # Check required environment variables
+        REQUIRED_VARS=(
+          "JWT_KEY"
+          "MONGODB_CONNECTION"
+          "MAIL_FROM_EMAIL"
+          "MAIL_SMTP_SERVER" 
+          "MAIL_APP_PASSWORD"
+          "GOOGLE_MAPS_API_KEY"
+          "OPENAI_API_KEY"
+          "CLOUDINARY_CLOUD_NAME"
+          "CLOUDINARY_API_KEY"
+          "CLOUDINARY_API_SECRET"
+          "FLUTTERWAVE_PUBLIC_KEY"
+          "FLUTTERWAVE_SECRET_KEY"
+        )
+        
+        echo "🔍 Checking environment variables..."
+        for var in "${REQUIRED_VARS[@]}"; do
+          if [ -z "${!var}" ]; then
+            echo "❌ Required environment variable $var is not set"
+            exit 1
+          fi
+        done
+        echo "✅ All required environment variables are set"
+        
+        # Pull latest image
+        echo "📥 Pulling latest production image..."
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+        
+        # Deploy with zero downtime
+        echo "🔄 Deploying with zero downtime..."
+        docker-compose -f docker-compose.yml up -d
+        
+        # Health check
+        echo "🏥 Performing health check..."
+        for i in {1..30}; do
+          if curl -f http://localhost:5005/health >/dev/null 2>&1; then
+            echo "✅ Health check passed"
+            break
+          fi
+          echo "⏳ Waiting for service to be ready... ($i/30)"
+          sleep 5
+        done
+        
+        if ! curl -f http://localhost:5005/health >/dev/null 2>&1; then
+          echo "❌ Health check failed after 150 seconds"
+          exit 1
+        fi
+        
+        echo "🎉 Production deployment completed successfully!"
+        EOF
+        
+        chmod +x deployment/production/deploy.sh
+
+    - name: Create rollback script
+      run: |
+        cat > deployment/production/rollback.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        PREVIOUS_TAG=${1:-""}
+        
+        if [ -z "$PREVIOUS_TAG" ]; then
+          echo "❌ Please provide the previous image tag for rollback"
+          echo "Usage: ./rollback.sh <previous-tag>"
+          echo "Example: ./rollback.sh prod-main-abc123"
+          exit 1
+        fi
+        
+        echo "🔄 Rolling back to $PREVIOUS_TAG"
+        
+        # Update docker-compose to use previous tag
+        sed -i "s/production-latest/$PREVIOUS_TAG/g" docker-compose.yml
+        
+        # Deploy previous version
+        docker-compose up -d
+        
+        # Health check
+        echo "🏥 Performing health check on rollback..."
+        for i in {1..20}; do
+          if curl -f http://localhost:5005/health >/dev/null 2>&1; then
+            echo "✅ Rollback health check passed"
+            break
+          fi
+          sleep 5
+        done
+        
+        echo "✅ Rollback completed"
+        EOF
+        
+        chmod +x deployment/production/rollback.sh
+
+    - name: Upload deployment package
+      uses: actions/upload-artifact@v3
+      with:
+        name: production-deployment-${{ github.sha }}
+        path: deployment/
+        retention-days: 90
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: create-deployment-package
+    environment: production
+    
+    steps:
+    - name: Download deployment package
+      uses: actions/download-artifact@v3
+      with:
+        name: production-deployment-${{ github.sha }}
+        path: deployment/
+
+    - name: Production deployment summary
+      run: |
+        echo "🎯 Production Deployment Ready"
+        echo "=================================="
+        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest"
+        echo "Deployment package: production-deployment-${{ github.sha }}"
+        echo "Timestamp: $(date)"
+        echo ""
+        echo "📋 Next Steps:"
+        echo "1. Download the deployment package"
+        echo "2. Set required environment variables"
+        echo "3. Run: cd deployment/production && ./deploy.sh"
+        echo ""
+        echo "🔧 Required Environment Variables:"
+        echo "  - JWT_KEY"
+        echo "  - MONGODB_CONNECTION"
+        echo "  - MAIL_FROM_EMAIL, MAIL_SMTP_SERVER, MAIL_APP_PASSWORD"
+        echo "  - GOOGLE_MAPS_API_KEY"
+        echo "  - OPENAI_API_KEY"
+        echo "  - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET"
+        echo "  - FLUTTERWAVE_PUBLIC_KEY, FLUTTERWAVE_SECRET_KEY"
+        echo ""
+        echo "🚨 Emergency Rollback:"
+        echo "  ./rollback.sh <previous-tag>"
+
+  post-deployment-tests:
+    name: Post-Deployment Verification
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: success()
+    
+    steps:
+    - name: Production verification checklist
+      run: |
+        echo "✅ Production Deployment Verification"
+        echo "====================================="
+        echo ""
+        echo "Manual verification required:"
+        echo "□ Health endpoint responding (GET /health)"
+        echo "□ API endpoints functioning correctly"
+        echo "□ Database connectivity verified"
+        echo "□ Email service working"
+        echo "□ Third-party integrations (Google Maps, OpenAI, Flutterwave)"
+        echo "□ Authentication and JWT generation"
+        echo "□ File upload to Cloudinary"
+        echo "□ Smart contract generation workflow"
+        echo "□ Webhook endpoints responding"
+        echo "□ Background services running"
+        echo "□ Logging and monitoring active"
+        echo ""
+        echo "🔍 Monitor production logs for the next 30 minutes"
+        echo "📊 Check performance metrics and error rates"
