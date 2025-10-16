@@ -10,6 +10,8 @@ obj/
 # ASP.NET Core
 wwwroot/
 appsettings*.json
+!appsettings.Development.json.template
+!appsettings.Production.json.template
 
 # Visual Studio
 .vs/
@@ -22,9 +24,15 @@ appsettings*.json
 # Logs
 *.log
 
-# Docker
-Dockerfile
-docker-compose.yml
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep the example file
+!.env.example
 
 # Node.js (if using Node with .NET)
 node_modules/

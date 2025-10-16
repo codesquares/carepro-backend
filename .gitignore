@@ -1,0 +1,150 @@
+# .NET Core
+bin/
+obj/
+*.logs
+*.log
+*.ncb
+*.sln.cache
+*.user
+*.suo
+*.userosscache
+
+# Build results
+[Dd]debug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# ASP.NET Core
+wwwroot/
+Properties/
+
+# Configuration files with secrets
+appsettings*.json
+!appsettings.template.json
+!appsettings.Development.json.template
+!appsettings.Production.json.template
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep the example file
+!.env.example
+
+# Visual Studio
+.vs/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# Node.js dependencies (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# AWS files with sensitive data
+aws-secrets-setup.sh
+setup-iam-permissions.sh
+get-backend-url.sh
+get-test-ip.sh
+
+# IAM and AWS configuration files
+iam-policy-*.json
+ecs-*.json
+*-policy.json
+*-trust-policy.json
+
+# Docker deployment files (may contain sensitive info)
+docker-deploy.sh
+*-deployment.json
+*-service-definition.json
+
+# SSL certificates
+*.pfx
+*.p12
+*.key
+*.pem
+*.crt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Editor files
+*.sublime-workspace
+*.sublime-project
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# Package files
+*.nupkg
+*.snupkg
+
+# AWS CLI zip file
+awscliv2.zip
+
+# Backup files
+*Backup/
+backup/
+*.bak
+
+# Logs and cache
+*.log
+cache/
+logs/
+
+# Test coverage
+coverage/
+*.cover
+*.py,cover
+.coverage
+.coverage.*
+
+# Development guides with sensitive info
+*-GUIDE.md
+*-INSTRUCTIONS.md
+DEPLOYMENT-*.md
+IAM-*.md
+QUICK-*.md

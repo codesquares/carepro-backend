@@ -140,27 +140,27 @@ namespace Application.DTOs
 
     public class UpdateProfilePictureRequest
     {
-        public IFormFile ProfileImage { get; set; }
+        public IFormFile? ProfileImage { get; set; }
     }
 
     public class ResetPasswordRequest
     {       
-        public string Email { get; init; }
+        public string? Email { get; init; }
         
-        public string CurrentPassword { get; init; }
+        public string? CurrentPassword { get; init; }
         
-        public string NewPassword { get; init; }
+        public string? NewPassword { get; init; }
     }
 
     public class PasswordResetRequestDto
     {
-        public string Email { get; set; }
+        public string? Email { get; set; }
     }
 
     public class PasswordResetDto
     {
-        public string Token { get; set; }
-        public string NewPassword { get; set; }
+        public string? Token { get; set; }
+        public string? NewPassword { get; set; }
     }
 
 

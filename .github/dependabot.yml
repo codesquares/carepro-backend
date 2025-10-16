@@ -1,0 +1,57 @@
+# Dependabot Configuration
+# This file configures automated dependency updates for the CarePro project
+
+version: 2
+
+updates:
+  # Enable version updates for .NET packages
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    assignees:
+      - "codesquares"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    
+    # Group updates for better management
+    groups:
+      microsoft-packages:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # Ignore specific packages if needed
+    ignore:
+      # Ignore major version updates for stable packages
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      
+      # Ignore beta/preview packages in production
+      - dependency-name: "*"
+        versions: ["*-beta*", "*-preview*", "*-alpha*"]
+
+  # Check for Docker base image updates
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # GitHub Actions workflow updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

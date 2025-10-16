@@ -1,0 +1,23 @@
+# Issue Templates Configuration
+
+blank_issues_enabled: true
+contact_links:
+  - name: 🐛 Bug Report
+    url: https://github.com/codesquares/carepro-backend/issues/new?template=bug_report.md
+    about: Report a bug or unexpected behavior
+  
+  - name: ✨ Feature Request
+    url: https://github.com/codesquares/carepro-backend/issues/new?template=feature_request.md
+    about: Suggest a new feature or enhancement
+  
+  - name: 🔒 Security Issue
+    url: https://github.com/codesquares/carepro-backend/security/advisories/new
+    about: Report a security vulnerability (private)
+  
+  - name: 📚 Documentation
+    url: https://github.com/codesquares/carepro-backend/issues/new?template=documentation.md
+    about: Request documentation improvements or clarifications
+  
+  - name: 💬 General Question
+    url: https://github.com/codesquares/carepro-backend/discussions
+    about: Ask a question or start a discussion
