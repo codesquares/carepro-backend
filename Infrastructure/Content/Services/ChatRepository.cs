@@ -493,7 +493,8 @@ namespace Infrastructure.Content.Services
 
         public Task<List<ChatMessage>> GetChatHistoryAsync(string user1, string user2)
         {
-            throw new NotImplementedException();
+            // TODO: Implement chat history retrieval
+            return Task.FromResult(new List<ChatMessage>());
         }
     }
 
