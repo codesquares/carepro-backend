@@ -1,0 +1,128 @@
+{
+    "CallerReference": "carepro-prod-distribution-1729180000",
+    "Comment": "CarePro production: Frontend + C# API + Shared Node API",
+    "DefaultRootObject": "index.html",
+    "Origins": {
+        "Quantity": 3,
+        "Items": [
+            {
+                "Id": "frontend-origin",
+                "DomainName": "oncarepro-frontend-production.s3-website-us-east-1.amazonaws.com",
+                "CustomOriginConfig": {
+                    "HTTPPort": 80,
+                    "HTTPSPort": 443,
+                    "OriginProtocolPolicy": "http-only",
+                    "OriginSslProtocols": {
+                        "Quantity": 1,
+                        "Items": ["TLSv1.2"]
+                    }
+                }
+            },
+            {
+                "Id": "cnet-api-origin", 
+                "DomainName": "carepro-production-alb-518134746.us-east-1.elb.amazonaws.com",
+                "CustomOriginConfig": {
+                    "HTTPPort": 80,
+                    "HTTPSPort": 443,
+                    "OriginProtocolPolicy": "https-only",
+                    "OriginSslProtocols": {
+                        "Quantity": 1,
+                        "Items": ["TLSv1.2"]
+                    }
+                }
+            },
+            {
+                "Id": "shared-node-api-origin",
+                "DomainName": "budmfp9jxr.us-east-1.awsapprunner.com",
+                "CustomOriginConfig": {
+                    "HTTPPort": 80,
+                    "HTTPSPort": 443,
+                    "OriginProtocolPolicy": "https-only",
+                    "OriginSslProtocols": {
+                        "Quantity": 1,
+                        "Items": ["TLSv1.2"]
+                    }
+                }
+            }
+        ]
+    },
+    "DefaultCacheBehavior": {
+        "TargetOriginId": "frontend-origin",
+        "ViewerProtocolPolicy": "redirect-to-https",
+        "TrustedSigners": {
+            "Enabled": false,
+            "Quantity": 0
+        },
+        "ForwardedValues": {
+            "QueryString": false,
+            "Cookies": {
+                "Forward": "none"
+            },
+            "Headers": {
+                "Quantity": 0
+            }
+        },
+        "DefaultTTL": 86400,
+        "MaxTTL": 31536000,
+        "MinTTL": 0
+    },
+    "CacheBehaviors": {
+        "Quantity": 2,
+        "Items": [
+            {
+                "PathPattern": "/api/cnet/*",
+                "TargetOriginId": "cnet-api-origin",
+                "ViewerProtocolPolicy": "redirect-to-https",
+                "ForwardedValues": {
+                    "QueryString": true,
+                    "Headers": {
+                        "Quantity": 1,
+                        "Items": ["*"]
+                    },
+                    "Cookies": {
+                        "Forward": "all"
+                    }
+                },
+                "TrustedSigners": {
+                    "Enabled": false,
+                    "Quantity": 0
+                },
+                "DefaultTTL": 0,
+                "MaxTTL": 0,
+                "MinTTL": 0
+            },
+            {
+                "PathPattern": "/api/node-api/*",
+                "TargetOriginId": "shared-node-api-origin", 
+                "ViewerProtocolPolicy": "redirect-to-https",
+                "ForwardedValues": {
+                    "QueryString": true,
+                    "Headers": {
+                        "Quantity": 1,
+                        "Items": ["*"]
+                    },
+                    "Cookies": {
+                        "Forward": "all"
+                    }
+                },
+                "TrustedSigners": {
+                    "Enabled": false,
+                    "Quantity": 0
+                },
+                "DefaultTTL": 300,
+                "MaxTTL": 3600,
+                "MinTTL": 0
+            }
+        ]
+    },
+    "Enabled": true,
+    "Aliases": {
+        "Quantity": 2,
+        "Items": ["oncarepro.com", "www.oncarepro.com"]
+    },
+    "ViewerCertificate": {
+        "ACMCertificateArn": "arn:aws:acm:us-east-1:060565307168:certificate/c149dac5-1afd-4ee8-a866-8753557a03f2",
+        "SSLSupportMethod": "sni-only",
+        "MinimumProtocolVersion": "TLSv1.2_2021"
+    }
+}
