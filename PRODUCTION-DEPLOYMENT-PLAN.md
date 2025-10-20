@@ -80,13 +80,13 @@ echo "🌐 Allow network access: 0.0.0.0/0 (will restrict later)"
 ### 1.3 Get Connection String
 ```bash
 # MANUAL STEP: Copy connection string from Atlas
-# Format: mongodb+srv://carepro_prod_user:<password>@carepro-prod-cluster.xxxxx.mongodb.net/carepro_production?retryWrites=true&w=majority
+# Format: mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority
 
 # Example connection string (replace with your actual values):
-PROD_MONGO_CONNECTION="mongodb+srv://carepro_prod_user:YOUR_SECURE_PASSWORD@carepro-prod-cluster.xxxxx.mongodb.net/carepro_production?retryWrites=true&w=majority"
+PROD_MONGO_CONNECTION="mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority"
 
 echo "Connection string format:"
-echo "mongodb+srv://carepro_prod_user:<password>@carepro-prod-cluster.xxxxx.mongodb.net/carepro_production?retryWrites=true&w=majority"
+echo "mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority"
 ```
 
 ### 1.4 Store Database Credentials in AWS Secrets Manager
@@ -873,7 +873,7 @@ curl -I https://oncarepro.com/
 aws elbv2 describe-target-health --target-group-arn $TG_ARN
 
 # Test MongoDB Atlas connectivity (from your local machine)
-mongosh "mongodb+srv://carepro_prod_user:YOUR_PASSWORD@carepro-prod-cluster.xxxxx.mongodb.net/carepro_production"
+mongosh "mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>"
 
 # Verify DNS propagation
 dig oncarepro.com
