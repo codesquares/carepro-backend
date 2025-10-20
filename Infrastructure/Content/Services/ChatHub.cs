@@ -209,7 +209,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error deleting message: {ex.Message}");
+                // Log error properly in production
                 throw new HubException($"Failed to delete message: {ex.Message}");
             }
         }
@@ -251,7 +251,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error marking message as read: {ex.Message}");
+                // Log error properly in production
                 throw new HubException($"Failed to mark message as read: {ex.Message}");
             }
         }
@@ -278,7 +278,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error marking all messages as read: {ex.Message}");
+                // Log error properly in production
                 throw new HubException($"Failed to mark all messages as read: {ex.Message}");
             }
         }
@@ -320,7 +320,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error marking message as delivered: {ex.Message}");
+                // Log error properly in production
                 throw new HubException($"Failed to mark message as delivered: {ex.Message}");
             }
         }
@@ -342,7 +342,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error getting user conversations: {ex.Message}");
+                // Log error properly in production
                 throw new HubException($"Failed to get user conversations: {ex.Message}");
             }
         }

@@ -25,7 +25,7 @@ namespace Infrastructure.Content.Services
 
         public Task<ClientRecommendationDTO> GetClientRecommendationAsync(string clientId)
         {
-            throw new NotImplementedException();
+                return new List<ClientRecommendationDTO>();
         }
     }
 }

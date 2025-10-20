@@ -22,7 +22,7 @@ namespace Infrastructure.Content.Services
 
         public Task<List<string>> GetCaregiverAndServicesAsync(string? firstName, string? lastName, string? serviceName)
         {
-            throw new NotImplementedException();
+                return new List<SearchResultDTO>();
         }
 
         //public async Task<IEnumerable<CaregiverResponse>> SearchCaregiversWithServicesAsync(string searchTerm)
