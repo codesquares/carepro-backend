@@ -102,7 +102,7 @@ Store sensitive configuration in AWS Secrets Manager:
 # Create secrets (replace with actual values)
 aws secretsmanager create-secret \
     --name "carepro/mongodb-connection" \
-    --secret-string "mongodb://username:password@cluster.mongodb.net/carepro"
+    --secret-string "mongodb://<username>:<password>@<cluster>.mongodb.net/<database>"
 
 aws secretsmanager create-secret \
     --name "carepro/jwt-secret" \
