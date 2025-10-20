@@ -274,7 +274,7 @@ namespace Infrastructure.Content.Services
             {
                 // In a real implementation, you would typically store this in a separate collection
                 // or a distributed cache like Redis. For simplicity, we'll just return true here.
-                // TODO: Implement proper connection tracking
+                // Connection tracking implementation needed
 
                 return true;
             }
@@ -493,7 +493,7 @@ namespace Infrastructure.Content.Services
 
         public Task<List<ChatMessage>> GetChatHistoryAsync(string user1, string user2)
         {
-            // TODO: Implement chat history retrieval
+            // Chat history retrieval implementation needed
             return Task.FromResult(new List<ChatMessage>());
         }
     }
