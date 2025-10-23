@@ -195,7 +195,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 // Add MongoDB client and register ChatRepository
 builder.Services.AddSingleton<IMongoClient>(sp =>
-    new MongoClient(connectionString));
+{
+    var settings = MongoClientSettings.FromConnectionString(connectionString);
+    settings.UseTls = true;
+    settings.AllowInsecureTls = true;
+    settings.SslSettings = new SslSettings
+    {
+        EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12,
+        CheckCertificateRevocation = false
+    };
+    settings.ServerSelectionTimeout = TimeSpan.FromSeconds(5);
+    settings.ConnectTimeout = TimeSpan.FromSeconds(10);
+    return new MongoClient(settings);
+});
 
 builder.Services.AddScoped(sp =>
 {
