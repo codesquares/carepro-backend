@@ -110,6 +110,14 @@ $RECYCLE.BIN/
 *.swp
 *.swo
 
+# json files with sensitive data
+local.settings.json
+cloudfront-*.json
+ecs-*.json
+task-definition*.json
+iam-*.json
+
+
 # Editor files
 *.sublime-workspace
 *.sublime-project
