@@ -1,0 +1,195 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-east-1:060565307168:task-definition/carepro-backend-task:9",
+    "containerDefinitions": [
+        {
+            "name": "carepro-backend",
+            "image": "060565307168.dkr.ecr.us-east-1.amazonaws.com/carepro-backend:revision-8",
+            "cpu": 1024,
+            "memory": 2048,
+            "portMappings": [
+                {
+                    "containerPort": 8080,
+                    "hostPort": 8080,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "LLM_SETTINGS_OPENAI_MAX_TOKENS",
+                    "value": "2000"
+                },
+                {
+                    "name": "LLM_SETTINGS_OPENAI_TEMPERATURE",
+                    "value": "0.7"
+                },
+                {
+                    "name": "HEALTH_CHECK_TIMEOUT_SECONDS",
+                    "value": "30"
+                },
+                {
+                    "name": "ASPNETCORE_ENVIRONMENT",
+                    "value": "Production"
+                },
+                {
+                    "name": "SERILOG_APPLICATION_NAME",
+                    "value": "Care-Pro"
+                },
+                {
+                    "name": "SERILOG_WRITE_TO_CONSOLE",
+                    "value": "true"
+                },
+                {
+                    "name": "CONTRACT_SETTINGS_MAX_REVISION_ATTEMPTS",
+                    "value": "3"
+                },
+                {
+                    "name": "API_VERSION",
+                    "value": "v1"
+                },
+                {
+                    "name": "CORS_ORIGINS",
+                    "value": "https://oncarepro.com,https://www.oncarepro.com,http://oncarepro.com,http://www.oncarepro.com,https://api.oncarepro.com,http://api.oncarepro.com"
+                },
+                {
+                    "name": "MAX_REQUESTS_PER_MINUTE",
+                    "value": "100"
+                },
+                {
+                    "name": "CONTRACT_SETTINGS_DEFAULT_CONTRACT_DURATION_DAYS",
+                    "value": "30"
+                },
+                {
+                    "name": "SERILOG_WRITE_TO_FILE",
+                    "value": "false"
+                },
+                {
+                    "name": "CONTRACT_SETTINGS_DEFAULT_CANCELLATION_HOURS",
+                    "value": "24"
+                },
+                {
+                    "name": "ENABLE_DETAILED_HEALTH_CHECKS",
+                    "value": "true"
+                },
+                {
+                    "name": "ASPNETCORE_URLS",
+                    "value": "http://+:8080"
+                },
+                {
+                    "name": "ENABLE_RATE_LIMITING",
+                    "value": "true"
+                },
+                {
+                    "name": "ALLOWED_HOSTS",
+                    "value": "*"
+                },
+                {
+                    "name": "LLM_SETTINGS_OPENAI_MODEL",
+                    "value": "gpt-3.5-turbo"
+                },
+                {
+                    "name": "LOG_LEVEL",
+                    "value": "Information"
+                },
+                {
+                    "name": "ENABLE_STRUCTURED_LOGGING",
+                    "value": "true"
+                },
+                {
+                    "name": "SERILOG_MINIMUM_LEVEL",
+                    "value": "Information"
+                }
+            ],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [
+                {
+                    "name": "ConnectionStrings__MongoDbConnection",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:060565307168:secret:carepro/mongodb/connection-WVhyBD"
+                },
+                {
+                    "name": "JWT__Key",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:060565307168:secret:carepro-prod/jwt-settings-xxoAIq:Key::"
+                },
+                {
+                    "name": "JwtSettings__Secret",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:060565307168:secret:carepro-prod/jwt-settings-xxoAIq:Secret::"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/carepro-backend",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:8080/health || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 60
+            },
+            "systemControls": []
+        }
+    ],
+    "family": "carepro-backend-task",
+    "taskRoleArn": "arn:aws:iam::060565307168:role/ecsTaskRole",
+    "executionRoleArn": "arn:aws:iam::060565307168:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "revision": 9,
+    "volumes": [],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "ecs.capability.secrets.asm.environment-variables"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "ecs.capability.container-health-check"
+        },
+        {
+            "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "MANAGED_INSTANCES",
+        "FARGATE"
+    ],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "2048",
+    "registeredAt": "2025-10-21T02:26:34.517000-04:00",
+    "registeredBy": "arn:aws:iam::060565307168:user/carepro"
+}

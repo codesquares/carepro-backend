@@ -1,33 +1,30 @@
 using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace Domain.Entities
 {
     public class Contract
     {
-        [BsonId]
-        [BsonRepresentation(BsonType.ObjectId)]
         public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
 
         // Gig and Payment Integration
-        public string GigId { get; set; }
-        public string ClientId { get; set; }
-        public string CaregiverId { get; set; }
-        public string PaymentTransactionId { get; set; }
+        public string GigId { get; set; } = string.Empty;
+        public string ClientId { get; set; } = string.Empty;
+        public string CaregiverId { get; set; } = string.Empty;
+        public string? PaymentTransactionId { get; set; }
         
         // Package and Task Details
-        public PackageSelection SelectedPackage { get; set; }
+        public PackageSelection SelectedPackage { get; set; } = new PackageSelection();
         public List<ClientTask> Tasks { get; set; } = new List<ClientTask>();
         
         // Contract Terms
-        public string GeneratedTerms { get; set; }
+        public string GeneratedTerms { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
         public ContractStatus Status { get; set; }
         
         // Response Management
         public DateTime? SentAt { get; set; }
         public DateTime? RespondedAt { get; set; }
-        public string CaregiverResponse { get; set; }
+        public string CaregiverResponse { get; set; } = string.Empty;
         public List<string> ReviewComments { get; set; } = new List<string>();
         
         // Contract History
@@ -42,7 +39,7 @@ namespace Domain.Entities
 
     public class PackageSelection
     {
-        public string PackageType { get; set; } // "1_visit_per_week", "3_visits_per_week", "5_visits_per_week"
+        public string PackageType { get; set; } = string.Empty; // "1_visit_per_week", "3_visits_per_week", "5_visits_per_week"
         public int VisitsPerWeek { get; set; }
         public decimal PricePerVisit { get; set; }
         public decimal TotalWeeklyPrice { get; set; }
@@ -52,8 +49,8 @@ namespace Domain.Entities
     public class ClientTask
     {
         public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
-        public string Title { get; set; }
-        public string Description { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
         public TaskCategory Category { get; set; }
         public TaskPriority Priority { get; set; }
         public List<string> SpecialRequirements { get; set; } = new List<string>();

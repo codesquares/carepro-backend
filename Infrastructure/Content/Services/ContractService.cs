@@ -38,6 +38,12 @@ namespace Infrastructure.Content.Services
         {
             try
             {
+                // Validate request
+                if (request?.GigId == null || request.ClientId == null || request.CaregiverId == null || request.SelectedPackage == null)
+                {
+                    throw new ArgumentException("Invalid contract generation request");
+                }
+
                 _logger.LogInformation("Generating contract for Gig {GigId}, Client {ClientId}, Caregiver {CaregiverId}",
                     request.GigId, request.ClientId, request.CaregiverId);
 
@@ -46,17 +52,18 @@ namespace Infrastructure.Content.Services
                     request.GigId,
                     new PackageSelection
                     {
+                        PackageType = request.SelectedPackage.PackageType ?? string.Empty,
                         VisitsPerWeek = request.SelectedPackage.VisitsPerWeek,
                         DurationWeeks = request.SelectedPackage.DurationWeeks,
                         PricePerVisit = request.SelectedPackage.PricePerVisit
                     },
-                    request.Tasks.Select(t => new ClientTask
+                    request.Tasks?.Select(t => new ClientTask
                     {
-                        Title = t.Title,
-                        Description = t.Description,
-                        Category = Enum.Parse<TaskCategory>(t.Category, true),
-                        Priority = Enum.Parse<TaskPriority>(t.Priority, true)
-                    }).ToList(),
+                        Title = t.Title ?? string.Empty,
+                        Description = t.Description ?? string.Empty,
+                        Category = Enum.TryParse<TaskCategory>(t.Category, true, out var category) ? category : TaskCategory.Other,
+                        Priority = Enum.TryParse<TaskPriority>(t.Priority, true, out var priority) ? priority : TaskPriority.Medium
+                    }).ToList() ?? new List<ClientTask>(),
                     request.SelectedPackage.TotalWeeklyPrice * request.SelectedPackage.DurationWeeks
                 );
 
@@ -74,24 +81,21 @@ namespace Infrastructure.Content.Services
                     PaymentTransactionId = request.PaymentTransactionId,
                     SelectedPackage = new PackageSelection
                     {
-                        PackageType = request.SelectedPackage.PackageType,
+                        PackageType = request.SelectedPackage.PackageType ?? string.Empty,
                         VisitsPerWeek = request.SelectedPackage.VisitsPerWeek,
                         PricePerVisit = request.SelectedPackage.PricePerVisit,
                         TotalWeeklyPrice = request.SelectedPackage.TotalWeeklyPrice,
                         DurationWeeks = request.SelectedPackage.DurationWeeks
                     },
-                    Tasks = request.Tasks.Select(t => new ClientTask
+                    Tasks = request.Tasks?.Select(t => new ClientTask
                     {
                         Id = ObjectId.GenerateNewId().ToString(),
-                        Title = t.Title,
-                        Description = t.Description,
-                        Category = Enum.Parse<TaskCategory>(t.Category, true),
-                        Priority = Enum.Parse<TaskPriority>(t.Priority, true),
-                        SpecialRequirements = t.SpecialRequirements ?? new List<string>(),
-                        EstimatedDuration = t.EstimatedDurationMinutes.HasValue 
-                            ? TimeSpan.FromMinutes(t.EstimatedDurationMinutes.Value) 
-                            : null
-                    }).ToList(),
+                        Title = t.Title ?? string.Empty,
+                        Description = t.Description ?? string.Empty,
+                        Category = Enum.TryParse<TaskCategory>(t.Category, true, out var cat) ? cat : TaskCategory.Other,
+                        Priority = Enum.TryParse<TaskPriority>(t.Priority, true, out var pri) ? pri : TaskPriority.Medium,
+                        SpecialRequirements = t.SpecialRequirements ?? new List<string>()
+                    }).ToList() ?? new List<ClientTask>(),
                     GeneratedTerms = contractTerms,
                     TotalAmount = request.SelectedPackage.TotalWeeklyPrice * request.SelectedPackage.DurationWeeks,
                     Status = ContractStatus.Generated,
@@ -222,7 +226,7 @@ namespace Infrastructure.Content.Services
         public async Task<ContractDTO> GetContractByIdAsync(string contractId)
         {
             var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
-            return contract != null ? MapToContractDTO(contract) : null;
+            return contract != null ? MapToContractDTO(contract) : throw new InvalidOperationException("Contract not found");
         }
 
         public async Task<List<ContractDTO>> GetContractsByClientIdAsync(string clientId)
@@ -359,10 +363,10 @@ namespace Infrastructure.Content.Services
                 {
                     contract.Tasks = revision.UpdatedTasks.Select(t => new ClientTask
                     {
-                        Title = t.Title,
-                        Description = t.Description,
-                        Category = Enum.Parse<TaskCategory>(t.Category),
-                        Priority = Enum.Parse<TaskPriority>(t.Priority)
+                        Title = t.Title ?? string.Empty,
+                        Description = t.Description ?? string.Empty,
+                        Category = Enum.TryParse<TaskCategory>(t.Category, out var taskCat) ? taskCat : TaskCategory.Other,
+                        Priority = Enum.TryParse<TaskPriority>(t.Priority, out var taskPri) ? taskPri : TaskPriority.Medium
                     }).ToList();
                 }
 
