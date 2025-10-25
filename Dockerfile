@@ -43,16 +43,16 @@ RUN mkdir -p /app/logs && \
 # Switch to non-root user
 USER carepro
 
-# Expose port 8080 (ASP.NET Core default for non-root)
-EXPOSE 8080
+# Expose port 5000 for production
+EXPOSE 5000
 
 # Set environment variables
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:5000
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:5000/swagger/index.html || exit 1
 
 # Set the entry point
 ENTRYPOINT ["dotnet", "CarePro-Api.dll"]
