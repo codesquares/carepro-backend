@@ -35,6 +35,8 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ClientOrder>().ToCollection("ClientOrders");
             modelBuilder.Entity<Certification>().ToCollection("Certifications");
             modelBuilder.Entity<ChatMessage>().ToCollection("ChatMessages");
+            modelBuilder.Entity<ChatMessage>().HasKey(c => c.MessageId);
+            modelBuilder.Entity<ChatMessage>().Property(c => c.MessageId).HasElementName("_id");
             modelBuilder.Entity<Verification>().ToCollection("Verifications");
             modelBuilder.Entity<Assessment>().ToCollection("Assessments");
             modelBuilder.Entity<ClientPreference>().ToCollection("ClientPreferences");
@@ -46,6 +48,8 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Review>().ToCollection("Reviews");
             modelBuilder.Entity<Location>().ToCollection("Locations");
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
+            modelBuilder.Entity<Contract>().HasKey(c => c.Id);
+            modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
 
         }
 
