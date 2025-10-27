@@ -468,7 +468,7 @@ jobs:
     
     steps:
     - name: Download deployment package
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v6
       with:
         name: production-deployment-${{ github.sha }}
         path: deployment/
