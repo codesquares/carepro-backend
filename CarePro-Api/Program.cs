@@ -35,6 +35,7 @@ builder.Services.AddDbContext<CareProDbContext>(options =>
 builder.Services.Configure<JWT>(builder.Configuration.GetSection("JWT"));
 
 //builder.Services.Configure<JWT>(builder.Configuration.GetSection("JwtSettings"));
+//builder.Services.Configure<JWT>(builder.Configuration.GetSection("JwtSettings"));
 
 
 
