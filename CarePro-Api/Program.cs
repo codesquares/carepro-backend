@@ -106,6 +106,16 @@ builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 
+// Location services
+builder.Services.AddScoped<ILocationService, LocationService>();
+builder.Services.AddScoped<IGeocodingService, GeocodingService>();
+builder.Services.AddHttpClient<GeocodingService>();
+
+// Contract services (Smart Contract Generation feature)
+builder.Services.AddScoped<IContractService, ContractService>();
+builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
+builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
+
 builder.Services.AddHostedService<DailyEarningService>();
 builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
 
