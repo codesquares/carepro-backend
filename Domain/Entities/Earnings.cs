@@ -22,7 +22,7 @@ namespace Domain.Entities
         //public decimal TotalEarned { get; set; }
         //public decimal WithdrawableAmount { get; set; }
         //public decimal WithdrawnAmount { get; set; }
-       
+
         //public DateTime UpdatedAt { get; set; }
     }
 }

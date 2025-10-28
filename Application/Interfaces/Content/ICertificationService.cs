@@ -9,11 +9,11 @@ namespace Application.Interfaces.Content
 {
     public interface ICertificationService
     {
-        Task<string> CreateCertificateAsync(AddCertificationRequest addCertificationRequest );
+        Task<string> CreateCertificateAsync(AddCertificationRequest addCertificationRequest);
 
-        Task<IEnumerable<CertificationResponse>> GetAllCaregiverCertificateAsync(string caregiverId );
+        Task<IEnumerable<CertificationResponse>> GetAllCaregiverCertificateAsync(string caregiverId);
 
-        Task<CertificationResponse> GetCertificateAsync(string certificateId );
+        Task<CertificationResponse> GetCertificateAsync(string certificateId);
 
     }
 }

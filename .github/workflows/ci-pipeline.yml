@@ -300,6 +300,10 @@ jobs:
     - name: Audit for known vulnerabilities
       working-directory: ./CarePro-Api
       run: |
+        # First restore to ensure assets file exists
+        echo "🔄 Restoring packages..."
+        dotnet restore CarePro-Api.sln
+        
         # This will be replaced with proper security audit when available
         echo "🔍 Checking for known vulnerabilities in dependencies..."
         dotnet list package --vulnerable --include-transitive

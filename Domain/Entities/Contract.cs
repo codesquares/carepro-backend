@@ -11,28 +11,28 @@ namespace Domain.Entities
         public string ClientId { get; set; } = string.Empty;
         public string CaregiverId { get; set; } = string.Empty;
         public string? PaymentTransactionId { get; set; }
-        
+
         // Package and Task Details
         public PackageSelection SelectedPackage { get; set; } = new PackageSelection();
         public List<ClientTask> Tasks { get; set; } = new List<ClientTask>();
-        
+
         // Contract Terms
         public string GeneratedTerms { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
         public ContractStatus Status { get; set; }
-        
+
         // Response Management
         public DateTime? SentAt { get; set; }
         public DateTime? RespondedAt { get; set; }
         public string CaregiverResponse { get; set; } = string.Empty;
         public List<string> ReviewComments { get; set; } = new List<string>();
-        
+
         // Contract History
         public DateTime ContractStartDate { get; set; }
         public DateTime ContractEndDate { get; set; }
         public bool IsCompleted { get; set; }
         public decimal? FinalRating { get; set; }
-        
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

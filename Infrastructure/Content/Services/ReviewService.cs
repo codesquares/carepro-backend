@@ -87,7 +87,7 @@ namespace Infrastructure.Content.Services
                         throw new KeyNotFoundException($"Client with ID:{review.ClientId} Not found");
                     }
 
-                    
+
                     var reviewDTO = new ReviewResponse()
                     {
                         ReviewId = review.ReviewId.ToString(),
@@ -154,8 +154,8 @@ namespace Infrastructure.Content.Services
         public async Task<int> GetReviewCountAsync(string gigId)
         {
             return await careProDbContext.Reviews
-                   .CountAsync(g => g.GigId == gigId );
-                        
+                   .CountAsync(g => g.GigId == gigId);
+
         }
     }
 }

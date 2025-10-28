@@ -23,8 +23,8 @@ namespace Infrastructure.Content.Services
         private readonly INotificationService _notificationService;
 
         public WithdrawalRequestService(
-            CareProDbContext dbContext, 
-            IEarningsService earningsService, 
+            CareProDbContext dbContext,
+            IEarningsService earningsService,
             ICareGiverService careGiverService,
             IAdminUserService adminUserService,
             INotificationService notificationService)
@@ -38,7 +38,7 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> GetWithdrawalRequestByIdAsync(string withdrawalRequestId)
         {
-           // var withdrawal = await _dbContext.WithdrawalRequests.Find(w => w.Id == ObjectId.Parse(withdrawalRequestId)).FirstOrDefaultAsync();
+            // var withdrawal = await _dbContext.WithdrawalRequests.Find(w => w.Id == ObjectId.Parse(withdrawalRequestId)).FirstOrDefaultAsync();
             var withdrawal = await _dbContext.WithdrawalRequests.FirstOrDefaultAsync(w => w.Id == ObjectId.Parse(withdrawalRequestId));
 
             if (withdrawal == null)
@@ -58,7 +58,7 @@ namespace Infrastructure.Content.Services
             return await MapWithdrawalToResponseAsync(withdrawal);
         }
 
-        
+
         public async Task<List<WithdrawalRequestResponse>> GetAllWithdrawalRequestsAsync()
         {
             var withdrawals = await _dbContext.WithdrawalRequests.ToListAsync();
@@ -106,8 +106,8 @@ namespace Infrastructure.Content.Services
                     AmountRequested = withdrawal.AmountRequested,
                     Activity = "Withdrawal",
                     Description = withdrawal.Status,
-                    CompletedAt = withdrawal.CreatedAt,                
-                                      
+                    CompletedAt = withdrawal.CreatedAt,
+
                 };
                 responses.Add(withdrawalDTO);
             }
@@ -136,7 +136,7 @@ namespace Infrastructure.Content.Services
             var totalWithdrawnAmount = await GetTotalWithdrawnByCaregiverIdAsync(request.CaregiverId);
             var totalAmountEarned = 0m;
             decimal currentWithdrawableAmount = 0m;
-           // var totalWithdrawableAmount = 0m;
+            // var totalWithdrawableAmount = 0m;
 
             // Check if there's already a pending withdrawal for this caregiver
             bool hasPending = await HasPendingRequest(request.CaregiverId);
@@ -148,12 +148,12 @@ namespace Infrastructure.Content.Services
 
             totalAmountEarned = earnings.WithdrawableAmount;
             currentWithdrawableAmount = totalAmountEarned - totalWithdrawnAmount;
-            
+
             //if (earnings == null || earnings.WithdrawableAmount < request.AmountRequested)
             //{
             //    throw new InvalidOperationException("Insufficient withdrawable funds");
             //}
-                
+
 
             if (earnings == null || currentWithdrawableAmount < request.AmountRequested)
                 throw new InvalidOperationException("Insufficient withdrawable funds, kindly check your Withdrawable Amount and stay within the limit");
@@ -185,7 +185,7 @@ namespace Infrastructure.Content.Services
                 AccountName = request.AccountName
             };
 
-         //   await _dbContext.WithdrawalRequests.InsertOneAsync(withdrawal);
+            //   await _dbContext.WithdrawalRequests.InsertOneAsync(withdrawal);
 
             _dbContext.WithdrawalRequests.Add(withdrawal);
             await _dbContext.SaveChangesAsync();
@@ -205,7 +205,7 @@ namespace Infrastructure.Content.Services
                     .ToListAsync();
 
             decimal totalAmountWithdrawn = 0;
-            var totalAmountEarned =  await _earningsService.GetEarningByCaregiverIdAsync(caregiverId);
+            var totalAmountEarned = await _earningsService.GetEarningByCaregiverIdAsync(caregiverId);
             decimal withdrawableAmount = 0;
 
             foreach (var withdrawal in withdrawals)
@@ -243,7 +243,7 @@ namespace Infrastructure.Content.Services
 
             }
 
-             return totalWithdrawnAmount;
+            return totalWithdrawnAmount;
             //return new CaregiverWithdrawalSummaryResponse
             //{
             //    WithdrawableAmount = totalAmountWithdrawn,
@@ -356,7 +356,7 @@ namespace Infrastructure.Content.Services
         }
 
 
-        
+
         public async Task<bool> HasPendingRequest(string caregiverId)
         {
             return await _dbContext.WithdrawalRequests
@@ -371,7 +371,7 @@ namespace Infrastructure.Content.Services
             var random = new Random();
             var token = new string(Enumerable.Repeat(chars, 8)
                 .Select(s => s[random.Next(s.Length)]).ToArray());
-            
+
             return token;
         }
 
@@ -414,7 +414,7 @@ namespace Infrastructure.Content.Services
             };
         }
 
-       
+
         private async Task NotifyAdminsAboutWithdrawalRequest(WithdrawalRequest withdrawal)
         {
             // In a real-world scenario, we'd query for all admin users and notify them
@@ -455,11 +455,11 @@ namespace Infrastructure.Content.Services
                 RelatedEntityId = withdrawal.Id.ToString()
             };
 
-          //  await _dbContext.Notifications.InsertOneAsync(notification);
+            //  await _dbContext.Notifications.InsertOneAsync(notification);
             await _dbContext.Notifications.AddAsync(notification);
             await _dbContext.SaveChangesAsync();
         }
 
-        
+
     }
 }

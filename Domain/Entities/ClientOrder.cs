@@ -15,9 +15,9 @@ namespace Domain.Entities
         public string CaregiverId { get; set; }
         public string PaymentOption { get; set; }
         public int Amount { get; set; }
-        public string TransactionId { get; set; }        
-        public string? ClientOrderStatus { get; set; }        
-        public bool IsOrderStatusApproved { get; set; }        
+        public string TransactionId { get; set; }
+        public string? ClientOrderStatus { get; set; }
+        public bool IsOrderStatusApproved { get; set; }
         public DateTime OrderCreatedAt { get; set; }
 
         public DateTime? OrderUpdatedOn { get; set; }

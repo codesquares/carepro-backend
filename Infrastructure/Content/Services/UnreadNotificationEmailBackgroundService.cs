@@ -13,7 +13,7 @@ using MongoDB.Driver;
 
 public class UnreadNotificationEmailBackgroundService : BackgroundService
 {
-    
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UnreadNotificationEmailBackgroundService> _logger;
     private readonly TimeSpan _interval = TimeSpan.FromHours(2);
@@ -47,7 +47,7 @@ public class UnreadNotificationEmailBackgroundService : BackgroundService
         }
     }
 
-    
+
 
     private async Task CheckAndSendUnreadNotificationEmailsAsync(CancellationToken stoppingToken)
     {

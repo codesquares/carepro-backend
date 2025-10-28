@@ -88,7 +88,7 @@ namespace Infrastructure.Content.Services
             {
                 throw new KeyNotFoundException($"User with ID '{userId}' has not been verified.");
             }
-                        
+
 
             var verificationDTO = new VerificationResponse()
             {

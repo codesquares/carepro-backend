@@ -55,7 +55,7 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException("At least A Service and Sub-Category must be selected before you create a new Gig");
             }
 
-           
+
             if (addGigRequest.Image1 != null)
             {
                 using var memoryStream = new MemoryStream();
@@ -74,7 +74,7 @@ namespace Infrastructure.Content.Services
             {
                 Title = addGigRequest.Title,
                 Category = addGigRequest.Category,
-               // SubCategory = addGigRequest.SubCategory,
+                // SubCategory = addGigRequest.SubCategory,
                 SubCategory = string.Join(",", addGigRequest.SubCategory
                     .Where(x => !string.IsNullOrWhiteSpace(x))
                     .Select(x => x.Trim())),
@@ -82,7 +82,7 @@ namespace Infrastructure.Content.Services
                 Tags = addGigRequest.Tags,
                 PackageType = addGigRequest.PackageType,
                 PackageName = addGigRequest.PackageName,
-                
+
                 PackageDetails = addGigRequest.PackageDetails
                         .Split(';', StringSplitOptions.RemoveEmptyEntries)
                         .Select(x => x.Trim())
@@ -90,7 +90,7 @@ namespace Infrastructure.Content.Services
                 DeliveryTime = addGigRequest.DeliveryTime,
                 Price = addGigRequest.Price,
                 Image1 = imageURL,
-                
+
                 Status = addGigRequest.Status,
                 CaregiverId = addGigRequest.CaregiverId,
 
@@ -104,24 +104,24 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
-            
+
             var gigDTO = new GigDTO()
             {
                 Id = gig.Id.ToString(),
                 Title = gig.Title,
-                Category= gig.Category,
-                SubCategory= gig.SubCategory
+                Category = gig.Category,
+                SubCategory = gig.SubCategory
                     .Split(',', StringSplitOptions.RemoveEmptyEntries)
                     .Select(x => x.Trim())
                     .ToList(),
-                Tags= gig.Tags,
-                PackageType= gig.PackageType,
-                PackageName= gig.PackageName,
-                PackageDetails= gig.PackageDetails,
-                DeliveryTime= gig.DeliveryTime,
+                Tags = gig.Tags,
+                PackageType = gig.PackageType,
+                PackageName = gig.PackageName,
+                PackageDetails = gig.PackageDetails,
+                DeliveryTime = gig.DeliveryTime,
                 Price = gig.Price,
                 Image1 = gig.Image1,
-                
+
                 Status = gig.Status,
                 CaregiverId = gig.CaregiverId,
                 CreatedAt = gig.CreatedAt,
@@ -143,7 +143,7 @@ namespace Infrastructure.Content.Services
 
             foreach (var gig in gigs)
             {
-                
+
                 var gigDTO = new GigDTO()
                 {
                     Id = gig.Id.ToString(),
@@ -162,7 +162,7 @@ namespace Infrastructure.Content.Services
                     DeliveryTime = gig.DeliveryTime,
                     Price = gig.Price,
                     Image1 = gig.Image1,
-                    
+
                     VideoURL = caregiver.IntroVideo,
                     Status = gig.Status,
                     CaregiverId = gig.CaregiverId,
@@ -194,7 +194,7 @@ namespace Infrastructure.Content.Services
 
             foreach (var gig in gigs)
             {
-                
+
                 var gigDTO = new GigDTO()
                 {
                     Id = gig.Id.ToString(),
@@ -218,7 +218,7 @@ namespace Infrastructure.Content.Services
                     Status = gig.Status,
                     CaregiverId = gig.CaregiverId,
                     CreatedAt = gig.CreatedAt,
-                    
+
                 };
                 gigsDTOs.Add(gigDTO);
             }
@@ -244,7 +244,7 @@ namespace Infrastructure.Content.Services
 
             foreach (var gig in gigs)
             {
-                
+
                 var gigDTO = new GigDTO()
                 {
                     Id = gig.Id.ToString(),
@@ -263,7 +263,7 @@ namespace Infrastructure.Content.Services
                     DeliveryTime = gig.DeliveryTime,
                     Price = gig.Price,
                     Image1 = gig.Image1,
-                    
+
                     VideoURL = caregiver.IntroVideo,
                     Status = gig.Status,
                     CaregiverId = gig.CaregiverId,
@@ -294,7 +294,7 @@ namespace Infrastructure.Content.Services
                 if (caregiver == null)
                 {
                     continue;
-                   // throw new KeyNotFoundException($"Caregiver with ID:{caregiverId} Not found");
+                    // throw new KeyNotFoundException($"Caregiver with ID:{caregiverId} Not found");
                 }
 
                 var serviceDTO = new GigDTO()
@@ -314,7 +314,7 @@ namespace Infrastructure.Content.Services
                     DeliveryTime = gig.DeliveryTime,
                     Price = gig.Price,
                     Image1 = gig.Image1,
-                   
+
                     Status = gig.Status,
                     CaregiverId = gig.CaregiverId,
                     UpdatedOn = gig.UpdatedOn,
@@ -349,7 +349,7 @@ namespace Infrastructure.Content.Services
 
         public async Task<GigDTO> GetGigAsync(string gigId)
         {
-            
+
 
             var gig = await careProDbContext.Gigs.FirstOrDefaultAsync(x => x.Id.ToString() == gigId);
 
@@ -366,7 +366,7 @@ namespace Infrastructure.Content.Services
             }
 
 
-            
+
             var gigDTO = new GigDTO()
             {
                 Id = gig.Id.ToString(),
@@ -384,7 +384,7 @@ namespace Infrastructure.Content.Services
                 DeliveryTime = gig.DeliveryTime,
                 Price = gig.Price,
                 Image1 = gig.Image1,
-                
+
                 VideoURL = caregiver.IntroVideo,
                 Status = gig.Status,
                 CaregiverId = gig.CaregiverId,
@@ -425,7 +425,7 @@ namespace Infrastructure.Content.Services
                 existingGig.Status = updateGigStatusToPauseRequest.Status;
                 existingGig.UpdatedOn = DateTime.Now;
                 existingGig.IsUpdatedToPause = true;
-                
+
 
                 careProDbContext.Gigs.Update(existingGig);
                 await careProDbContext.SaveChangesAsync();
@@ -469,7 +469,7 @@ namespace Infrastructure.Content.Services
             }
 
 
-            
+
             if (updateGigRequest.Image1 != null)
             {
                 using var memoryStream = new MemoryStream();
@@ -501,9 +501,9 @@ namespace Infrastructure.Content.Services
                                                 .ToList();
             existingGig.DeliveryTime = updateGigRequest.DeliveryTime;
             existingGig.Price = updateGigRequest.Price;
-           // existingGig.Image1 = imageUri;
+            // existingGig.Image1 = imageUri;
             existingGig.UpdatedOn = DateTime.Now;
-            
+
 
             careProDbContext.Gigs.Update(existingGig);
             await careProDbContext.SaveChangesAsync();
@@ -544,6 +544,6 @@ namespace Infrastructure.Content.Services
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
         }
 
-        
+
     }
 }

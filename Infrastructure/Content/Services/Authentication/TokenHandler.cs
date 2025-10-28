@@ -23,8 +23,8 @@ namespace Infrastructure.Content.Services.Authentication
             this.configuration = configuration;
         }
 
-        
-        public Task<string> CreateTokenAsync(AppUserDTO  appUserDTO)
+
+        public Task<string> CreateTokenAsync(AppUserDTO appUserDTO)
         {
             // Create Claims
             var claims = new List<Claim>();
@@ -40,15 +40,15 @@ namespace Infrastructure.Content.Services.Authentication
                 configuration["Jwt:Issuer"],
                 configuration["Jwt:Audience"],
                 claims,
-                expires: DateTime.Now.AddMinutes(40),                
-                
+                expires: DateTime.Now.AddMinutes(40),
+
 
                 signingCredentials: credentials);
 
             return Task.FromResult(new JwtSecurityTokenHandler().WriteToken(token));
         }
 
-       
+
 
         public string GeneratePasswordResetToken(string email)
         {
@@ -75,14 +75,14 @@ namespace Infrastructure.Content.Services.Authentication
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
-        
-    }
+
+        }
 
 
 
         public string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30)
         {
-            
+
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

@@ -361,7 +361,7 @@ namespace Infrastructure.Content.Services
         {
             var caregiverName = $"{caregiver.FirstName} {caregiver.LastName}";
             var clientName = $"{client.FirstName} {client.LastName}";
-            
+
             string responseMessage;
             string actionButton = "";
             string responseColor;

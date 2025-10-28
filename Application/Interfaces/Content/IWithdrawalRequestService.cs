@@ -17,7 +17,7 @@ namespace Application.Interfaces.Content
         Task<List<WithdrawalRequestResponse>> GetWithdrawalRequestsByStatusAsync(string status);
 
         Task<WithdrawalRequestResponse> CreateWithdrawalRequestAsync(CreateWithdrawalRequestRequest request);
-       // Task<CaregiverWithdrawalSummaryResponse> GetTotalWithdrawnByCaregiverIdAsync(string caregiverId);
+        // Task<CaregiverWithdrawalSummaryResponse> GetTotalWithdrawnByCaregiverIdAsync(string caregiverId);
         Task<decimal> GetTotalWithdrawnByCaregiverIdAsync(string caregiverId);
         Task<CaregiverWithdrawalSummaryResponse> GetTotalAmountEarnedAndWithdrawnByCaregiverIdAsync(string caregiverId);
 

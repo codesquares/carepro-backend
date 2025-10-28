@@ -17,10 +17,10 @@ namespace Infrastructure.Content.Services
         {
             _configuration = configuration;
             _logger = logger;
-            
+
             var apiKey = _configuration["LLMSettings:OpenAI:ApiKey"];
             _isLLMAvailable = !string.IsNullOrEmpty(apiKey);
-            
+
             if (!_isLLMAvailable)
             {
                 _logger.LogWarning("OpenAI API key not configured. Contract generation will use mock data.");
@@ -38,7 +38,7 @@ namespace Infrastructure.Content.Services
                 }
 
                 var prompt = BuildContractGenerationPrompt(gigId, package, tasks);
-                
+
                 // Mock OpenAI response since we don't have the actual package
                 var contractTerms = await GenerateContractWithMockLLMAsync(prompt);
 
@@ -138,7 +138,7 @@ namespace Infrastructure.Content.Services
 
         private string BuildContractGenerationPrompt(ContractGenerationRequestDTO request, GigSummaryDTO gigDetails)
         {
-            var tasksList = string.Join("\n", request.Tasks.Select(t => 
+            var tasksList = string.Join("\n", request.Tasks.Select(t =>
                 $"• {t.Title}: {t.Description} (Priority: {t.Priority}, Category: {t.Category})"));
 
             var specialRequirements = request.Tasks
@@ -147,7 +147,7 @@ namespace Infrastructure.Content.Services
                 .Distinct()
                 .ToList();
 
-            var requirementsList = specialRequirements.Any() 
+            var requirementsList = specialRequirements.Any()
                 ? string.Join("\n", specialRequirements.Select(r => $"• {r}"))
                 : "None specified";
 
@@ -227,7 +227,7 @@ Keep it professional but accessible for quick review.";
 
         private string BuildRevisionPrompt(ContractDTO original, List<ClientTaskDTO> changes)
         {
-            var changesList = string.Join("\n", changes.Select(t => 
+            var changesList = string.Join("\n", changes.Select(t =>
                 $"• {t.Title}: {t.Description} (Priority: {t.Priority})"));
 
             return $@"Generate a revision summary for a care service contract modification:

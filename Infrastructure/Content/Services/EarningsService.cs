@@ -30,9 +30,9 @@ namespace Infrastructure.Content.Services
 
         public async Task<EarningsResponse> GetEarningsByIdAsync(string id)
         {
-           // var earnings = await _dbContext.Earnings.Find(e => e.Id == ObjectId.Parse(id)).FirstOrDefaultAsync();
-           // var filter = Builders<Earnings>.Filter.Eq(e => e.Id, ObjectId.Parse(id));
-           // var earnings = await _dbContext.Earnings.Find(filter).FirstOrDefaultAsync();
+            // var earnings = await _dbContext.Earnings.Find(e => e.Id == ObjectId.Parse(id)).FirstOrDefaultAsync();
+            // var filter = Builders<Earnings>.Filter.Eq(e => e.Id, ObjectId.Parse(id));
+            // var earnings = await _dbContext.Earnings.Find(filter).FirstOrDefaultAsync();
             var earnings = await _dbContext.Earnings.FirstOrDefaultAsync(e => e.Id == ObjectId.Parse(id));
             var clientOrder = await clientOrderService.GetClientOrderAsync(earnings.ClientOrderId);
 
@@ -41,7 +41,7 @@ namespace Infrastructure.Content.Services
                 return null;
 
             var caregiver = await _careGiverService.GetCaregiverUserAsync(earnings.CaregiverId);
-            
+
             return new EarningsResponse
             {
                 Id = earnings.Id.ToString(),
@@ -52,7 +52,7 @@ namespace Infrastructure.Content.Services
                 ClientOrderStatus = clientOrder.ClientOrderStatus,
                 OrderCreatedAt = clientOrder.OrderCreatedOn,
                 CreatedAt = clientOrder.OrderCreatedOn,
-               // TotalEarned = earnings.TotalEarned,
+                // TotalEarned = earnings.TotalEarned,
                 //WithdrawableAmount = earnings.WithdrawableAmount,
                 //WithdrawnAmount = earnings.WithdrawnAmount,
                 //LastUpdated = earnings.UpdatedAt
@@ -62,7 +62,7 @@ namespace Infrastructure.Content.Services
         public async Task<EarningsResponse> GetEarningsByCaregiverIdAsync(string caregiverId)
         {
             //var earnings = await _dbContext.Earnings.Find(e => e.CaregiverId == caregiverId).FirstOrDefaultAsync();
-            var earnings = await _dbContext.Earnings.FirstOrDefaultAsync (e => e.CaregiverId == caregiverId);
+            var earnings = await _dbContext.Earnings.FirstOrDefaultAsync(e => e.CaregiverId == caregiverId);
             if (earnings == null)
                 return null;
 
@@ -85,10 +85,10 @@ namespace Infrastructure.Content.Services
         {
             var earnings = await _dbContext.Earnings
                     .Where(e => e.CaregiverId == caregiverId)
-                    .OrderByDescending(n => n.CreatedAt)                    
+                    .OrderByDescending(n => n.CreatedAt)
                     .ToListAsync();
 
-          //  var earningsDTO = new List<EarningsResponse>();
+            //  var earningsDTO = new List<EarningsResponse>();
             decimal WithdrawableAmount = 0;
             decimal totalEarnings = 0;
 
@@ -96,13 +96,13 @@ namespace Infrastructure.Content.Services
             {
                 WithdrawableAmount += earning.Amount;
                 totalEarnings += earning.Amount;
-                                
+
             }
 
-           // return earningsDTO;
+            // return earningsDTO;
             return new CaregiverEarningSummaryResponse
             {
-               // Earnings = earningsDTO,
+                // Earnings = earningsDTO,
                 WithdrawableAmount = WithdrawableAmount,
                 TotalEarning = totalEarnings
             };
@@ -143,8 +143,8 @@ namespace Infrastructure.Content.Services
 
             //await _dbContext.Earnings.InsertOneAsync(earnings);
 
-            _dbContext.Earnings.Add(earnings); 
-            await _dbContext.SaveChangesAsync(); 
+            _dbContext.Earnings.Add(earnings);
+            await _dbContext.SaveChangesAsync();
 
             return new EarningsDTO
             {
@@ -163,7 +163,7 @@ namespace Infrastructure.Content.Services
             var earnings = new Earnings
             {
                 ClientOrderId = addEarningsRequest.ClientOrderId,
-                
+
                 Id = ObjectId.GenerateNewId(),
                 CreatedAt = DateTime.UtcNow,
             };
@@ -266,7 +266,7 @@ namespace Infrastructure.Content.Services
         public async Task<IEnumerable<EarningsResponse>> GetAllCaregiverEarningAsync(string caregiverId)
         {
             var earnings = await _dbContext.Earnings
-                .Where(x => x.CaregiverId == caregiverId )
+                .Where(x => x.CaregiverId == caregiverId)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -281,17 +281,17 @@ namespace Infrastructure.Content.Services
                 {
                     Id = earning.Id.ToString(),
                     ClientOrderId = earning.ClientOrderId,
-                    
+
                     CaregiverId = earning.CaregiverId,
                     CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
 
                     Activity = "Earning",
 
-                    
+
                     Amount = earning.Amount,
-                   // ClientOrderStatus = clientOrder.ClientOrderStatus,
+                    // ClientOrderStatus = clientOrder.ClientOrderStatus,
                     Description = clientOrder.ClientOrderStatus,
-                   // CreatedAt = clientOrder.OrderCreatedOn,
+                    // CreatedAt = clientOrder.OrderCreatedOn,
                     CreatedAt = earning.CreatedAt,
 
                 };
@@ -326,7 +326,7 @@ namespace Infrastructure.Content.Services
             // 2. Get all earnings with related data in one query
             var earnings = await _dbContext.Earnings
                 .Where(x => x.CaregiverId == caregiverId)
-                
+
                 .Select(e => new TransactionHistoryResponse
                 {
                     Id = e.Id.ToString(),

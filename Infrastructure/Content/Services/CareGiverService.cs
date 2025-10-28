@@ -40,7 +40,7 @@ namespace Infrastructure.Content.Services
         private readonly ITokenHandler tokenHandler;
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
-        
+
 
         public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration)
         {
@@ -49,7 +49,7 @@ namespace Infrastructure.Content.Services
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
-           
+
         }
 
         private bool IsValidEmail(string email)
@@ -153,7 +153,7 @@ namespace Infrastructure.Content.Services
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
             await careProDbContext.SaveChangesAsync();
-                      
+
 
             #region SendVerificationEmail
 
@@ -169,7 +169,7 @@ namespace Infrastructure.Content.Services
                 ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-                       
+
             await emailService.SendSignUpVerificationEmailAsync(
                 careProAppUser.Email,
                 verificationLink,
@@ -177,7 +177,7 @@ namespace Infrastructure.Content.Services
             );
 
             #endregion SendVerificationEmail
-                        
+
 
             var careGiverUserDTO = new CaregiverDTO()
             {
@@ -340,14 +340,14 @@ namespace Infrastructure.Content.Services
 
             #region SendVerificationEmail
 
-            
+
             var jwtSecretKey = configuration["JwtSettings:Secret"];
             var token = tokenHandler.GenerateEmailVerificationToken(
                 user.AppUserId.ToString(),
                 user.Email,
                 jwtSecretKey
             );
-           
+
             string verificationLink;
             verificationLink = IsFrontendOrigin(origin)
                 ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
@@ -377,7 +377,7 @@ namespace Infrastructure.Content.Services
 
             foreach (var caregiver in caregivers)
             {
-                
+
                 var caregiverDTO = new CaregiverResponse()
                 {
                     Id = caregiver.Id.ToString(),
@@ -396,14 +396,14 @@ namespace Infrastructure.Content.Services
                     : caregiver.AboutMe.Length <= 150
                         ? caregiver.AboutMe
                         : caregiver.AboutMe.Substring(0, 150) + "...",
-                    
+
                     Location = caregiver.Location,
                     ReasonForDeactivation = caregiver.ReasonForDeactivation,
                     IsAvailable = caregiver.IsAvailable,
                     IntroVideo = caregiver.IntroVideo,
                     ProfileImage = caregiver.ProfileImage,
 
-                    
+
                     CreatedAt = caregiver.CreatedAt,
                 };
 
@@ -436,7 +436,7 @@ namespace Infrastructure.Content.Services
                 .Distinct()
                 .ToList();
 
-            
+
             var clientOrders = await careProDbContext.ClientOrders
                 .Where(x => x.CaregiverId == caregiverId)
                 .OrderBy(x => x.OrderCreatedAt)
@@ -446,13 +446,13 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in clientOrders)
             {
-                
-                totalEarning += clientOrder.Amount;                
+
+                totalEarning += clientOrder.Amount;
             }
 
 
             //var totalEarning = clientOrders.TotalEarning;
-           // var noOfHoursSpent = ;
+            // var noOfHoursSpent = ;
             var noOfOrders = clientOrders.Count;
 
             var caregiverDTO = new CaregiverResponse()
@@ -473,7 +473,7 @@ namespace Infrastructure.Content.Services
                     : caregiver.AboutMe.Length <= 150
                         ? caregiver.AboutMe
                         : caregiver.AboutMe.Substring(0, 150) + "...",
-                
+
                 Location = caregiver.Location,
                 ReasonForDeactivation = caregiver.ReasonForDeactivation,
                 IsAvailable = caregiver.IsAvailable,
@@ -482,10 +482,10 @@ namespace Infrastructure.Content.Services
                 Services = allSubCategories,
 
                 TotalEarning = totalEarning,
-               // NoOfHoursSpent = noOfHoursSpent,
+                // NoOfHoursSpent = noOfHoursSpent,
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
-                
+
                 CreatedAt = caregiver.CreatedAt,
             };
 
@@ -529,11 +529,11 @@ namespace Infrastructure.Content.Services
             }
 
             existingCareGiver.IsAvailable = updateCaregiverAvailabilityRequest.IsAvailable;
-            
+
             careProDbContext.CareGivers.Update(existingCareGiver);
             await careProDbContext.SaveChangesAsync();
 
-            return $"Caregiver with ID '{caregiverId}' Availability Status Updated successfully.";            
+            return $"Caregiver with ID '{caregiverId}' Availability Status Updated successfully.";
         }
 
         public async Task<string> UpdateCaregiverInformationAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest)
@@ -541,7 +541,7 @@ namespace Infrastructure.Content.Services
             if (updateCaregiverAdditionalInfoRequest.IntroVideo == null &&
                 string.IsNullOrWhiteSpace(updateCaregiverAdditionalInfoRequest.AboutMe) &&
                 string.IsNullOrWhiteSpace(updateCaregiverAdditionalInfoRequest.Location))
-            
+
             {
                 throw new ArgumentException("At least one field must be provided to update caregiver information.");
             }
@@ -550,7 +550,7 @@ namespace Infrastructure.Content.Services
             {
                 throw new ArgumentException("Invalid Caregiver ID format.");
             }
-                               
+
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
@@ -558,7 +558,7 @@ namespace Infrastructure.Content.Services
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
-                        
+
 
             if (updateCaregiverAdditionalInfoRequest.IntroVideo != null)
             {
@@ -583,13 +583,13 @@ namespace Infrastructure.Content.Services
             {
                 existingCareGiver.Location = updateCaregiverAdditionalInfoRequest.Location;
             }
-                        
+
 
             careProDbContext.CareGivers.Update(existingCareGiver);
             await careProDbContext.SaveChangesAsync();
 
             return $"Caregiver with ID '{caregiverId}' Additional Information Updated successfully.";
-            
+
         }
 
 
@@ -679,7 +679,7 @@ namespace Infrastructure.Content.Services
                 existingCareGiver.ProfileImage = imageURL; // Save Cloudinary URL to DB
             }
 
-            
+
             careProDbContext.CareGivers.Update(existingCareGiver);
             await careProDbContext.SaveChangesAsync();
 
@@ -700,7 +700,7 @@ namespace Infrastructure.Content.Services
                 throw new UnauthorizedAccessException("Current password is incorrect.");
 
             user.Password = BCrypt.Net.BCrypt.HashPassword(resetPasswordRequest.NewPassword);
-                        
+
             await careProDbContext.SaveChangesAsync();
         }
 
@@ -718,7 +718,7 @@ namespace Infrastructure.Content.Services
             resetLink = IsFrontendOrigin(origin)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
-                        
+
             await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
         }
 
@@ -740,7 +740,7 @@ namespace Infrastructure.Content.Services
                     ClockSkew = TimeSpan.Zero // no extra time
                 }, out _);
 
-                
+
                 var email = claimsPrincipal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
 
                 var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == email);
@@ -750,7 +750,7 @@ namespace Infrastructure.Content.Services
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 user.Password = hashedPassword;
 
-                
+
 
                 await careProDbContext.SaveChangesAsync();
             }
@@ -760,6 +760,6 @@ namespace Infrastructure.Content.Services
             }
         }
 
-       
+
     }
 }

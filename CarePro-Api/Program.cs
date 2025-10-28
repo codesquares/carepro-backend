@@ -24,7 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 
 // MongoDB Configuration
-var connectionString = builder.Configuration.GetConnectionString("MongoDbConnection") 
+var connectionString = builder.Configuration.GetConnectionString("MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
     ?? "mongodb://localhost:27017";
@@ -240,8 +240,8 @@ builder.Services.AddCors(options =>
     {
         builder.WithOrigins("https://oncarepro.com", "https://www.oncarepro.com", "http://oncarepro.com", "http://www.oncarepro.com",
             "https://api.oncarepro.com", "http://api.oncarepro.com",
-            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173", 
-            "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com", 
+            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173",
+            "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com",
             "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com")
                .AllowAnyHeader()
                .AllowAnyMethod()

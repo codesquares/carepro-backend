@@ -33,11 +33,11 @@ namespace Application.DTOs.Authentication
 
         public string Role { get; set; }
 
-        public string? Message { get; set; }          
+        public string? Message { get; set; }
 
         public bool IsDeleted { get; set; }
 
-        public DateTime CreatedAt { get; set; }               
+        public DateTime CreatedAt { get; set; }
 
         public string HomeAddress { get; set; }
 

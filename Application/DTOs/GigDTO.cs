@@ -12,7 +12,7 @@ namespace Application.DTOs
     {
         public string Id { get; set; }
 
-       
+
         public string Title { get; set; }
         public string Category { get; set; }
         public List<string> SubCategory { get; set; }
@@ -23,7 +23,7 @@ namespace Application.DTOs
         public string DeliveryTime { get; set; }
         public int Price { get; set; }
         public string Image1 { get; set; }
-        
+
         public string? VideoURL { get; set; }
         public string Status { get; set; }
 
@@ -47,14 +47,14 @@ namespace Application.DTOs
         public string PackageDetails { get; set; }
         public string DeliveryTime { get; set; }
         public int Price { get; set; }
-        
+
         public IFormFile Image1 { get; set; }
 
-        
-       // public string? VideoURL { get; set; }
+
+        // public string? VideoURL { get; set; }
         public string Status { get; set; }
 
-        public string CaregiverId { get; set; }        
+        public string CaregiverId { get; set; }
     }
 
     public class UpdateGigStatusToPauseRequest
@@ -77,7 +77,7 @@ namespace Application.DTOs
         public int Price { get; set; }
 
         public IFormFile Image1 { get; set; }
-               
+
         public string CaregiverId { get; set; }
 
     }

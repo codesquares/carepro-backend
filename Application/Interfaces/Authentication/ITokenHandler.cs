@@ -10,7 +10,7 @@ namespace Application.Interfaces.Authentication
 {
     public interface ITokenHandler
     {
-        Task<string> CreateTokenAsync(AppUserDTO  appUserDTO);
+        Task<string> CreateTokenAsync(AppUserDTO appUserDTO);
 
         string GeneratePasswordResetToken(string email);
 
@@ -18,6 +18,6 @@ namespace Application.Interfaces.Authentication
         //string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30);
         string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);
 
-       // string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);
+        // string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);
     }
 }

@@ -28,7 +28,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPost]
         [Route("AddClientUser")]
         // [Authorize(Roles = "Caregiver")]
-        public async Task<IActionResult> AddClientUserAsync([FromBody] AddClientUserRequest  addClientUserRequest)
+        public async Task<IActionResult> AddClientUserAsync([FromBody] AddClientUserRequest addClientUserRequest)
         {
             try
             {

@@ -31,18 +31,21 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Restore packages
+    - name: Restore all packages
       working-directory: ./CarePro-Api
-      run: dotnet restore
+      run: |
+        echo "🔄 Restoring packages for all projects..."
+        dotnet restore CarePro-Api.sln
 
     - name: Check for vulnerable packages
+      working-directory: ./CarePro-Api
       run: |
         echo "🔍 Scanning for vulnerable NuGet packages..."
         
         # Check each project for vulnerabilities
         VULNERABILITY_FOUND=false
         
-        for project in $(find . -name "*.csproj" -not -path "./bin/*" -not -path "./obj/*"); do
+        for project in $(find .. -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*"); do
           echo "Checking $project..."
           if dotnet list "$project" package --vulnerable --include-transitive 2>&1 | grep -q "has the following vulnerable packages"; then
             echo "❌ Vulnerabilities found in $project"
@@ -61,13 +64,14 @@ jobs:
         fi
 
     - name: Check for outdated packages
+      working-directory: ./CarePro-Api
       run: |
         echo "🔍 Checking for outdated packages..."
         
         # Install dotnet-outdated tool
         dotnet tool install --global dotnet-outdated-tool
         
-        # Check for outdated packages
+        # Check for outdated packages (run from solution directory)
         dotnet outdated --output json > outdated-report.json || true
         
         if [ -s outdated-report.json ]; then
@@ -83,7 +87,7 @@ jobs:
       with:
         name: dependency-security-report
         path: |
-          outdated-report.json
+          CarePro-Api/outdated-report.json
         retention-days: 30
 
   code-security-analysis:

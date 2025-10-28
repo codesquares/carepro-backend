@@ -150,7 +150,7 @@ namespace CarePro_Api.Controllers.Content
 
         #region Validation Region
 
-        private async Task<bool> ValidateAddCertificateAsync(AddCertificationRequest  addCertificationRequest)
+        private async Task<bool> ValidateAddCertificateAsync(AddCertificationRequest addCertificationRequest)
         {
             if (addCertificationRequest == null)
             {
@@ -158,7 +158,7 @@ namespace CarePro_Api.Controllers.Content
                 return false;
             }
 
-            
+
             var user = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == addCertificationRequest.CaregiverId);
             if (user == null)
             {
@@ -180,7 +180,7 @@ namespace CarePro_Api.Controllers.Content
                     $"{nameof(addCertificationRequest.CertificateIssuer)} is required");
             }
 
-            
+
             if (ModelState.ErrorCount > 0)
             {
                 return false;

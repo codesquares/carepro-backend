@@ -25,7 +25,7 @@ namespace Infrastructure.Content.Services
 
         public Task<ClientRecommendationDTO> GetClientRecommendationAsync(string clientId)
         {
-                return Task.FromResult(new ClientRecommendationDTO());
+            return Task.FromResult(new ClientRecommendationDTO());
         }
     }
 }

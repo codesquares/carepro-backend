@@ -44,10 +44,10 @@ namespace Infrastructure.Content.Services
             var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addClientUserRequest.Password);
 
             var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email == addClientUserRequest.Email);
-            
-           // var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email == addClientUserRequest.Email);
 
-            if (clientUserExist != null )
+            // var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email == addClientUserRequest.Email);
+
+            if (clientUserExist != null)
             {
                 throw new InvalidOperationException("User already exist, Kindly Login or use a different email!");
             }
@@ -125,7 +125,7 @@ namespace Infrastructure.Content.Services
                 LastName = clientUser.LastName,
                 MiddleName = clientUser.MiddleName,
                 Email = clientUser.Email,
-                HomeAddress= clientUser.HomeAddress,
+                HomeAddress = clientUser.HomeAddress,
                 Role = clientUser.Role,
                 CreatedAt = clientUser.CreatedAt,
             };
@@ -263,12 +263,12 @@ namespace Infrastructure.Content.Services
 
             #region SendVerificationEmail
 
-            
+
             var jwtSecretKey = configuration["JwtSettings:Secret"];
             var token = tokenHandler.GenerateEmailVerificationToken(
                 user.AppUserId.ToString(),
                 user.Email,
-                jwtSecretKey 
+                jwtSecretKey
             );
 
             string verificationLink;
@@ -284,7 +284,7 @@ namespace Infrastructure.Content.Services
 
             #endregion
 
-            
+
 
             return "A new confirmation link has been sent to your email.";
         }
@@ -371,7 +371,7 @@ namespace Infrastructure.Content.Services
             existingClient.MiddleName = updateClientUserRequest.MiddleName;
             existingClient.LastName = updateClientUserRequest.LastName;
             existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
-            
+
             existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
 
             careProDbContext.Clients.Update(existingClient);
@@ -459,7 +459,7 @@ namespace Infrastructure.Content.Services
             var client = await careProDbContext.Clients.FirstOrDefaultAsync(c => c.Email == resetPasswordRequest.Email.ToLower());
             if (client != null)
             {
-                client.Password = user.Password; 
+                client.Password = user.Password;
             }
 
             await careProDbContext.SaveChangesAsync();

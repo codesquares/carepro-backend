@@ -34,7 +34,7 @@ namespace Application.DTOs
     }
 
     public class AddClientUserRequest
-    {        
+    {
         public string? FirstName { get; set; }
 
         public string? MiddleName { get; set; }
@@ -46,7 +46,7 @@ namespace Application.DTOs
         public string? Password { get; set; }
 
         public string? HomeAddress { get; set; }
-                
+
     }
 
     public class ClientResponse
@@ -76,7 +76,7 @@ namespace Application.DTOs
     }
 
 
-    
+
 
     public class UpdateClientUserRequest
     {
@@ -86,13 +86,13 @@ namespace Application.DTOs
 
         public string? LastName { get; set; }
 
-       // public string Email { get; set; }
-               
+        // public string Email { get; set; }
+
         public string? HomeAddress { get; set; }
 
         //public string Location { get; set; }
 
         public string? PhoneNo { get; set; }
-                
+
     }
 }

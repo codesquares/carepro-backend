@@ -22,8 +22,8 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<LocationService> _logger;
 
         public LocationService(
-            CareProDbContext context, 
-            IGeocodingService geocodingService, 
+            CareProDbContext context,
+            IGeocodingService geocodingService,
             IConfiguration configuration,
             ILogger<LocationService> logger)
         {
@@ -44,12 +44,12 @@ namespace Infrastructure.Content.Services
 
                 // 2. Check if user already has a location
                 var existingLocation = await _context.Locations
-                    .FirstOrDefaultAsync(l => l.UserId == request.UserId && 
-                                            l.UserType == request.UserType && 
+                    .FirstOrDefaultAsync(l => l.UserId == request.UserId &&
+                                            l.UserType == request.UserType &&
                                             !l.IsDeleted);
 
                 Location location;
-                
+
                 if (existingLocation != null)
                 {
                     // Update existing
@@ -117,9 +117,9 @@ namespace Infrastructure.Content.Services
         public async Task<LocationDTO?> GetUserLocationAsync(string userId, string userType)
         {
             var location = await _context.Locations
-                .FirstOrDefaultAsync(l => l.UserId == userId && 
-                                        l.UserType == userType && 
-                                        l.IsActive && 
+                .FirstOrDefaultAsync(l => l.UserId == userId &&
+                                        l.UserType == userType &&
+                                        l.IsActive &&
                                         !l.IsDeleted);
 
             if (location == null)
@@ -143,8 +143,8 @@ namespace Infrastructure.Content.Services
         public async Task<LocationDTO> UpdateUserLocationAsync(UpdateUserLocationRequest request)
         {
             var location = await _context.Locations
-                .FirstOrDefaultAsync(l => l.UserId == request.UserId && 
-                                        l.UserType == request.UserType && 
+                .FirstOrDefaultAsync(l => l.UserId == request.UserId &&
+                                        l.UserType == request.UserType &&
                                         !l.IsDeleted);
 
             if (location == null)
@@ -194,8 +194,8 @@ namespace Infrastructure.Content.Services
         public async Task<bool> DeleteUserLocationAsync(string userId, string userType)
         {
             var location = await _context.Locations
-                .FirstOrDefaultAsync(l => l.UserId == userId && 
-                                        l.UserType == userType && 
+                .FirstOrDefaultAsync(l => l.UserId == userId &&
+                                        l.UserType == userType &&
                                         !l.IsDeleted);
 
             if (location == null)
@@ -222,8 +222,8 @@ namespace Infrastructure.Content.Services
             {
                 DistanceKm = Math.Round(distanceKm, 2),
                 DistanceMiles = Math.Round(distanceMiles, 2),
-                FormattedDistance = distanceKm < 1 
-                    ? $"{Math.Round(distanceKm * 1000)}m" 
+                FormattedDistance = distanceKm < 1
+                    ? $"{Math.Round(distanceKm * 1000)}m"
                     : $"{Math.Round(distanceKm, 1)}km"
             };
         }
@@ -240,7 +240,7 @@ namespace Infrastructure.Content.Services
                 {
                     clientLat = request.ServiceLatitude.Value;
                     clientLng = request.ServiceLongitude.Value;
-                    
+
                     if (!string.IsNullOrEmpty(request.ServiceAddress))
                     {
                         serviceCity = await _geocodingService.GetCityFromAddressAsync(request.ServiceAddress);
@@ -266,9 +266,9 @@ namespace Infrastructure.Content.Services
 
                 // Get all available caregivers with locations
                 var caregivers = await _context.CareGivers
-                    .Where(c => c.IsAvailable && 
-                              !c.IsDeleted && 
-                              c.Latitude.HasValue && 
+                    .Where(c => c.IsAvailable &&
+                              !c.IsDeleted &&
+                              c.Latitude.HasValue &&
                               c.Longitude.HasValue)
                     .ToListAsync();
 
@@ -282,7 +282,7 @@ namespace Infrastructure.Content.Services
                         caregiver.Latitude!.Value, caregiver.Longitude!.Value
                     );
 
-                    var sameCity = !string.IsNullOrEmpty(serviceCity) && 
+                    var sameCity = !string.IsNullOrEmpty(serviceCity) &&
                                   !string.IsNullOrEmpty(caregiver.ServiceCity) &&
                                   string.Equals(serviceCity, caregiver.ServiceCity, StringComparison.OrdinalIgnoreCase);
 
@@ -340,8 +340,8 @@ namespace Infrastructure.Content.Services
         public async Task<IEnumerable<CaregiverProximityResponse>> GetCaregiversByCity(string city, int maxResults = 50)
         {
             var caregivers = await _context.CareGivers
-                .Where(c => c.IsAvailable && 
-                          !c.IsDeleted && 
+                .Where(c => c.IsAvailable &&
+                          !c.IsDeleted &&
                           c.ServiceCity != null &&
                           c.ServiceCity.ToLower().Contains(city.ToLower()))
                 .Take(maxResults)
@@ -400,7 +400,7 @@ namespace Infrastructure.Content.Services
             {
                 var caregiver = await _context.CareGivers
                     .FirstOrDefaultAsync(c => c.Id.ToString() == userId);
-                
+
                 if (caregiver != null)
                 {
                     caregiver.ServiceCity = geocodeResult.City;
@@ -414,7 +414,7 @@ namespace Infrastructure.Content.Services
             {
                 var client = await _context.Clients
                     .FirstOrDefaultAsync(c => c.Id.ToString() == userId);
-                
+
                 if (client != null)
                 {
                     client.PreferredCity = geocodeResult.City;
@@ -447,7 +447,7 @@ namespace Infrastructure.Content.Services
             var baseScore = 100;
 
             // Same city bonus
-            if (sameCity) 
+            if (sameCity)
                 baseScore += 50;
 
             // Distance penalty (configurable)

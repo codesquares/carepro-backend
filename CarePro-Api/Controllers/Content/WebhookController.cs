@@ -25,24 +25,24 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 // Log the received data
-                            _logger.LogInformation("Received webhook with headers: {Headers}", string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+                _logger.LogInformation("Received webhook with headers: {Headers}", string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
 
                 // Check payment status
                 if (data?.status == "successful")
                 {
                     string transactionId = data?.id;
                     string txRef = data?.tx_ref; // This should contain our contract generation data
-                    
+
                     // Parse contract generation data from tx_ref or metadata
                     var contractData = await ExtractContractDataFromPayment(transactionId, txRef);
-                    
+
                     if (contractData != null)
                     {
                         // Generate and send contract
                         var contract = await _contractService.GenerateContractAsync(contractData);
                         await _contractService.SendContractToCaregiverAsync(contract.Id);
-                        
-                        _logger.LogInformation("Contract {ContractId} generated and sent for transaction {TransactionId}", 
+
+                        _logger.LogInformation("Contract {ContractId} generated and sent for transaction {TransactionId}",
                             contract.Id, transactionId);
                     }
                 }

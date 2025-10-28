@@ -22,7 +22,7 @@ namespace CarePro_Api.Controllers.Content
         // POST: api/Reviews/
         [HttpPost]
         // [Authorize(Roles = "Client")]
-        public async Task<IActionResult> CreateReview([FromBody] AddReviewRequest  addReviewRequest)
+        public async Task<IActionResult> CreateReview([FromBody] AddReviewRequest addReviewRequest)
         {
             try
             {

@@ -21,7 +21,7 @@ namespace CarePro_Api.Controllers
 
         [HttpPost]
         // [Authorize(Roles = "Caregiver")]
-        public async Task<IActionResult> AddVerificationAsync([FromBody] AddVerificationRequest addVerificationRequest )
+        public async Task<IActionResult> AddVerificationAsync([FromBody] AddVerificationRequest addVerificationRequest)
         {
             try
             {
@@ -69,7 +69,7 @@ namespace CarePro_Api.Controllers
             {
                 logger.LogInformation($"Retrieving Verification for caregiver with ID '{userId}'.");
 
-                var verification  = await verificationService.GetVerificationAsync(userId);
+                var verification = await verificationService.GetVerificationAsync(userId);
 
                 return Ok(verification);
 
@@ -100,7 +100,7 @@ namespace CarePro_Api.Controllers
         [HttpPut]
         [Route("verificationId")]
         // [Authorize(Roles = "Caregiver, Admin")]
-        public async Task<ActionResult<string>> UpdateVerificationAsync(string verificationId, UpdateVerificationRequest updateVerificationRequest )
+        public async Task<ActionResult<string>> UpdateVerificationAsync(string verificationId, UpdateVerificationRequest updateVerificationRequest)
         {
             try
             {

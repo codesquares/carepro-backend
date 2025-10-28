@@ -26,10 +26,10 @@ namespace Infrastructure.Content.Services
         private readonly INotificationService notificationService;
 
         public ClientOrderService(
-            CareProDbContext careProDbContext, 
-            IGigServices gigServices, 
-            ICareGiverService careGiverService, 
-            IClientService clientService, 
+            CareProDbContext careProDbContext,
+            IGigServices gigServices,
+            ICareGiverService careGiverService,
+            IClientService clientService,
             ILogger<GigServices> logger,
             INotificationService notificationService)
         {
@@ -88,7 +88,7 @@ namespace Infrastructure.Content.Services
             if (caregiver != null)
             {
                 string notificationContent = $"New order received for your service: {gig.Title} - Amount: ${clientOrder.Amount}";
-                
+
                 await notificationService.CreateNotificationAsync(
                     clientOrder.CaregiverId,
                     clientOrder.ClientId,
@@ -175,7 +175,7 @@ namespace Infrastructure.Content.Services
                     GigPackageDetails = gig.PackageDetails,
                     GigImage = gig.Image1,
                     GigStatus = gig.Status,
-                    
+
 
                     PaymentOption = caregiverOrder.PaymentOption,
                     Amount = caregiverOrder.Amount,
@@ -240,7 +240,7 @@ namespace Infrastructure.Content.Services
                     GigImage = gig.Image1,
                     GigPackageDetails = gig.PackageDetails,
                     GigStatus = gig.Status,
-                    
+
 
                     PaymentOption = clientOrder.PaymentOption,
                     Amount = clientOrder.Amount,
@@ -248,7 +248,7 @@ namespace Infrastructure.Content.Services
                     ClientOrderStatus = clientOrder.ClientOrderStatus,
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
-                    
+
                 };
 
                 clientOrdersDTOs.Add(clientOrderDTO);
@@ -494,14 +494,14 @@ namespace Infrastructure.Content.Services
                 TransactionId = order.TransactionId,
                 ClientOrderStatus = order.ClientOrderStatus,
                 OrderCreatedOn = order.OrderCreatedAt,
-                
+
             };
 
             return clientOrderDTO;
         }
 
         public async Task<string> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
-        { 
+        {
 
             try
             {
@@ -624,7 +624,7 @@ namespace Infrastructure.Content.Services
             logger.LogInformation($"Audit Event: {message}. User ID: {userId}. Timestamp: {DateTime.UtcNow}");
         }
 
-        
+
     }
 
 

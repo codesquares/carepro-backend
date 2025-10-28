@@ -188,9 +188,9 @@ namespace Infrastructure.Content.Services
                         ServiceLongitude = clientLocation.Longitude,
                         MaxDistanceKm = 50
                     };
-                    
+
                     var nearbyResult = await _locationService.FindNearbyCaregivers(proximityRequest);
-                    
+
                     alternatives = nearbyResult
                         .Where(c => c.CaregiverId != contract.CaregiverId)
                         .Take(5)
@@ -281,14 +281,14 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                var query = userType.ToLower() == "client" 
+                var query = userType.ToLower() == "client"
                     ? _context.Contracts.Where(c => c.ClientId == userId)
                     : _context.Contracts.Where(c => c.CaregiverId == userId);
 
                 var contracts = await query.ToListAsync();
                 var currentMonth = DateTime.UtcNow.Month;
                 var currentYear = DateTime.UtcNow.Year;
-                
+
                 var monthlyContracts = contracts.Where(c => c.CreatedAt.Month == currentMonth && c.CreatedAt.Year == currentYear).ToList();
                 var monthlyEarnings = monthlyContracts.Sum(c => c.TotalAmount);
 
@@ -342,7 +342,7 @@ namespace Infrastructure.Content.Services
                 var expiredContracts = await _context.Contracts
                     .Where(c => c.ContractEndDate < DateTime.UtcNow && c.Status != ContractStatus.Completed)
                     .ToListAsync();
-                
+
                 return expiredContracts.Select(MapToContractDTO).ToList();
             }
             catch (Exception ex)
@@ -402,9 +402,9 @@ namespace Infrastructure.Content.Services
                     PendingContracts = new List<ContractDTO>(),
                     Stats = new ContractStatsDTO()
                 };
-                
+
                 var contractDto = MapToContractDTO(contract);
-                
+
                 switch (contract.Status)
                 {
                     case ContractStatus.Accepted:
@@ -418,7 +418,7 @@ namespace Infrastructure.Content.Services
                         historyItem.PendingContracts.Add(contractDto);
                         break;
                 }
-                
+
                 return new List<ContractHistoryDTO> { historyItem };
             }
             catch (Exception ex)
@@ -542,8 +542,8 @@ namespace Infrastructure.Content.Services
                     Category = t.Category.ToString(),
                     Priority = t.Priority.ToString(),
                     SpecialRequirements = t.SpecialRequirements,
-                    EstimatedDurationMinutes = t.EstimatedDuration?.TotalMinutes > 0 
-                        ? (int)t.EstimatedDuration.Value.TotalMinutes 
+                    EstimatedDurationMinutes = t.EstimatedDuration?.TotalMinutes > 0
+                        ? (int)t.EstimatedDuration.Value.TotalMinutes
                         : null
                 }).ToList(),
                 GeneratedTerms = contract.GeneratedTerms,

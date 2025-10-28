@@ -95,7 +95,7 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
             }
         }
-        
+
         [HttpGet("questions/{userType}")]
         // [Authorize(Roles = "Caregiver, Cleaner")]
         public async Task<IActionResult> GetQuestionsForAssessmentAsync(string userType)
@@ -107,7 +107,7 @@ namespace CarePro_Api.Controllers.Content
                 {
                     return BadRequest(new { Message = "User type must be either 'Cleaner' or 'Caregiver'" });
                 }
-                
+
                 var questions = await assessmentService.GetQuestionsForAssessmentAsync(userType);
                 return Ok(questions);
             }
@@ -117,7 +117,7 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { ErrorMessage = ex.Message });
             }
         }
-        
+
         [HttpGet("{id}")]
         // [Authorize(Roles = "Caregiver, Cleaner, Admin")]
         public async Task<IActionResult> GetAssessmentByIdAsync(string id)
@@ -137,7 +137,7 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { ErrorMessage = ex.Message });
             }
         }
-        
+
         [HttpGet("user/{userId}")]
         // [Authorize(Roles = "Caregiver, Cleaner, Admin")]
         public async Task<IActionResult> GetAssessmentsByUserIdAsync(string userId)
@@ -153,7 +153,7 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { ErrorMessage = ex.Message });
             }
         }
-        
+
         [HttpPost("calculate-score/{assessmentId}")]
         // [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CalculateAssessmentScoreAsync(string assessmentId)

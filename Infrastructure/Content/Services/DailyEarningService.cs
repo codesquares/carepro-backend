@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
 {
-    
+
     public class DailyEarningService : BackgroundService
     {
         private readonly IServiceScopeFactory _scopeFactory;
@@ -30,7 +30,7 @@ namespace Infrastructure.Content.Services
             while (!stoppingToken.IsCancellationRequested)
             {
                 var now = DateTime.Now;
-               // var nextRun = DateTime.Today.AddDays(1);
+                // var nextRun = DateTime.Today.AddDays(1);
                 var nextRun = DateTime.Now.AddMinutes(10);
                 var delay = nextRun - now;
 

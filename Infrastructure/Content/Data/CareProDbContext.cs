@@ -53,7 +53,7 @@ namespace Infrastructure.Content.Data
 
         }
 
-        
+
         public DbSet<Caregiver> CareGivers { get; set; }
         public DbSet<AppUser> AppUsers { get; set; }
         public DbSet<Client> Clients { get; set; }

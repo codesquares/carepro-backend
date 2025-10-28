@@ -22,7 +22,7 @@ namespace Infrastructure.Content.Services
 
         public Task<List<string>> GetCaregiverAndServicesAsync(string? firstName, string? lastName, string? serviceName)
         {
-                return Task.FromResult(new List<string>());
+            return Task.FromResult(new List<string>());
         }
 
         //public async Task<IEnumerable<CaregiverResponse>> SearchCaregiversWithServicesAsync(string searchTerm)

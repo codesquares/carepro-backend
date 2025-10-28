@@ -74,7 +74,7 @@ namespace Application.DTOs
         //public string Status { get; set; }
         public DateTime WithdrawalRequestDate { get; set; }
         public DateTime? CompletedAt { get; set; }
-      
+
     }
 
 
@@ -105,7 +105,7 @@ namespace Application.DTOs
         public decimal Amount { get; set; }
         public string Status { get; set; }
         public DateTime CreatedAt { get; set; }
-        
-       
+
+
     }
 }

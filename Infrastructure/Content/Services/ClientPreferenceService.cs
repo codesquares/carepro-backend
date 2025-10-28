@@ -36,12 +36,12 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException("The Client ID entered is not a Valid ID");
             }
 
-            
+
 
             /// CONVERT DTO TO DOMAIN OBJECT            
             var clientPreference = new ClientPreference
             {
-                Data = addClientPreferenceRequest.Data,                
+                Data = addClientPreferenceRequest.Data,
                 ClientId = addClientPreferenceRequest.ClientId,
 
                 // Assign new ID

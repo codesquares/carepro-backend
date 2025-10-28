@@ -38,10 +38,10 @@ namespace Application.DTOs
         public decimal WithdrawableAmount { get; set; }
         public DateTime OrderCreatedAt { get; set; }
         public DateTime CreatedAt { get; set; }
-       // public decimal TotalEarned { get; set; }
-       // public decimal WithdrawableAmount { get; set; }
-       // public decimal WithdrawnAmount { get; set; }
-       // public DateTime LastUpdated { get; set; }
+        // public decimal TotalEarned { get; set; }
+        // public decimal WithdrawableAmount { get; set; }
+        // public decimal WithdrawnAmount { get; set; }
+        // public DateTime LastUpdated { get; set; }
     }
 
 
@@ -49,7 +49,7 @@ namespace Application.DTOs
     {
         public decimal TotalEarning { get; set; }
         public decimal WithdrawableAmount { get; set; }
-       // public List<EarningsResponse> Earnings { get; set; }
+        // public List<EarningsResponse> Earnings { get; set; }
     }
 
 
@@ -63,8 +63,8 @@ namespace Application.DTOs
 
     public class AddEarningsRequest
     {
-        public string ClientOrderId { get; set; }        
-        public string CaregiverId { get; set; }        
+        public string ClientOrderId { get; set; }
+        public string CaregiverId { get; set; }
     }
 
     public class UpdateEarningsRequest

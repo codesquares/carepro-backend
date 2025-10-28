@@ -25,11 +25,11 @@ namespace Application.Interfaces.Content
 
         Task<IEnumerable<ClientResponse>> GetAllClientUserAsync();
 
-        Task<string> UpdateClientUserAsync(string clientId, UpdateClientUserRequest updateClientUserRequest );
+        Task<string> UpdateClientUserAsync(string clientId, UpdateClientUserRequest updateClientUserRequest);
 
         Task<string> UpdateProfilePictureAsync(string clientId, UpdateProfilePictureRequest updateProfilePictureRequest);
 
-      //  Task<string> UpdateCaregiverInformationAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest);
+        //  Task<string> UpdateCaregiverInformationAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest);
 
 
 
