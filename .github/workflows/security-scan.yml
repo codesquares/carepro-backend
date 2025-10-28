@@ -76,7 +76,7 @@ jobs:
         fi
 
     - name: Upload dependency report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: dependency-security-report
@@ -437,7 +437,7 @@ jobs:
         cat security-report.md
 
     - name: Upload security report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: security-report-${{ github.sha }}
