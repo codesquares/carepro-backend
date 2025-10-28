@@ -44,7 +44,7 @@ namespace Infrastructure.Content.Services
                 CertificateName = addCertificationRequest.CertificateName,
                 CertificateIssuer = addCertificationRequest.CertificateIssuer,
                 Certificate = certificateBytes,
-                YearObtained = addCertificationRequest.YearObtained,                            
+                YearObtained = addCertificationRequest.YearObtained,
                 CaregiverId = addCertificationRequest.CaregiverId,
 
                 // Assign new ID
@@ -63,7 +63,7 @@ namespace Infrastructure.Content.Services
         public async Task<IEnumerable<CertificationResponse>> GetAllCaregiverCertificateAsync(string caregiverId)
         {
             var certificates = await careProDbContext.Certifications
-                .Where(x => x.CaregiverId == caregiverId )
+                .Where(x => x.CaregiverId == caregiverId)
                 .OrderBy(x => x.SubmittedOn)
                 .ToListAsync();
 
@@ -89,14 +89,14 @@ namespace Infrastructure.Content.Services
                     Certificate = certificateBase64,
                     YearObtained = certificate.YearObtained,
                     IsVerified = certificate.IsVerified,
-                    SubmittedOn = certificate.SubmittedOn,                    
+                    SubmittedOn = certificate.SubmittedOn,
 
                 };
                 certificatesDTOs.Add(certificateDTO);
             }
 
             return certificatesDTOs;
-            
+
         }
 
 
@@ -164,6 +164,6 @@ namespace Infrastructure.Content.Services
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
         }
 
-        
+
     }
 }

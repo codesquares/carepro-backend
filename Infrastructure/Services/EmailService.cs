@@ -52,7 +52,7 @@ namespace Infrastructure.Services
 
                     <p>Thanks,<br />The CarePro Team</p>"
 
-                    
+
             };
 
             message.Body = builder.ToMessageBody();
@@ -67,11 +67,11 @@ namespace Infrastructure.Services
         public async Task SendPasswordResetEmailAsync(string toEmail, string resetLink, string firstName)
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail ));
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = "Password Reset Request";
 
-           
+
 
             var builder = new BodyBuilder
             {

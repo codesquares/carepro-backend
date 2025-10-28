@@ -24,7 +24,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPost]
         // [Authorize(Roles = "Client")]
-        public async Task<IActionResult> AddClientPreferenceAsync([FromBody] AddClientPreferenceRequest  addClientPreferenceRequest)
+        public async Task<IActionResult> AddClientPreferenceAsync([FromBody] AddClientPreferenceRequest addClientPreferenceRequest)
         {
             try
             {
@@ -103,7 +103,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("preferenceId")]
         // [Authorize(Roles = "Caregiver, Admin")]
-        public async Task<ActionResult<string>> UpdateVerificationAsync(string preferenceId, UpdateClientPreferenceRequest  updateClientPreferenceRequest)
+        public async Task<ActionResult<string>> UpdateVerificationAsync(string preferenceId, UpdateClientPreferenceRequest updateClientPreferenceRequest)
         {
             try
             {

@@ -21,7 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<NotificationService> _logger;
 
         public NotificationService(
-            CareProDbContext dbContext, 
+            CareProDbContext dbContext,
             IHubContext<NotificationHub> notificationHubContext,
             ILogger<NotificationService> logger)
         {
@@ -63,8 +63,8 @@ namespace Infrastructure.Content.Services
         }
 
 
-        
-        public async Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId )
+
+        public async Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId)
         {
             try
             {
@@ -88,7 +88,7 @@ namespace Infrastructure.Content.Services
                         Title = notification.Title,
                         IsRead = notification.IsRead,
                         RelatedEntityId = notification.RelatedEntityId,
-                        
+
                         CreatedAt = notification.CreatedAt,
                     };
 
@@ -141,8 +141,8 @@ namespace Infrastructure.Content.Services
 
                 _dbContext.Notifications.Update(existingNotification);
                 await _dbContext.SaveChangesAsync();
-                              
-               
+
+
             }
             catch (Exception ex)
             {
@@ -215,7 +215,7 @@ namespace Infrastructure.Content.Services
                             senderId = notification.SenderId,
                             relatedEntityId = notification.RelatedEntityId
                         });
-                    
+
                     return true;
                 }
 
@@ -228,6 +228,6 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        
+
     }
 }

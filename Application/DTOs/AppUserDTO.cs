@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Application.DTOs
 {
     public class AppUserDTO
-    {       
+    {
         public string AppUserId { get; set; }
 
         public string Email { get; set; }
@@ -53,7 +53,7 @@ namespace Application.DTOs
 
         //public string? PhoneNo { get; set; }
 
-       
+
         public string Role { get; set; }
 
         // public string Password { get; set; }

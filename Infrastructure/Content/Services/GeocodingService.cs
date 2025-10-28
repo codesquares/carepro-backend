@@ -167,8 +167,8 @@ namespace Infrastructure.Content.Services
         {
             if (components == null) return "";
 
-            var cityComponent = components.FirstOrDefault(c => 
-                c.Types?.Contains("locality") == true || 
+            var cityComponent = components.FirstOrDefault(c =>
+                c.Types?.Contains("locality") == true ||
                 c.Types?.Contains("administrative_area_level_2") == true ||
                 c.Types?.Contains("sublocality") == true);
 
@@ -179,7 +179,7 @@ namespace Infrastructure.Content.Services
         {
             if (components == null) return "";
 
-            var stateComponent = components.FirstOrDefault(c => 
+            var stateComponent = components.FirstOrDefault(c =>
                 c.Types?.Contains("administrative_area_level_1") == true);
 
             return stateComponent?.LongName ?? "";
@@ -189,7 +189,7 @@ namespace Infrastructure.Content.Services
         {
             if (components == null) return "";
 
-            var countryComponent = components.FirstOrDefault(c => 
+            var countryComponent = components.FirstOrDefault(c =>
                 c.Types?.Contains("country") == true);
 
             return countryComponent?.LongName ?? "";
@@ -201,7 +201,7 @@ namespace Infrastructure.Content.Services
             await Task.Delay(100); // Simulate API call delay
 
             var city = ExtractCityFromMockAddress(address);
-            
+
             return new GeocodeResponse
             {
                 Latitude = 6.5244 + (Random.Shared.NextDouble() - 0.5) * 0.1, // Lagos, Nigeria area
@@ -232,7 +232,7 @@ namespace Infrastructure.Content.Services
         {
             // Simple city extraction for mock data
             var commonCities = new[] { "Lagos", "Abuja", "Kano", "Ibadan", "Port Harcourt", "Benin", "Kaduna" };
-            
+
             foreach (var city in commonCities)
             {
                 if (address.Contains(city, StringComparison.OrdinalIgnoreCase))

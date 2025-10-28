@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Domain.Settings
 {
     public class MailSettings
-    {        
+    {
         public string FromEmail { get; set; }
         public string FromName { get; set; }
         public string SmtpServer { get; set; }

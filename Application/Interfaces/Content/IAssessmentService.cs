@@ -14,7 +14,7 @@ namespace Application.Interfaces.Content
 
         // Legacy method - will be updated to use new format
         Task<AssessmentDTO> GetAssesementAsync(string caregiverId);
-        
+
         // New methods for updated assessment system
         Task<List<QuestionBankDTO>> GetQuestionsForAssessmentAsync(string userType);
         Task<string> SubmitAssessmentAsync(AddAssessmentRequest assessmentRequest);

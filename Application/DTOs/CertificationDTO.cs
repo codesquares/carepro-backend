@@ -45,7 +45,7 @@ namespace Application.DTOs
 
         public bool IsVerified { get; set; }
 
-       // public string VerificationStatus { get; set; }
+        // public string VerificationStatus { get; set; }
 
         public DateTime YearObtained { get; set; }
 

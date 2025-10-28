@@ -21,15 +21,15 @@ namespace Application.DTOs
 
 
     public class AddVerificationRequest
-    {       
+    {
         public string UserId { get; set; }
         public string VerifiedFirstName { get; set; }
         public string VerifiedLastName { get; set; }
         public string VerificationMethod { get; set; }
         public string VerificationNo { get; set; }
 
-        public string VerificationStatus { get; set; } 
-        
+        public string VerificationStatus { get; set; }
+
     }
 
     public class VerificationResponse

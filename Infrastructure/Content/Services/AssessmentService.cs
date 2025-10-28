@@ -21,7 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<AssessmentService> logger;
 
         public AssessmentService(
-            CareProDbContext careProDbContext, 
+            CareProDbContext careProDbContext,
             ICareGiverService careGiverService,
             IQuestionBankService questionBankService,
             ILogger<AssessmentService> logger)
@@ -94,14 +94,14 @@ namespace Infrastructure.Content.Services
         }
 
         // New methods for updated assessment system
-        
+
         public async Task<List<QuestionBankDTO>> GetQuestionsForAssessmentAsync(string userType)
         {
             try
             {
                 // Determine number of questions based on user type
                 int questionCount = userType.ToLower() == "cleaner" ? 10 : 30;
-                
+
                 // Use the question bank service to get random questions for this user type
                 return await questionBankService.GetRandomQuestionsForAssessmentAsync(userType, questionCount);
             }
@@ -111,7 +111,7 @@ namespace Infrastructure.Content.Services
                 throw;
             }
         }
-        
+
         public async Task<string> SubmitAssessmentAsync(AddAssessmentRequest assessmentRequest)
         {
             try
@@ -121,7 +121,7 @@ namespace Infrastructure.Content.Services
                 {
                     throw new ArgumentException("User ID is required");
                 }
-                
+
                 // Create a new assessment record
                 var assessment = new Assessment
                 {
@@ -136,16 +136,16 @@ namespace Infrastructure.Content.Services
                     UpdatedAt = DateTime.UtcNow,
                     Questions = new List<AssessmentQuestion>()
                 };
-                
+
                 // Process each submitted question
                 foreach (var questionSubmission in assessmentRequest.Questions)
                 {
                     // Get the original question from the bank
                     var originalQuestion = await questionBankService.GetQuestionByIdAsync(questionSubmission.QuestionId);
-                    
+
                     // Determine if the answer is correct
                     bool isCorrect = originalQuestion.CorrectAnswer.Equals(questionSubmission.UserAnswer, StringComparison.OrdinalIgnoreCase);
-                    
+
                     // Add to assessment
                     var assessmentQuestion = new AssessmentQuestion
                     {
@@ -156,17 +156,17 @@ namespace Infrastructure.Content.Services
                         UserAnswer = questionSubmission.UserAnswer,
                         IsCorrect = isCorrect
                     };
-                    
+
                     assessment.Questions.Add(assessmentQuestion);
                 }
-                
+
                 // Save the assessment
                 await careProDbContext.Assessments.AddAsync(assessment);
                 await careProDbContext.SaveChangesAsync();
-                
+
                 // Calculate the score
                 await CalculateAssessmentScoreAsync(assessment.Id.ToString());
-                
+
                 return assessment.Id.ToString();
             }
             catch (Exception ex)
@@ -175,18 +175,18 @@ namespace Infrastructure.Content.Services
                 throw;
             }
         }
-        
+
         public async Task<AssessmentDTO> GetAssessmentByIdAsync(string assessmentId)
         {
             try
             {
                 var assessment = await careProDbContext.Assessments.FirstOrDefaultAsync(a => a.Id.ToString() == assessmentId);
-                
+
                 if (assessment == null)
                 {
                     throw new KeyNotFoundException($"Assessment with ID '{assessmentId}' not found.");
                 }
-                
+
                 return MapToDTO(assessment);
             }
             catch (Exception ex)
@@ -195,7 +195,7 @@ namespace Infrastructure.Content.Services
                 throw;
             }
         }
-        
+
         public async Task<List<AssessmentDTO>> GetAssessmentsByUserIdAsync(string userId)
         {
             try
@@ -204,7 +204,7 @@ namespace Infrastructure.Content.Services
                     .Where(a => a.UserId == userId)
                     .OrderByDescending(a => a.EndTimestamp)
                     .ToListAsync();
-                
+
                 return assessments.Select(MapToDTO).ToList();
             }
             catch (Exception ex)
@@ -213,37 +213,37 @@ namespace Infrastructure.Content.Services
                 throw;
             }
         }
-        
+
         public async Task<AssessmentDTO> CalculateAssessmentScoreAsync(string assessmentId)
         {
             try
             {
                 var assessment = await careProDbContext.Assessments.FirstOrDefaultAsync(a => a.Id.ToString() == assessmentId);
-                
+
                 if (assessment == null)
                 {
                     throw new KeyNotFoundException($"Assessment with ID '{assessmentId}' not found.");
                 }
-                
+
                 // Calculate score based on correct answers
                 int totalQuestions = assessment.Questions.Count;
                 int correctAnswers = assessment.Questions.Count(q => q.IsCorrect);
-                
+
                 if (totalQuestions > 0)
                 {
                     // Calculate percentage score (0-100)
                     assessment.Score = (int)Math.Round((double)correctAnswers / totalQuestions * 100);
-                    
+
                     // Determine if passed (70% threshold)
                     assessment.Passed = assessment.Score >= 70;
-                    
+
                     // Update end timestamp
                     assessment.EndTimestamp = DateTime.UtcNow;
                     assessment.UpdatedAt = DateTime.UtcNow;
-                    
+
                     await careProDbContext.SaveChangesAsync();
                 }
-                
+
                 return MapToDTO(assessment);
             }
             catch (Exception ex)
@@ -252,7 +252,7 @@ namespace Infrastructure.Content.Services
                 throw;
             }
         }
-        
+
         private AssessmentDTO MapToDTO(Assessment assessment)
         {
             return new AssessmentDTO

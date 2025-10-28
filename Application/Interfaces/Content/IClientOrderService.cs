@@ -21,9 +21,9 @@ namespace Application.Interfaces.Content
 
         Task<CaregiverClientOrdersSummaryResponse> GetAllCaregiverOrderAsync(string caregiverId);
 
-        Task<string> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest  updateClientOrderStatusRequest);
+        Task<string> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest);
 
-        Task<string> UpdateOrderStatusToApproveAsync(string orderId );
+        Task<string> UpdateOrderStatusToApproveAsync(string orderId);
 
 
         Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusDeclinedRequest);

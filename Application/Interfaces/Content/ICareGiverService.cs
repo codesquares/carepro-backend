@@ -12,7 +12,7 @@ namespace Application.Interfaces.Content
     {
         Task<CaregiverDTO> CreateCaregiverUserAsync(AddCaregiverRequest addCaregiverRequest, string? origin);
 
-       // Task<string> ConfirmEmailAsync(string userId, string code);
+        // Task<string> ConfirmEmailAsync(string userId, string code);
         Task<string> ConfirmEmailAsync(string token);
 
 
@@ -34,13 +34,13 @@ namespace Application.Interfaces.Content
         Task<string> UpdateCaregiverAboutMeAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest);
 
         Task<string> UpdateCaregiverAvailabilityAsync(string caregiverId, UpdateCaregiverAvailabilityRequest updateCaregiverAvailabilityRequest);
-        Task<string> UpdateProfilePictureAsync(string caregiverId, UpdateProfilePictureRequest updateProfilePictureRequest );
+        Task<string> UpdateProfilePictureAsync(string caregiverId, UpdateProfilePictureRequest updateProfilePictureRequest);
 
         Task<string> SoftDeleteCaregiverAsync(string caregiverId);
 
 
 
-        Task ChangePasswordAsync( ResetPasswordRequest resetPasswordRequest);
+        Task ChangePasswordAsync(ResetPasswordRequest resetPasswordRequest);
         Task GeneratePasswordResetTokenAsync(PasswordResetRequestDto passwordResetRequestDto, string? origin);
         Task ResetPasswordWithJwtAsync(PasswordResetDto request);
 

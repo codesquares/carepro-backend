@@ -29,16 +29,16 @@ namespace Infrastructure.Content.Services
         {
             await careProDbContext.ChatMessages.AddAsync(chatMessage);
             await careProDbContext.SaveChangesAsync();
-            
+
             // Create a notification for the recipient
-            var sender = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => 
+            var sender = await careProDbContext.AppUsers.FirstOrDefaultAsync(u =>
                 u.Id.ToString() == chatMessage.SenderId || u.AppUserId.ToString() == chatMessage.SenderId);
-            
+
             if (sender != null)
             {
                 string senderName = $"{sender.FirstName} {sender.LastName}";
                 string notificationContent = $"{senderName} sent you a message";
-                
+
                 await notificationService.CreateNotificationAsync(
                     chatMessage.ReceiverId,
                     chatMessage.SenderId,
@@ -51,7 +51,7 @@ namespace Infrastructure.Content.Services
         }
 
         public async Task<List<ChatMessage>> GetChatHistoryAsync(string user1, string user2, int skip = 0, int take = 50)
-        {           
+        {
             return await careProDbContext.ChatMessages
                 .Where(m => ((m.SenderId == user1 && m.ReceiverId == user2) ||
                             (m.SenderId == user2 && m.ReceiverId == user1)) &&
@@ -61,14 +61,14 @@ namespace Infrastructure.Content.Services
                 .Take(take)
                 .ToListAsync();
         }
-        
+
         // Get a single message by ID
         public async Task<ChatMessage> GetMessageByIdAsync(string messageId)
         {
             return await careProDbContext.ChatMessages
                 .FirstOrDefaultAsync(m => m.MessageId.ToString() == messageId);
         }
-        
+
         // Delete a message (soft delete)
         public async Task<bool> DeleteMessageAsync(string messageId)
         {
@@ -79,11 +79,11 @@ namespace Infrastructure.Content.Services
                 {
                     return false;
                 }
-                
+
                 // Soft delete: mark as deleted
                 message.IsDeleted = true;
                 message.DeletedAt = DateTime.UtcNow;
-                
+
                 // Update the message
                 careProDbContext.ChatMessages.Update(message);
                 await careProDbContext.SaveChangesAsync();
@@ -323,8 +323,8 @@ namespace Infrastructure.Content.Services
             {
                 // Get all unread messages from sender to receiver
                 var unreadMessages = await careProDbContext.ChatMessages
-                    .Where(m => m.SenderId == senderId && 
-                                m.ReceiverId == receiverId && 
+                    .Where(m => m.SenderId == senderId &&
+                                m.ReceiverId == receiverId &&
                                 !m.IsRead &&
                                 !m.IsDeleted)
                     .ToListAsync();
@@ -355,11 +355,11 @@ namespace Infrastructure.Content.Services
         public async Task<int> GetUnreadMessageCountAsync(string userId)
         {
             return await careProDbContext.ChatMessages
-                .CountAsync(m => m.ReceiverId == userId && 
-                                !m.IsRead && 
+                .CountAsync(m => m.ReceiverId == userId &&
+                                !m.IsRead &&
                                 !m.IsDeleted);
         }
-        
+
         // Mark message as delivered (when user receives but hasn't read yet)
         public async Task<bool> MarkMessageAsDeliveredAsync(string messageId, string receiverId)
         {
@@ -449,7 +449,7 @@ namespace Infrastructure.Content.Services
 
                     // Get latest message in this conversation
                     var latestMessage = messages
-                        .Where(m => (m.SenderId == userId && m.ReceiverId == partnerId) || 
+                        .Where(m => (m.SenderId == userId && m.ReceiverId == partnerId) ||
                                   (m.SenderId == partnerId && m.ReceiverId == userId))
                         .OrderByDescending(m => m.Timestamp)
                         .FirstOrDefault();
@@ -458,9 +458,9 @@ namespace Infrastructure.Content.Services
 
                     // Count unread messages
                     var unreadCount = messages
-                        .Count(m => m.SenderId == partnerId && 
-                                  m.ReceiverId == userId && 
-                                  !m.IsRead && 
+                        .Count(m => m.SenderId == partnerId &&
+                                  m.ReceiverId == userId &&
+                                  !m.IsRead &&
                                   !m.IsDeleted);
 
                     // Create conversation dto
@@ -473,7 +473,7 @@ namespace Infrastructure.Content.Services
                         IsOnline = partnerUser.IsOnline ?? false,
                         LastMessage = latestMessage.Message,
                         LastMessageTimestamp = latestMessage.Timestamp,
-                        IsRead = latestMessage.SenderId == partnerId ? 
+                        IsRead = latestMessage.SenderId == partnerId ?
                             latestMessage.IsRead : true, // Messages from the current user are considered read
                         UnreadCount = unreadCount
                     });

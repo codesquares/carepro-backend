@@ -79,7 +79,7 @@ namespace CarePro_Api.Controllers.Content
 
                 // Get the message first to verify ownership
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
-                
+
                 // Check if message exists
                 if (message == null)
                 {
@@ -122,7 +122,7 @@ namespace CarePro_Api.Controllers.Content
 
                 // Get the message first to verify the recipient
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
-                
+
                 // Check if message exists
                 if (message == null)
                 {
@@ -239,7 +239,7 @@ namespace CarePro_Api.Controllers.Content
 
                 // Get the message first to verify the recipient
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
-                
+
                 // Check if message exists
                 if (message == null)
                 {

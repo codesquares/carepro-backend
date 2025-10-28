@@ -21,7 +21,7 @@ namespace Infrastructure.Content.Services
             _httpClient = new HttpClient();
         }
 
-       
+
 
         public async Task<string> UploadVideoAsync(byte[] videoBytes, string fileName)
         {
@@ -29,7 +29,7 @@ namespace Infrastructure.Content.Services
             var uploadParams = new VideoUploadParams
             {
                 File = new FileDescription(fileName, stream),
-               // ResourceType = ResourceType.Video, // Important for videos
+                // ResourceType = ResourceType.Video, // Important for videos
                 Folder = "caregiver_videos"
             };
 
@@ -115,7 +115,7 @@ namespace Infrastructure.Content.Services
                 return Convert.ToBase64String(videoBytes);
             }
             catch (Exception ex)
-            {                
+            {
                 throw new Exception($"Failed to download video from URL: {videoUrl}", ex);
             }
         }

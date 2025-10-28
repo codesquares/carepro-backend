@@ -17,13 +17,13 @@ namespace Application.DTOs
     }
 
     public class AddClientPreferenceRequest
-    {        
+    {
         public string? ClientId { get; set; }
-        public List<string>? Data { get; set; }       
+        public List<string>? Data { get; set; }
     }
 
     public class UpdateClientPreferenceRequest
-    {        
-        public List<string>? Data { get; set; }        
+    {
+        public List<string>? Data { get; set; }
     }
 }

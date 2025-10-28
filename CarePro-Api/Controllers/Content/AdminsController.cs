@@ -21,11 +21,11 @@ namespace CarePro_Api.Controllers.Content
 
         /// ENDPOINT TO CREATE  ADMIN USERS TO THE DATABASE        
         [HttpPost]
-       // [Route("AdminUser")]
-        public async Task<IActionResult> AddAdminUserAsync([FromBody] AddAdminUserRequest  addAdminUserRequest)
+        // [Route("AdminUser")]
+        public async Task<IActionResult> AddAdminUserAsync([FromBody] AddAdminUserRequest addAdminUserRequest)
         {
             try
-            {                
+            {
                 // Pass Domain Object to Repository to Persist this
                 var adminUser = await adminUserService.CreateAdminUserAsync(addAdminUserRequest);
 

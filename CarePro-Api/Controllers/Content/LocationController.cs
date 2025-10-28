@@ -20,7 +20,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly ILogger<LocationController> _logger;
 
         public LocationController(
-            ILocationService locationService, 
+            ILocationService locationService,
             IGeocodingService geocodingService,
             ILogger<LocationController> logger)
         {
@@ -43,9 +43,9 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var result = await _locationService.SetUserLocationAsync(request);
-                
+
                 _logger.LogInformation($"Location set successfully for user {request.UserId}");
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -84,7 +84,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var location = await _locationService.GetUserLocationAsync(userId, userType);
-                
+
                 if (location == null)
                 {
                     return NotFound(new { Message = "Location not found for the specified user" });
@@ -117,7 +117,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var result = await _locationService.UpdateUserLocationAsync(request);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -151,7 +151,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var success = await _locationService.DeleteUserLocationAsync(userId, userType);
-                
+
                 if (!success)
                 {
                     return NotFound(new { Message = "Location not found for the specified user" });
@@ -184,7 +184,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var caregivers = await _locationService.FindNearbyCaregivers(request);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -218,7 +218,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var caregivers = await _locationService.GetCaregiversByCity(city, maxResults);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -247,7 +247,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var distance = await _locationService.CalculateDistanceAsync(request);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -275,7 +275,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var result = await _geocodingService.GeocodeAsync(request.Address);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -303,7 +303,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var result = await _geocodingService.ReverseGeocodeAsync(request.Latitude, request.Longitude);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -331,7 +331,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var locations = await _locationService.GetUserLocationHistory(userId, userType);
-                
+
                 return Ok(new
                 {
                     Success = true,
@@ -359,7 +359,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var isValid = await _geocodingService.ValidateAddressAsync(request.Address);
-                
+
                 return Ok(new
                 {
                     Success = true,

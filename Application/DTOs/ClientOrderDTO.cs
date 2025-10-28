@@ -49,9 +49,9 @@ namespace Application.DTOs
         public bool? IsDeclined { get; set; }
 
 
-       // public decimal TotalEarning { get; set; }
+        // public decimal TotalEarning { get; set; }
         public int NoOfOrders { get; set; }
-       // public int NoOfHoursSpent { get; set; }
+        // public int NoOfHoursSpent { get; set; }
     }
 
     public class CaregiverClientOrdersSummaryResponse
@@ -74,7 +74,7 @@ namespace Application.DTOs
     public class UpdateClientOrderStatusRequest
     {
         public string? ClientOrderStatus { get; set; }
-        public string? UserId { get; set; }        
+        public string? UserId { get; set; }
     }
 
 

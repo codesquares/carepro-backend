@@ -32,10 +32,10 @@ namespace Domain.Entities
 
         public bool IsDeleted { get; set; }
         public DateTime? DeletedOn { get; set; }
-              
+
         public DateTime CreatedAt { get; set; }
 
 
-      
+
     }
 }

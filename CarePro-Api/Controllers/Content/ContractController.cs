@@ -135,7 +135,7 @@ namespace CarePro_Api.Controllers.Content
                 var success = await _contractService.ExpireContractAsync(contractId);
                 if (success)
                     return Ok(new { message = "Contract rescinded successfully" });
-                
+
                 return BadRequest("Failed to rescind contract");
             }
             catch (Exception ex)
@@ -185,7 +185,7 @@ namespace CarePro_Api.Controllers.Content
                 var success = await _contractService.CompleteContractAsync(contractId, completion.Rating);
                 if (success)
                     return Ok(new { message = "Contract completed successfully" });
-                
+
                 return BadRequest("Failed to complete contract");
             }
             catch (Exception ex)
@@ -203,7 +203,7 @@ namespace CarePro_Api.Controllers.Content
                 var success = await _contractService.TerminateContractAsync(contractId, termination.Reason);
                 if (success)
                     return Ok(new { message = "Contract terminated successfully" });
-                
+
                 return BadRequest("Failed to terminate contract");
             }
             catch (Exception ex)

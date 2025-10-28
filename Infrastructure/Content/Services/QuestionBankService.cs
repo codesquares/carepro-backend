@@ -58,7 +58,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var questions = new List<QuestionBank>();
-                
+
                 foreach (var questionRequest in batchAddRequest.Questions)
                 {
                     var question = new QuestionBank
@@ -74,7 +74,7 @@ namespace Infrastructure.Content.Services
                         UpdatedAt = DateTime.UtcNow,
                         Active = true
                     };
-                    
+
                     questions.Add(question);
                 }
 
@@ -282,7 +282,7 @@ namespace Infrastructure.Content.Services
 
                     // Group by category to ensure we have a good mix
                     var questionsByCategory = caregiverQuestions.GroupBy(q => q.Category).ToDictionary(g => g.Key, g => g.ToList());
-                    
+
                     // Calculate how many questions to take from each category
                     var categoryCounts = new Dictionary<string, int>();
                     var remainingCount = count;

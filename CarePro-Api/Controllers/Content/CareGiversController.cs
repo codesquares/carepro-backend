@@ -46,7 +46,7 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(ModelState);
                 }
 
-                
+
 
                 HttpContext httpContext = httpContextAccessor.HttpContext;
 
@@ -54,7 +54,7 @@ namespace CarePro_Api.Controllers.Content
                 string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
                                 ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
 
-                
+
 
 
                 // Pass Domain Object to Repository to Persist this
@@ -92,7 +92,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         #region Email Handling
-        
+
         /// Confirm Email from the API
         //[HttpGet("confirm-email")]
         //public async Task<IActionResult> ConfirmEmail([FromQuery] string token)
@@ -262,7 +262,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
-        [Route("UpdateCaregiverInfo/{caregiverId}")]        
+        [Route("UpdateCaregiverInfo/{caregiverId}")]
         //[Authorize(Roles = "Caregiver, Client, Admin")]
         public async Task<IActionResult> UpdateCaregiverAdditionalInfoAsync(string caregiverId, [FromForm] UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest)
         {
@@ -284,7 +284,7 @@ namespace CarePro_Api.Controllers.Content
             {
                 return StatusCode(500, new { message = ex.Message });
             }
-            
+
         }
 
 
@@ -292,7 +292,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateProfilePicture/{caregiverId}")]
         //[Authorize(Roles = "Caregiver, Client, Admin")]
-        public async Task<IActionResult> UpdateProfilePictureAsync(string caregiverId, [FromForm] UpdateProfilePictureRequest updateProfilePictureRequest )
+        public async Task<IActionResult> UpdateProfilePictureAsync(string caregiverId, [FromForm] UpdateProfilePictureRequest updateProfilePictureRequest)
         {
             try
             {
@@ -348,7 +348,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateCaregiverAvailability/{caregiverId}")]
         //[Authorize(Roles = "Caregiver, Client, Admin")]
-        public async Task<IActionResult> UpdateCaregiverAvailabilityAsync(string caregiverId, UpdateCaregiverAvailabilityRequest  updateCaregiverAvailabilityRequest)
+        public async Task<IActionResult> UpdateCaregiverAvailabilityAsync(string caregiverId, UpdateCaregiverAvailabilityRequest updateCaregiverAvailabilityRequest)
         {
             try
             {
@@ -372,7 +372,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("SoftDeleteCaregiver/{caregiverId}")]
         //[Authorize(Roles = "Caregiver, Client, Admin")]
-        public async Task<IActionResult> SoftDeleteCaregiverAsync(string caregiverId )
+        public async Task<IActionResult> SoftDeleteCaregiverAsync(string caregiverId)
         {
             try
             {

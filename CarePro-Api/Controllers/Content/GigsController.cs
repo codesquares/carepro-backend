@@ -25,7 +25,7 @@ namespace CarePro_Api.Controllers.Content
         /// ENDPOINT TO CREATE  Gigs Services TO THE DATABASE
         [HttpPost]
         // [Authorize(Roles = "Caregiver")]
-        public async Task<IActionResult> AddGigAsync([FromForm] AddGigRequest  addGigRequest)
+        public async Task<IActionResult> AddGigAsync([FromForm] AddGigRequest addGigRequest)
         {
             try
             {
@@ -72,7 +72,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-       // [Authorize(Roles = "Caregiver, Client, Admin")]
+        // [Authorize(Roles = "Caregiver, Client, Admin")]
         public async Task<IActionResult> GetAllGigsAsync()
         {
             try
@@ -102,7 +102,7 @@ namespace CarePro_Api.Controllers.Content
                 // Handle other exceptions
                 return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
             }
-            
+
 
         }
 
@@ -138,7 +138,7 @@ namespace CarePro_Api.Controllers.Content
             {
                 // Handle other exceptions
                 return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
-            }          
+            }
 
         }
 
@@ -213,7 +213,7 @@ namespace CarePro_Api.Controllers.Content
                 // Handle other exceptions
                 return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
             }
-            
+
 
         }
 
@@ -250,13 +250,13 @@ namespace CarePro_Api.Controllers.Content
                 // Handle other exceptions
                 return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
             }
-            
+
 
         }
 
         [HttpGet]
         [Route("gigId")]
-       // [Authorize(Roles = "Caregiver, Admin")]
+        // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetGigAsync(string gigId)
         {
             try
@@ -290,8 +290,8 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateGigStatusToPause/gigId")]
-       // [Authorize(Roles = "Caregiver, Admin")]
-        public async Task<ActionResult<string>> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest  updateGigStatusToPauseRequest)
+        // [Authorize(Roles = "Caregiver, Admin")]
+        public async Task<ActionResult<string>> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest)
         {
             try
             {
@@ -327,7 +327,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateGig/gigId")]
         // [Authorize(Roles = "Caregiver, Admin")]
-        public async Task<ActionResult<string>> UpdateGigAsync(string gigId, UpdateGigRequest  updateGigRequest)
+        public async Task<ActionResult<string>> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
         {
             try
             {
@@ -362,13 +362,13 @@ namespace CarePro_Api.Controllers.Content
 
         #region Validation
 
-        private async Task<bool> ValidateAddGigAsync(AddGigRequest  addGigRequest)
+        private async Task<bool> ValidateAddGigAsync(AddGigRequest addGigRequest)
         {
             if (addGigRequest == null)
             {
                 ModelState.AddModelError(nameof(addGigRequest), $" cannot be empty.");
                 return false;
-            }                     
+            }
 
 
             if (string.IsNullOrWhiteSpace(addGigRequest.Title))

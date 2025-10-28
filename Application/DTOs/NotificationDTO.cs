@@ -17,7 +17,7 @@ namespace Application.DTOs
         public string Title { get; set; }
         public bool IsRead { get; set; }
         public string? RelatedEntityId { get; set; }
-      //  public string? ReferenceType { get; set; }
+        //  public string? ReferenceType { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -33,23 +33,23 @@ namespace Application.DTOs
 
     public class AddNotificationRequest
     {
-      //  public ObjectId Id { get; set; }
+        //  public ObjectId Id { get; set; }
         public string RecipientId { get; set; } // User receiving the notification
         public string SenderId { get; set; } // User who triggered the notification (optional)
         public string Type { get; set; } // Message, Payment, etc.
         public string Content { get; set; } // Notification text
         public string? Title { get; set; } // Notification title
-       // public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-       // public bool IsRead { get; set; } = false;
+                                           // public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+                                           // public bool IsRead { get; set; } = false;
         public string RelatedEntityId { get; set; } // ID of message/payment/gig
 
 
 
-        
+
     }
 
     public class NotificationResponse
-    {     
+    {
         public string Id { get; set; }
         public string UserId { get; set; }
         public string UserFullName { get; set; }

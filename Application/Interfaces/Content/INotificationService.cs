@@ -11,11 +11,11 @@ namespace Application.Interfaces.Content
     public interface INotificationService
     {
         Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string Title, string relatedEntityId);
-       // Task<string> CCreateNotificationAsync(AddNotificationRequest addNotificationRequest );
+        // Task<string> CCreateNotificationAsync(AddNotificationRequest addNotificationRequest );
 
 
-       // Task<List<Notification>> GetUserNotificationsAsync(string userId);
-        Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId );
+        // Task<List<Notification>> GetUserNotificationsAsync(string userId);
+        Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId);
 
 
         Task<int> GetUnreadNotificationCountAsync(string userId);

@@ -34,7 +34,7 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-               // var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
                 var notifications = await _notificationService.GetUserNotificationsAsync(userId);
                 return Ok(notifications);
             }
@@ -51,7 +51,7 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-               // var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
                 var count = await _notificationService.GetUnreadNotificationCountAsync(userId);
                 return Ok(new { count });
             }
@@ -138,8 +138,8 @@ namespace CarePro_Api.Controllers.Content
 
         // POST: api/Notifications/
         [HttpPost]
-       // [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> CreateNotification([FromBody] AddNotificationRequest  addNotificationRequest)
+        // [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> CreateNotification([FromBody] AddNotificationRequest addNotificationRequest)
         {
             try
             {

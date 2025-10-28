@@ -75,6 +75,7 @@ jobs:
         echo "✅ Security audit passed"
 
     - name: Restore and build
+      working-directory: ./CarePro-Api
       run: |
         dotnet restore
         dotnet build --configuration Release --no-restore
@@ -454,7 +455,7 @@ jobs:
         chmod +x deployment/production/rollback.sh
 
     - name: Upload deployment package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: production-deployment-${{ github.sha }}
         path: deployment/

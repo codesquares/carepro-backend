@@ -9,11 +9,11 @@ namespace Application.Interfaces.Content
 {
     public interface IReviewService
     {
-        Task<string> CreateReviewAsync(AddReviewRequest addReviewRequest );
+        Task<string> CreateReviewAsync(AddReviewRequest addReviewRequest);
 
-        Task<IEnumerable<ReviewResponse>> GetAllGigReviewAsync(string gigId );
+        Task<IEnumerable<ReviewResponse>> GetAllGigReviewAsync(string gigId);
 
-        Task<ReviewResponse> GetGigReviewAsync(string reviewId );
+        Task<ReviewResponse> GetGigReviewAsync(string reviewId);
 
         Task<int> GetReviewCountAsync(string gigId);
 

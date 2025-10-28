@@ -32,6 +32,40 @@ appsettings*.json
 !appsettings.Development.json.template
 !appsettings.Production.json.template
 
+### Configuration Files
+appsettings*.json 
+CarePro-Api/appsettings.json 
+### AWS Files
+iam-policy-*.json
+ecs-*.json
+aws-secrets-setup.sh
+setup-iam-permissions.sh
+get-backend-url.sh
+get-test-ip.sh
+*-policy.json
+*-trust-policy.json
+
+### Build Artifacts
+bin/
+obj/
+*.dll
+*.pdb 
+
+### Deployment Files
+- `docker-deploy.sh` - May contain sensitive deployment info
+- `*-deployment.json` - Deployment configurations
+- `*-service-definition.json` - Service definitions
+
+### SSL/Security Files
+- `*.pfx`, `*.p12` - SSL certificates
+- `*.key`, `*.pem`, `*.crt` - Security keys and certificates
+
+### Documentation with Sensitive Info
+- `DEPLOYMENT-GUIDE.md` - Contains deployment secrets
+- `IAM-SETUP-GUIDE.md` - Contains AWS account information
+- `GET-PUBLIC-IP-INSTRUCTIONS.md` - Contains infrastructure details
+- `QUICK-IAM-SETUP.md` - Contains setup secrets
+
 # Environment files
 *.env
 *.env.local
