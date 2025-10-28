@@ -75,6 +75,7 @@ jobs:
         echo "✅ Security audit passed"
 
     - name: Restore and build
+      working-directory: ./CarePro-Api
       run: |
         dotnet restore
         dotnet build --configuration Release --no-restore

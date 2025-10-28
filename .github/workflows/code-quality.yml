@@ -36,6 +36,7 @@ jobs:
           ${{ runner.os }}-nuget-
 
     - name: Restore dependencies
+      working-directory: ./CarePro-Api
       run: dotnet restore
 
     - name: Install code analysis tools
@@ -45,9 +46,11 @@ jobs:
         # Add more analysis tools as needed
 
     - name: Build solution
+      working-directory: ./CarePro-Api
       run: dotnet build --no-restore --configuration Release --verbosity normal
 
     - name: Code formatting check
+      working-directory: ./CarePro-Api
       run: |
         echo "🔍 Checking code formatting..."
         dotnet format --verify-no-changes --verbosity diagnostic
@@ -119,6 +122,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      working-directory: ./CarePro-Api
+      run: dotnet restore
+
     - name: Analyze project structure
       run: |
         echo "🏗️ Analyzing project architecture..."
@@ -131,13 +143,19 @@ jobs:
         if [ -d "Domain" ] && [ -d "Application" ] && [ -d "Infrastructure" ]; then
           echo "✅ Clean Architecture layers present"
           
-          # Check for circular dependencies (simple check)
-          if grep -E "error CS[0-9]+|error MSB[0-9]+|: error [A-Z]+" build-warnings.txt; then
-            echo "❌ Build errors found!"
+          # Quick build validation (errors only, not warnings)
+          echo "🔍 Validating build integrity..."
+          cd CarePro-Api
+          if dotnet build --configuration Release --verbosity quiet --no-restore > /dev/null 2>&1; then
+            echo "✅ Build validation passed"
+          else
+            echo "❌ Build errors detected in architecture analysis!"
+            echo "Please check the main CI pipeline for detailed error information."
             exit 1
           fi
+          cd ..
           
-          echo "⚠️ Build completed with warnings - acceptable for now"
+          echo "✅ Architecture validation completed"
           
           echo "✅ No obvious circular dependencies detected"
         else
@@ -288,6 +306,7 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Build in Release mode
+      working-directory: ./CarePro-Api
       run: |
         dotnet restore
         dotnet build --configuration Release --no-restore

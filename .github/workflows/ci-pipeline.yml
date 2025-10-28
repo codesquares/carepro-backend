@@ -40,6 +40,7 @@ jobs:
       run: dotnet restore
 
     - name: Check for security vulnerabilities in packages
+      working-directory: ./CarePro-Api
       run: |
         dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerability-report.txt
         if grep -q "has the following vulnerable packages" vulnerability-report.txt; then
@@ -123,6 +124,7 @@ jobs:
         echo "✅ Configuration validation passed"
 
     - name: Code formatting check
+      working-directory: ./CarePro-Api
       run: |
         echo "🔍 Checking code formatting..."
         dotnet format --verify-no-changes --verbosity diagnostic || true
