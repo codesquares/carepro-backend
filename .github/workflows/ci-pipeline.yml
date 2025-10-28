@@ -59,8 +59,8 @@ jobs:
       run: |
         dotnet build --configuration Release --verbosity normal 2>&1 | tee build-warnings.txt
         
-        # Check for high-severity warnings
-        if grep -E "(error|Error)" build-warnings.txt; then
+        # Check for actual build errors (not our own echo messages)
+        if grep -E "error CS[0-9]+|error MSB[0-9]+|: error [A-Z]+" build-warnings.txt; then
           echo "❌ Build errors found!"
           exit 1
         fi
@@ -266,6 +266,7 @@ jobs:
       run: dotnet tool install --global dotnet-outdated-tool
 
     - name: Check for outdated packages
+      working-directory: ./CarePro-Api
       run: |
         echo "🔍 Checking for outdated packages..."
         
@@ -277,6 +278,7 @@ jobs:
         echo "✅ Dependency check completed (warnings only)"
 
     - name: Audit for known vulnerabilities
+      working-directory: ./CarePro-Api
       run: |
         # This will be replaced with proper security audit when available
         echo "🔍 Checking for known vulnerabilities in dependencies..."

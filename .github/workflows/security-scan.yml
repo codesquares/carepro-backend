@@ -32,6 +32,7 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore packages
+      working-directory: ./CarePro-Api
       run: dotnet restore
 
     - name: Check for vulnerable packages
