@@ -8,7 +8,6 @@ using Domain;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Infrastructure.Services;
-using Microsoft.AspNet.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
