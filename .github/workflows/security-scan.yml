@@ -327,6 +327,10 @@ jobs:
     name: Docker Security Scan
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     
     steps:
     - name: Checkout code
