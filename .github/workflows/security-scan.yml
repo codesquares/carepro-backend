@@ -52,9 +52,10 @@ jobs:
         done
         
         if [ "$VULNERABILITY_FOUND" = true ]; then
-          echo "⚠️ Package compatibility warnings detected!"
-          echo "Note: These are primarily .NET Framework compatibility warnings in .NET 8 project."
-          echo "Please review and update packages when possible, but not blocking merge."
+          echo "⚠️ Package issues detected!"
+          echo "Please review the above list of packages and update them as needed."
+          echo "Note: Some may be compatibility warnings (.NET Framework in .NET 8), others may be security risks."
+          echo "Please review carefully and update vulnerable packages as soon as possible."
         else
           echo "✅ No vulnerable packages found"
         fi

@@ -132,7 +132,7 @@ jobs:
           echo "✅ Clean Architecture layers present"
           
           # Check for circular dependencies (simple check)
-          if grep -E "(error|Error)" build-warnings.txt; then
+          if grep -E "error CS[0-9]+|error MSB[0-9]+|: error [A-Z]+" build-warnings.txt; then
             echo "❌ Build errors found!"
             exit 1
           fi
