@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Domain;
@@ -29,14 +30,16 @@ namespace Infrastructure.Content.Services
         private readonly ITokenHandler tokenHandler;
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
+        private readonly IOriginValidationService originValidationService;
 
-        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration)
+        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
+            this.originValidationService = originValidationService;
         }
 
         public async Task<ClientDTO> CreateClientUserAsync(AddClientUserRequest addClientUserRequest, string? origin)
@@ -137,7 +140,7 @@ namespace Infrastructure.Content.Services
         // Detect if request is coming from frontend or not
         private bool IsFrontendOrigin(string origin)
         {
-            return origin.Contains("localhost:5173") || origin.Contains("onrender.com");
+            return originValidationService.IsFrontendOrigin(origin);
         }
 
 

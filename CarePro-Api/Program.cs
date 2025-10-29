@@ -1,6 +1,7 @@
 using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Authentication;
+using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using CloudinaryDotNet;
@@ -10,6 +11,7 @@ using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
 using Infrastructure.Content.Services.Authentication;
 using Infrastructure.Services;
+using Infrastructure.Services.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -129,6 +131,9 @@ builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
 
 
 builder.Services.AddScoped<ITokenHandler, Infrastructure.Content.Services.Authentication.TokenHandler>();
+
+// Add Origin Validation Service
+builder.Services.AddScoped<IOriginValidationService, OriginValidationService>();
 
 // Add SignalR
 builder.Services.AddSignalR();
