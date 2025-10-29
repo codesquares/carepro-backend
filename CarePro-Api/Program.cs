@@ -42,6 +42,8 @@ builder.Services.Configure<JWT>(builder.Configuration.GetSection("JWT"));
 
 
 
+
+
 builder.Services.Configure<DataProtectionTokenProviderOptions>(options =>
 {
     options.TokenLifespan = TimeSpan.FromHours(2); // Set token lifespan here
