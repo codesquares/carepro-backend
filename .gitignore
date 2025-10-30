@@ -190,3 +190,13 @@ coverage/
 DEPLOYMENT-*.md
 IAM-*.md
 QUICK-*.md
+
+# Dojah migration guide with sensitive configuration
+DOJAH_WEBHOOK_MIGRATION_GUIDE.md
+
+# AuthService backup files
+*AuthService*backup*
+*AuthService*BACKUP*
+AuthService*.bak
+AuthService_BACKUP.*
+backup/AuthService*

@@ -33,16 +33,22 @@ namespace Infrastructure.Content.Services.Authentication
             claims.Add(new Claim(ClaimTypes.Email, appUserDTO.Email));
             claims.Add(new Claim(ClaimTypes.Role, appUserDTO.Role));
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]));
+            // Get JWT configuration with null checks
+            var jwtKey = configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not found in configuration");
+            var jwtIssuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found in configuration");
+            var jwtAudience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("JWT Audience not found in configuration");
+
+            if (string.IsNullOrEmpty(jwtKey))
+                throw new InvalidOperationException("JWT Key cannot be null or empty");
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
-                configuration["Jwt:Issuer"],
-                configuration["Jwt:Audience"],
+                jwtIssuer,
+                jwtAudience,
                 claims,
                 expires: DateTime.Now.AddMinutes(40),
-
-
                 signingCredentials: credentials);
 
             return Task.FromResult(new JwtSecurityTokenHandler().WriteToken(token));

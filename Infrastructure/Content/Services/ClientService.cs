@@ -58,10 +58,10 @@ namespace Infrastructure.Content.Services
             /// CONVERT DTO TO DOMAIN OBJECT            
             var clientUser = new Client
             {
-                FirstName = addClientUserRequest.FirstName,
+                FirstName = addClientUserRequest.FirstName ?? string.Empty,
                 MiddleName = addClientUserRequest.MiddleName,
-                LastName = addClientUserRequest.LastName,
-                Email = addClientUserRequest.Email.ToLower(),
+                LastName = addClientUserRequest.LastName ?? string.Empty,
+                Email = addClientUserRequest.Email?.ToLower() ?? throw new ArgumentException("Email is required"),
                 Password = hashedPassword,
                 HomeAddress = addClientUserRequest.HomeAddress,
 
@@ -103,18 +103,18 @@ namespace Infrastructure.Content.Services
             var token = tokenHandler.GenerateEmailVerificationToken(
                 careProAppUser.AppUserId.ToString(),
                 careProAppUser.Email,
-                jwtSecretKey // inject or get from config
+                jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
             );
 
             string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
+            verificationLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
             await emailService.SendSignUpVerificationEmailAsync(
                 careProAppUser.Email,
                 verificationLink,
-                careProAppUser.FirstName
+                careProAppUser.FirstName ?? "User"
             );
 
             #endregion SendVerificationEmail
@@ -200,7 +200,7 @@ namespace Infrastructure.Content.Services
         {
             var jwtSecret = configuration["JwtSettings:Secret"];
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(jwtSecret);
+            var key = Encoding.UTF8.GetBytes(jwtSecret ?? throw new InvalidOperationException("JWT Secret Key is not configured"));
 
             try
             {
@@ -271,11 +271,11 @@ namespace Infrastructure.Content.Services
             var token = tokenHandler.GenerateEmailVerificationToken(
                 user.AppUserId.ToString(),
                 user.Email,
-                jwtSecretKey
+                jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
             );
 
             string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
+            verificationLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
@@ -370,9 +370,9 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
 
-            existingClient.FirstName = updateClientUserRequest.FirstName;
+            existingClient.FirstName = updateClientUserRequest.FirstName ?? existingClient.FirstName;
             existingClient.MiddleName = updateClientUserRequest.MiddleName;
-            existingClient.LastName = updateClientUserRequest.LastName;
+            existingClient.LastName = updateClientUserRequest.LastName ?? existingClient.LastName;
             existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
 
             existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
@@ -448,6 +448,9 @@ namespace Infrastructure.Content.Services
 
         public async Task ChangePasswordAsync(ResetPasswordRequest resetPasswordRequest)
         {
+            if (string.IsNullOrEmpty(resetPasswordRequest.Email))
+                throw new ArgumentException("Email is required.");
+
             var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == resetPasswordRequest.Email.ToLower());
 
             if (user == null)
@@ -470,6 +473,9 @@ namespace Infrastructure.Content.Services
 
         public async Task GeneratePasswordResetTokenAsync(PasswordResetRequestDto passwordResetRequestDto, string? origin)
         {
+            if (string.IsNullOrEmpty(passwordResetRequestDto.Email))
+                throw new ArgumentException("Email is required.");
+
             var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == passwordResetRequestDto.Email.ToLower());
 
             if (user == null)
@@ -479,17 +485,17 @@ namespace Infrastructure.Content.Services
 
             // Build the full reset link (example frontend route)
             string resetLink;
-            resetLink = IsFrontendOrigin(origin)
+            resetLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
-            await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
+            await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName ?? "User");
         }
 
         public async Task ResetPasswordWithJwtAsync(PasswordResetDto request)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"]);
+            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret Key is not configured"));
 
             try
             {

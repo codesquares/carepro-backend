@@ -9,6 +9,7 @@ using Domain.Entities;
 using Domain.Settings;
 using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
+using MongoDB.Driver;
 using Infrastructure.Content.Services.Authentication;
 using Infrastructure.Services;
 using Infrastructure.Services.Common;
@@ -17,7 +18,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using MongoDB.Driver;
 using Serilog;
 using System.Text;
 
@@ -29,11 +29,15 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
-    ?? "mongodb://localhost:27017";
+    ?? "mongodb://localhost:27017/CarePro_Local_DB";
+
+// Extract database name from connection string
+var mongoUrl = new MongoUrl(connectionString);
+var databaseName = mongoUrl.DatabaseName ?? "CarePro_Local_DB";
 
 builder.Services.AddDbContext<CareProDbContext>(options =>
 {
-    options.UseMongoDB(connectionString, "Care-pro_db");
+    options.UseMongoDB(connectionString, databaseName);
 });
 
 /// Configure JWT
@@ -124,6 +128,15 @@ builder.Services.AddHttpClient<GeocodingService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
 builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
+
+// Order Tasks services (Enhanced Contract Generation feature)
+builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
+
+// Dojah webhook services
+builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
+builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
+builder.Services.AddScoped<IDojahDataFormattingService, DojahDataFormattingService>();
+builder.Services.AddMemoryCache();
 
 builder.Services.AddHostedService<DailyEarningService>();
 builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
@@ -217,7 +230,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 builder.Services.AddScoped(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
-    var database = client.GetDatabase("Care-pro_db"); // Replace with your actual DB name
+    var database = client.GetDatabase(databaseName);
     return database;
 });
 
@@ -311,6 +324,5 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
-
 
 app.Run();

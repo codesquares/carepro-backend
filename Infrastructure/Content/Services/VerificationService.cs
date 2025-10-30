@@ -128,5 +128,43 @@ namespace Infrastructure.Content.Services
             return $"Verification with ID '{verificationId}' Updated successfully.";
 
         }
+
+        public async Task<VerificationResponse?> GetUserVerificationStatusAsync(string userId)
+        {
+            try
+            {
+                var verification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId.ToString() == userId);
+
+                if (verification == null)
+                {
+                    return null;
+                }
+
+                var verificationResponse = new VerificationResponse()
+                {
+                    VerificationId = verification.VerificationId.ToString(),
+                    UserId = verification.UserId,
+                    VerificationMethod = verification.VerificationMethod,
+                    VerificationNo = verification.VerificationNo,
+                    VerificationStatus = verification.VerificationStatus,
+                    IsVerified = verification.IsVerified,
+                    VerifiedOn = verification.VerifiedOn,
+                    UpdatedOn = verification.UpdatedOn,
+                };
+
+                return verificationResponse;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting verification status for user: {UserId}", userId);
+                return null;
+            }
+        }
+
+        public async Task<string> AddVerificationAsync(AddVerificationRequest addVerificationRequest)
+        {
+            // This is a wrapper around CreateVerificationAsync for Dojah webhook compatibility
+            return await CreateVerificationAsync(addVerificationRequest);
+        }
     }
 }

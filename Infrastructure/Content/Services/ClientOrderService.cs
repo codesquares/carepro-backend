@@ -24,6 +24,8 @@ namespace Infrastructure.Content.Services
         private readonly IClientService clientService;
         private readonly ILogger<GigServices> logger;
         private readonly INotificationService notificationService;
+        private readonly IOrderTasksService orderTasksService;
+        private readonly IContractService contractService;
 
         public ClientOrderService(
             CareProDbContext careProDbContext,
@@ -31,7 +33,9 @@ namespace Infrastructure.Content.Services
             ICareGiverService careGiverService,
             IClientService clientService,
             ILogger<GigServices> logger,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            IOrderTasksService orderTasksService,
+            IContractService contractService)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
@@ -39,19 +43,37 @@ namespace Infrastructure.Content.Services
             this.clientService = clientService;
             this.logger = logger;
             this.notificationService = notificationService;
+            this.orderTasksService = orderTasksService;
+            this.contractService = contractService;
         }
 
         public async Task<Result<ClientOrderDTO>> CreateClientOrderAsync(AddClientOrderRequest addClientOrderRequest)
         {
             var errors = new List<string>();
 
-            var client = await clientService.GetClientUserAsync(addClientOrderRequest.ClientId);
+            // Add null checks for required parameters
+            if (string.IsNullOrEmpty(addClientOrderRequest.ClientId))
+            {
+                errors.Add("ClientId is required.");
+            }
+
+            if (string.IsNullOrEmpty(addClientOrderRequest.GigId))
+            {
+                errors.Add("GigId is required.");
+            }
+
+            if (errors.Any())
+            {
+                return Result<ClientOrderDTO>.Failure(errors);
+            }
+
+            var client = await clientService.GetClientUserAsync(addClientOrderRequest.ClientId!);
             if (client == null)
             {
                 errors.Add("The ClientID entered is not a valid ID.");
             }
 
-            var gig = await gigServices.GetGigAsync(addClientOrderRequest.GigId);
+            var gig = await gigServices.GetGigAsync(addClientOrderRequest.GigId!);
             if (gig == null)
             {
                 errors.Add("The GigID entered is not a valid ID.");
@@ -62,14 +84,14 @@ namespace Infrastructure.Content.Services
                 return Result<ClientOrderDTO>.Failure(errors);
             }
 
-            // Convert DTO to domain object            
+            // Convert DTO to domain object (we've already validated that client and gig are not null)           
             var clientOrder = new ClientOrder
             {
-                ClientId = client.Id,
-                GigId = gig.Id,
-                PaymentOption = addClientOrderRequest.PaymentOption,
+                ClientId = client!.Id ?? throw new InvalidOperationException("Client ID cannot be null"),
+                GigId = gig!.Id,
+                PaymentOption = addClientOrderRequest.PaymentOption ?? string.Empty,
                 Amount = addClientOrderRequest.Amount,
-                TransactionId = addClientOrderRequest.TransactionId,
+                TransactionId = addClientOrderRequest.TransactionId ?? string.Empty,
 
                 // Assign new ID
                 Id = ObjectId.GenerateNewId(),
@@ -83,15 +105,42 @@ namespace Infrastructure.Content.Services
             await careProDbContext.ClientOrders.AddAsync(clientOrder);
             await careProDbContext.SaveChangesAsync();
 
+            // Link OrderTasks to the created ClientOrder
+            try
+            {
+                if (!string.IsNullOrEmpty(addClientOrderRequest.OrderTasksId))
+                {
+                    var orderTasksLinked = await orderTasksService.LinkToClientOrderAsync(
+                        addClientOrderRequest.OrderTasksId, 
+                        clientOrder.Id.ToString());
+                    
+                    if (orderTasksLinked)
+                    {
+                        await orderTasksService.MarkAsPaidAsync(
+                            addClientOrderRequest.OrderTasksId, 
+                            clientOrder.Id.ToString());
+
+                        // Trigger contract generation using OrderTasks data
+                        await TriggerContractGenerationAsync(addClientOrderRequest.OrderTasksId, addClientOrderRequest.TransactionId ?? string.Empty);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error linking OrderTasks or generating contract for ClientOrder {ClientOrderId}", 
+                    clientOrder.Id.ToString());
+                // Don't fail the order creation, but log the error
+            }
+
             // Create notification for the caregiver
             var caregiver = await careGiverService.GetCaregiverUserAsync(clientOrder.CaregiverId);
             if (caregiver != null)
             {
-                string notificationContent = $"New order received for your service: {gig.Title} - Amount: ${clientOrder.Amount}";
+                string notificationContent = $"New order received for your service: {gig!.Title} - Amount: ${clientOrder.Amount}";
 
                 await notificationService.CreateNotificationAsync(
                     clientOrder.CaregiverId,
-                    clientOrder.ClientId,
+                    clientOrder.ClientId ?? string.Empty,
                     "Payment",
                     notificationContent,
                     "New Order Received",
@@ -112,6 +161,31 @@ namespace Infrastructure.Content.Services
             };
 
             return Result<ClientOrderDTO>.Success(clientOrderDTO);
+        }
+
+        /// <summary>
+        /// Triggers contract generation using OrderTasks data for richer contract content
+        /// </summary>
+        private async Task TriggerContractGenerationAsync(string orderTasksId, string transactionId)
+        {
+            try
+            {
+                // Prepare contract data from OrderTasks
+                var contractData = await orderTasksService.PrepareContractDataAsync(orderTasksId, transactionId);
+                
+                // Generate the contract using the existing GenerateContractAsync method
+                await contractService.GenerateContractAsync(contractData);
+                
+                // Mark OrderTasks as contract generated
+                await orderTasksService.MarkAsContractGeneratedAsync(orderTasksId);
+                
+                logger.LogInformation("Contract generated successfully for OrderTasks {OrderTasksId}", orderTasksId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to generate contract for OrderTasks {OrderTasksId}", orderTasksId);
+                throw; // Re-throw to be handled by caller
+            }
         }
 
 

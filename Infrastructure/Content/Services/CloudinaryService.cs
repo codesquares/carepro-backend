@@ -100,7 +100,7 @@ namespace Infrastructure.Content.Services
                 return uploadResult.SecureUrl.AbsoluteUri;
             }
 
-            throw new Exception("Image upload failed.");
+            throw new Exception($"Image upload failed. Status: {uploadResult.StatusCode}, Error: {uploadResult.Error?.Message}");
         }
 
 

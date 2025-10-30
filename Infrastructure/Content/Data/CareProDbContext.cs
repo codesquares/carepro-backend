@@ -29,8 +29,17 @@ namespace Infrastructure.Content.Data
             Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
 
             modelBuilder.Entity<Caregiver>().ToCollection("CareGivers");
+            modelBuilder.Entity<Caregiver>().HasKey(c => c.Id);
+            modelBuilder.Entity<Caregiver>().Property(c => c.Id).HasElementName("_id");
             modelBuilder.Entity<AppUser>().ToCollection("AppUsers");
+            modelBuilder.Entity<AppUser>().HasKey(a => a.Id);
+            modelBuilder.Entity<AppUser>().Property(a => a.Id).HasElementName("_id");
             modelBuilder.Entity<Client>().ToCollection("Clients");
+            modelBuilder.Entity<Client>().HasKey(cl => cl.Id);
+            modelBuilder.Entity<Client>().Property(cl => cl.Id).HasElementName("_id");
+            modelBuilder.Entity<AdminUser>().ToCollection("AdminUsers");
+            modelBuilder.Entity<AdminUser>().HasKey(au => au.Id);
+            modelBuilder.Entity<AdminUser>().Property(au => au.Id).HasElementName("_id");
             modelBuilder.Entity<Gig>().ToCollection("Gigs");
             modelBuilder.Entity<ClientOrder>().ToCollection("ClientOrders");
             modelBuilder.Entity<Certification>().ToCollection("Certifications");
@@ -50,6 +59,7 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
+            modelBuilder.Entity<OrderTasks>().ToCollection("OrderTasks");
 
         }
 
@@ -72,5 +82,6 @@ namespace Infrastructure.Content.Data
         public DbSet<Review> Reviews { get; set; }
         public DbSet<Location> Locations { get; set; }
         public DbSet<Contract> Contracts { get; set; }
+        public DbSet<OrderTasks> OrderTasks { get; set; }
     }
 }
