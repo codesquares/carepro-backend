@@ -18,18 +18,18 @@ namespace Infrastructure.Services.Common
             var idData = webhook.Data?.Id?.Data;
 
             // Get BVN information if available
-            if (governmentData?.Bvn?.Entity != null)
+            if (governmentData?.Data?.Bvn?.Entity != null)
             {
-                var bvnEntity = governmentData.Bvn.Entity;
+                var bvnEntity = governmentData.Data.Bvn.Entity;
                 verificationNo = bvnEntity.Bvn;
                 verificationMethod = "BVN";
                 firstName = bvnEntity.FirstName?.Trim() ?? "";
                 lastName = bvnEntity.LastName?.Trim() ?? "";
             }
             // Get NIN information if no BVN found
-            else if (governmentData?.Nin?.Entity != null)
+            else if (governmentData?.Data?.Nin?.Entity != null)
             {
-                var ninEntity = governmentData.Nin.Entity;
+                var ninEntity = governmentData.Data.Nin.Entity;
                 verificationNo = ninEntity.Nin;
                 verificationMethod = "NIN";
                 firstName = ninEntity.FirstName?.Trim() ?? "";
@@ -44,10 +44,10 @@ namespace Infrastructure.Services.Common
             }
 
             // Fallback to ID data if still not available
-            if (string.IsNullOrEmpty(firstName) && idData != null)
+            if (string.IsNullOrEmpty(firstName) && idData?.IdData != null)
             {
-                firstName = idData.FirstName ?? "";
-                lastName = idData.LastName?.Replace(",", "") ?? "";
+                firstName = idData.IdData.FirstName ?? "";
+                lastName = idData.IdData.LastName?.Replace(",", "") ?? "";
             }
 
             // Get verification method from main webhook data if not found

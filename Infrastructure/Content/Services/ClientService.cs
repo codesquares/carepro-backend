@@ -96,28 +96,51 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
+            #region EmailVerificationHandling
 
-            #region SendVerificationEmail
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                careProAppUser.AppUserId.ToString(),
-                careProAppUser.Email,
-                jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
-            );
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                careProAppUser.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(careProAppUser);
+                await careProDbContext.SaveChangesAsync();
+            }
+            else
+            {
+                // Production/staging: Send verification email
+                try
+                {
+                    var jwtSecretKey = configuration["JwtSettings:Secret"];
+                    var token = tokenHandler.GenerateEmailVerificationToken(
+                        careProAppUser.AppUserId.ToString(),
+                        careProAppUser.Email,
+                        jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
+                    );
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin ?? string.Empty)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                    string verificationLink;
+                    verificationLink = IsFrontendOrigin(origin ?? string.Empty)
+                        ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                        : $"{origin}/api/Clients/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                careProAppUser.Email,
-                verificationLink,
-                careProAppUser.FirstName ?? "User"
-            );
+                    await emailService.SendSignUpVerificationEmailAsync(
+                        careProAppUser.Email,
+                        verificationLink,
+                        careProAppUser.FirstName ?? "User"
+                    );
+                }
+                catch (Exception emailEx)
+                {
+                    // Log email error but don't fail the registration
+                    System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                }
+            }
 
-            #endregion SendVerificationEmail
+            #endregion EmailVerificationHandling
 
 
 
@@ -263,33 +286,52 @@ namespace Infrastructure.Content.Services
             if (user.EmailConfirmed)
                 return "Email already confirmed";
 
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
+
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                user.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(user);
+                await careProDbContext.SaveChangesAsync();
+                return "Email confirmed automatically in development environment.";
+            }
 
             #region SendVerificationEmail
 
+            try
+            {
+                var jwtSecretKey = configuration["JwtSettings:Secret"];
+                var token = tokenHandler.GenerateEmailVerificationToken(
+                    user.AppUserId.ToString(),
+                    user.Email,
+                    jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
+                );
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                user.AppUserId.ToString(),
-                user.Email,
-                jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
-            );
+                string verificationLink;
+                verificationLink = IsFrontendOrigin(origin ?? string.Empty)
+                    ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                    : $"{origin}/api/Clients/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin ?? string.Empty)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                await emailService.SendSignUpVerificationEmailAsync(
+                    user.Email,
+                    verificationLink,
+                    user.FirstName + " " + user.LastName
+                );
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                user.Email,
-                verificationLink,
-                user.FirstName + " " + user.LastName
-            );
+                return "A new confirmation link has been sent to your email.";
+            }
+            catch (Exception emailEx)
+            {
+                // Log email error but don't fail completely
+                System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                return "Failed to send confirmation email. Please try again later.";
+            }
 
             #endregion
-
-
-
-            return "A new confirmation link has been sent to your email.";
         }
 
 

@@ -136,6 +136,8 @@ builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
 builder.Services.AddScoped<IDojahDataFormattingService, DojahDataFormattingService>();
+builder.Services.AddScoped<IDojahApiService, DojahApiService>();
+builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHostedService<DailyEarningService>();
