@@ -66,7 +66,7 @@ namespace CarePro_Api.Controllers.Content
             {
                 // Log the full exception details for debugging
                 logger.LogError(ex, "An unexpected error occurred while creating gig");
-                
+
                 // Return only safe error information to client
                 return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }

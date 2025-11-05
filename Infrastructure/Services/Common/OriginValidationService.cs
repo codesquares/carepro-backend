@@ -23,17 +23,17 @@ namespace Infrastructure.Services.Common
                 return false;
 
             // Get allowed frontend origins from configuration with fallback defaults
-            var allowedOrigins = configuration.GetSection("AllowedFrontendOrigins").Get<string[]>() 
-                ?? new[] { 
-                    "localhost:5173", 
-                    "localhost:5174", 
-                    "onrender.com", 
-                    "oncarepro.com", 
-                    "awsapprunner.com", 
-                    "amazonaws.com" 
+            var allowedOrigins = configuration.GetSection("AllowedFrontendOrigins").Get<string[]>()
+                ?? new[] {
+                    "localhost:5173",
+                    "localhost:5174",
+                    "onrender.com",
+                    "oncarepro.com",
+                    "awsapprunner.com",
+                    "amazonaws.com"
                 };
 
-            return allowedOrigins.Any(allowedOrigin => 
+            return allowedOrigins.Any(allowedOrigin =>
                 origin.Contains(allowedOrigin, StringComparison.OrdinalIgnoreCase));
         }
     }

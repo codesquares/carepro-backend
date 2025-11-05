@@ -10,29 +10,29 @@ namespace Domain.Entities
         public string ClientId { get; set; } = string.Empty;
         public string GigId { get; set; } = string.Empty;
         public string CaregiverId { get; set; } = string.Empty;
-        
+
         // Package Selection
         public PackageSelection PackageSelection { get; set; } = new PackageSelection();
-        
+
         // Detailed Care Tasks
         public List<CareTask> CareTasks { get; set; } = new List<CareTask>();
-        
+
         // Additional Requirements
         public string? SpecialInstructions { get; set; }
         public List<string> PreferredTimes { get; set; } = new List<string>();
         public List<string> EmergencyContacts { get; set; } = new List<string>();
-        
+
         // Pricing
         public decimal TotalAmount { get; set; }
         public decimal EstimatedCostPerVisit { get; set; }
         public decimal EstimatedWeeklyCost { get; set; }
-        
+
         // Status Tracking
         public OrderTasksStatus Status { get; set; } = OrderTasksStatus.Draft;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? CompletedAt { get; set; }
         public DateTime? PaidAt { get; set; }
-        
+
         // Order Reference (after payment)
         public string? ClientOrderId { get; set; }
     }

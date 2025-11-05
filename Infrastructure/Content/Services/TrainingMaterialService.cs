@@ -89,7 +89,7 @@ namespace Infrastructure.Content.Services
                 await _context.TrainingMaterials.AddAsync(trainingMaterial);
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation("Training material '{Title}' uploaded successfully with ID: {Id}", 
+                _logger.LogInformation("Training material '{Title}' uploaded successfully with ID: {Id}",
                     request.Title, trainingMaterial.Id);
 
                 return new TrainingMaterialUploadResponse
@@ -106,7 +106,7 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error uploading training material: {Title}", request.Title);
-                
+
                 return new TrainingMaterialUploadResponse
                 {
                     Success = false,
@@ -200,7 +200,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting active training material for user type: {UserType}, material type: {MaterialType}", 
+                _logger.LogError(ex, "Error getting active training material for user type: {UserType}, material type: {MaterialType}",
                     userType, materialType);
                 throw;
             }
@@ -335,7 +335,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var materials = await _context.TrainingMaterials
-                    .Where(tm => tm.Title.Contains(searchTerm) 
+                    .Where(tm => tm.Title.Contains(searchTerm)
                                  || (tm.Description != null && tm.Description.Contains(searchTerm))
                                  || tm.FileName.Contains(searchTerm))
                     .OrderByDescending(tm => tm.CreatedAt)

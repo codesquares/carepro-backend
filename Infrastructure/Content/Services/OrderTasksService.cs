@@ -67,7 +67,7 @@ namespace Infrastructure.Content.Services
                 await _context.OrderTasks.AddAsync(orderTasks);
                 await _context.SaveChangesAsync();
 
-                _logger.LogInformation("OrderTasks {OrderTasksId} created for Client {ClientId}", 
+                _logger.LogInformation("OrderTasks {OrderTasksId} created for Client {ClientId}",
                     orderTasks.Id, request.ClientId);
 
                 return await MapToResponseDTOAsync(orderTasks);
@@ -278,7 +278,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error linking OrderTasks {OrderTasksId} to ClientOrder {ClientOrderId}", 
+                _logger.LogError(ex, "Error linking OrderTasks {OrderTasksId} to ClientOrder {ClientOrderId}",
                     orderTasksId, clientOrderId);
                 return false;
             }
@@ -344,7 +344,7 @@ namespace Infrastructure.Content.Services
 
             // Calculate complexity multiplier based on tasks
             var complexityMultiplier = CalculateTaskComplexityMultiplier(orderTasks.CareTasks);
-            
+
             // Calculate frequency discount
             var frequencyDiscount = CalculateFrequencyDiscount(visitsPerWeek);
 
@@ -420,7 +420,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating OrderTasks {OrderTasksId} status to {Status}", 
+                _logger.LogError(ex, "Error updating OrderTasks {OrderTasksId} status to {Status}",
                     orderTasksId, status);
                 return false;
             }

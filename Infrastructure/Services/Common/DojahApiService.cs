@@ -44,12 +44,12 @@ namespace Infrastructure.Services.Common
                 // Build query string
                 var queryParams = new List<string>();
                 if (!string.IsNullOrEmpty(term)) queryParams.Add($"term={Uri.EscapeDataString(term)}");
-                if (!string.IsNullOrEmpty(start)) 
+                if (!string.IsNullOrEmpty(start))
                 {
                     var formattedStart = ConvertToRequestedDateFormat(start);
                     queryParams.Add($"start={Uri.EscapeDataString(formattedStart)}");
                 }
-                if (!string.IsNullOrEmpty(end)) 
+                if (!string.IsNullOrEmpty(end))
                 {
                     var formattedEnd = ConvertToRequestedDateFormat(end);
                     queryParams.Add($"end={Uri.EscapeDataString(formattedEnd)}");

@@ -58,7 +58,7 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
         public string? ClientOrderId { get; set; }
-        
+
         // Additional context data
         public GigSummaryDTO? GigDetails { get; set; }
         public CaregiverSummaryDTO? CaregiverDetails { get; set; }

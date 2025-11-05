@@ -383,10 +383,11 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Updating location for caregiver with ID: {caregiverId}");
                 var result = await careGiverService.UpdateCaregiverLocationAsync(caregiverId, request);
-                return Ok(new { 
-                    success = true, 
+                return Ok(new
+                {
+                    success = true,
                     message = "Caregiver location updated successfully",
-                    data = result 
+                    data = result
                 });
             }
             catch (ArgumentException ex)

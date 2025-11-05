@@ -24,10 +24,10 @@ namespace Infrastructure.Content.Services
             _cloudinary = cloudinary;
             _cloudinary.Api.Secure = true;
             _httpClient = new HttpClient();
-            
+
             // Extract cloud name from the cloudinary instance
             _cloudName = ExtractCloudName(cloudinary);
-            
+
             // Store API credentials for authenticated requests
             var settings = cloudinarySettings.Value;
             _apiKey = settings.ApiKey ?? throw new InvalidOperationException("Cloudinary API Key is required");
@@ -52,7 +52,7 @@ namespace Infrastructure.Content.Services
             {
                 // Fallback - this should be set from configuration
             }
-            
+
             return "dkqnmjhkh"; // Your actual cloud name from configuration
         }
 
@@ -158,7 +158,7 @@ namespace Infrastructure.Content.Services
         public async Task<(string Url, string PublicId)> UploadPdfAsync(byte[] pdfBytes, string fileName)
         {
             using var stream = new MemoryStream(pdfBytes);
-            
+
             // Use RawUploadParams but try different settings to ensure public access
             var uploadParams = new RawUploadParams
             {
@@ -179,7 +179,7 @@ namespace Infrastructure.Content.Services
                 // Log the URL for debugging
                 Console.WriteLine($"Cloudinary Upload Success - URL: {uploadResult.SecureUrl}");
                 Console.WriteLine($"Cloudinary Upload Success - PublicId: {uploadResult.PublicId}");
-                
+
                 return (uploadResult.SecureUrl.AbsoluteUri, uploadResult.PublicId);
             }
 
@@ -194,27 +194,27 @@ namespace Infrastructure.Content.Services
             try
             {
                 Console.WriteLine($"Attempting to download from URL: {cloudinaryUrl}");
-                
+
                 using var httpClient = new HttpClient();
-                
+
                 // Add a timeout to prevent hanging
                 httpClient.Timeout = TimeSpan.FromMinutes(2);
-                
+
                 var response = await httpClient.GetAsync(cloudinaryUrl);
-                
+
                 Console.WriteLine($"Response Status: {response.StatusCode}");
                 Console.WriteLine($"Response Headers: {response.Headers}");
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     var fileBytes = await response.Content.ReadAsByteArrayAsync();
                     Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes");
                     return fileBytes;
                 }
-                
+
                 var errorContent = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"Error Response Content: {errorContent}");
-                
+
                 throw new HttpRequestException($"HTTP {response.StatusCode}: {errorContent}");
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("401"))
@@ -238,10 +238,10 @@ namespace Infrastructure.Content.Services
             {
                 // For raw files, create a manual signed URL since the SDK might not support it fully
                 var timestamp = DateTimeOffset.UtcNow.AddMinutes(expirationMinutes).ToUnixTimeSeconds();
-                
+
                 // Try the basic URL first
                 var baseUrl = $"https://res.cloudinary.com/{_cloudName}/raw/upload/{publicId}";
-                
+
                 Console.WriteLine($"Generated signed URL: {baseUrl}");
                 return baseUrl;
             }
@@ -262,23 +262,23 @@ namespace Infrastructure.Content.Services
             {
                 var signedUrl = GenerateSignedUrl(publicId);
                 Console.WriteLine($"Trying signed URL: {signedUrl}");
-                
+
                 using var httpClient = new HttpClient();
                 httpClient.Timeout = TimeSpan.FromMinutes(2);
-                
+
                 var response = await httpClient.GetAsync(signedUrl);
                 Console.WriteLine($"Signed URL Response Status: {response.StatusCode}");
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     var fileBytes = await response.Content.ReadAsByteArrayAsync();
                     Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes via signed URL");
                     return fileBytes;
                 }
-                
+
                 var errorContent = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"Signed URL Error Response: {errorContent}");
-                
+
                 // Don't use EnsureSuccessStatusCode here - instead throw our own exception
                 throw new HttpRequestException($"HTTP {response.StatusCode}: {errorContent}");
             }
@@ -314,14 +314,14 @@ namespace Infrastructure.Content.Services
                     {
                         Console.WriteLine($"Trying alternative URL: {url}");
                         var response = await httpClient.GetAsync(url);
-                        
+
                         if (response.IsSuccessStatusCode)
                         {
                             var fileBytes = await response.Content.ReadAsByteArrayAsync();
                             Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes from: {url}");
                             return fileBytes;
                         }
-                        
+
                         Console.WriteLine($"Alternative URL failed with status: {response.StatusCode}");
                     }
                     catch (Exception ex)
@@ -380,15 +380,15 @@ namespace Infrastructure.Content.Services
 
                 // Download using HttpClient with Cloudinary authentication
                 using var httpClient = new HttpClient();
-                
+
                 // Add Cloudinary authentication headers
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
                 var signature = GenerateCloudinarySignature(publicId, timestamp);
-                
+
                 httpClient.DefaultRequestHeaders.Add("Authorization", $"Cloudinary {_cloudName}:{_apiKey}:{signature}");
-                
+
                 var response = await httpClient.GetAsync(resource.SecureUrl);
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     var fileBytes = await response.Content.ReadAsByteArrayAsync();
@@ -398,7 +398,7 @@ namespace Infrastructure.Content.Services
                 else
                 {
                     Console.WriteLine($"Authenticated download failed: {response.StatusCode} - {response.ReasonPhrase}");
-                    
+
                     // Fallback: Try direct download with Admin API URL construction
                     var adminApiUrl = $"https://api.cloudinary.com/v1_1/{_cloudName}/resources/raw/upload/{publicId}";
                     return await DownloadViaAdminApiAsync(adminApiUrl, publicId);
@@ -419,26 +419,26 @@ namespace Infrastructure.Content.Services
             try
             {
                 using var httpClient = new HttpClient();
-                
+
                 // Create basic auth header for Admin API
                 var credentials = Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($"{_apiKey}:{_apiSecret}"));
                 httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
-                
+
                 // First, get the resource info to get the actual download URL
                 var resourceResponse = await httpClient.GetAsync(adminApiUrl);
-                
+
                 if (resourceResponse.IsSuccessStatusCode)
                 {
                     var resourceJson = await resourceResponse.Content.ReadAsStringAsync();
                     Console.WriteLine($"Resource API response: {resourceJson}");
-                    
+
                     // Parse the JSON to extract the secure_url
                     var resourceData = System.Text.Json.JsonDocument.Parse(resourceJson);
                     if (resourceData.RootElement.TryGetProperty("secure_url", out var secureUrlElement))
                     {
                         var secureUrl = secureUrlElement.GetString();
                         Console.WriteLine($"Found secure URL: {secureUrl}");
-                        
+
                         // Now download the actual file
                         var fileResponse = await httpClient.GetAsync(secureUrl);
                         if (fileResponse.IsSuccessStatusCode)
@@ -449,7 +449,7 @@ namespace Infrastructure.Content.Services
                         }
                     }
                 }
-                
+
                 throw new Exception($"Admin API download failed: {resourceResponse.StatusCode}");
             }
             catch (Exception ex)

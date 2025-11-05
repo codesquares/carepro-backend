@@ -763,7 +763,7 @@ namespace Infrastructure.Content.Services
 
             // The location service automatically updates the caregiver entity's location fields
             // through its UpdateUserEntityLocation method, so we don't need to manually update here
-            
+
             return locationResult;
         }
 

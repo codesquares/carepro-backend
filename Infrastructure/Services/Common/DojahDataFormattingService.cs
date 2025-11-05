@@ -83,19 +83,19 @@ namespace Infrastructure.Services.Common
         private string MapDojahStatus(DojahWebhookRequest webhook)
         {
             // Handle different Dojah status formats
-            if (webhook.Status == true || 
-                webhook.VerificationStatus?.ToLower() == "success" || 
+            if (webhook.Status == true ||
+                webhook.VerificationStatus?.ToLower() == "success" ||
                 webhook.VerificationStatus?.ToLower() == "completed")
             {
                 return "success";
             }
-            else if (webhook.VerificationStatus?.ToLower() == "pending" || 
+            else if (webhook.VerificationStatus?.ToLower() == "pending" ||
                      webhook.VerificationStatus?.ToLower() == "processing")
             {
                 return "pending";
             }
-            else if (webhook.Status == false || 
-                     webhook.VerificationStatus?.ToLower() == "failed" || 
+            else if (webhook.Status == false ||
+                     webhook.VerificationStatus?.ToLower() == "failed" ||
                      webhook.VerificationStatus?.ToLower() == "cancelled")
             {
                 return "failed";

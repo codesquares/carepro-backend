@@ -70,7 +70,7 @@ namespace CarePro_Api.Controllers
             try
             {
                 var materials = await _trainingMaterialService.GetAllTrainingMaterialsAsync();
-                
+
                 return Ok(new
                 {
                     success = true,

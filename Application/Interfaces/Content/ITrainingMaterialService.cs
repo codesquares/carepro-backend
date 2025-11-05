@@ -16,7 +16,7 @@ namespace Application.Interfaces.Content
         // User operations
         Task<TrainingMaterialListResponse> GetTrainingMaterialsByUserTypeAsync(string userType, bool activeOnly = true);
         Task<TrainingMaterialDTO?> GetActiveTrainingMaterialAsync(string userType, string materialType = "PDF");
-        
+
         // Analytics/Management
         Task<List<TrainingMaterialDTO>> SearchTrainingMaterialsAsync(string searchTerm);
         Task<bool> ToggleActiveStatusAsync(string id, bool isActive);

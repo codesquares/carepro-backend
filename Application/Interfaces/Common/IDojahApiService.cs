@@ -6,7 +6,7 @@ namespace Application.Interfaces.Common
     {
         Task<DojahVerificationDataResponse> GetAllVerificationDataAsync(
             string? term = null,
-            string? start = null, 
+            string? start = null,
             string? end = null,
             string? status = null);
     }

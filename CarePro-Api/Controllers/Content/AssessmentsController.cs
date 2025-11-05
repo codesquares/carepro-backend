@@ -20,8 +20,8 @@ namespace CarePro_Api.Controllers.Content
         private readonly ILogger<AssessmentsController> logger;
 
         public AssessmentsController(
-            IAssessmentService assessmentService, 
-            ICareGiverService careGiverService, 
+            IAssessmentService assessmentService,
+            ICareGiverService careGiverService,
             ITrainingMaterialService trainingMaterialService,
             Infrastructure.Content.Services.CloudinaryService cloudinaryService,
             ILogger<AssessmentsController> logger)
@@ -329,9 +329,9 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 Console.WriteLine($"Attempting to download training material: {trainingMaterial.FileName} (CloudinaryId: {trainingMaterial.CloudinaryPublicId})");
-                
+
                 byte[]? fileBytes = null;
-                
+
                 // Try authenticated download first
                 try
                 {
@@ -342,7 +342,7 @@ namespace CarePro_Api.Controllers.Content
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Authenticated download failed: {ex.Message}");
-                    
+
                     // Try direct download
                     try
                     {
@@ -353,7 +353,7 @@ namespace CarePro_Api.Controllers.Content
                     catch (Exception ex2)
                     {
                         Console.WriteLine($"Direct download failed: {ex2.Message}");
-                        
+
                         // Try signed URL method
                         try
                         {
@@ -364,7 +364,7 @@ namespace CarePro_Api.Controllers.Content
                         catch (Exception ex3)
                         {
                             Console.WriteLine($"Signed URL download failed: {ex3.Message}");
-                            
+
                             // Try alternative URL patterns
                             try
                             {
@@ -375,9 +375,11 @@ namespace CarePro_Api.Controllers.Content
                             catch (Exception ex4)
                             {
                                 Console.WriteLine($"All download methods failed. Auth: {ex.Message}, Direct: {ex2.Message}, Signed: {ex3.Message}, Alternative: {ex4.Message}");
-                                return StatusCode(500, new { 
-                                    error = "Unable to download file", 
-                                    details = new {
+                                return StatusCode(500, new
+                                {
+                                    error = "Unable to download file",
+                                    details = new
+                                    {
                                         authenticatedError = ex.Message,
                                         directError = ex2.Message,
                                         signedUrlError = ex3.Message,
@@ -407,8 +409,8 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { error = "An error occurred while downloading the file", details = ex.Message });
             }
         }        /// <summary>
-        /// Search training materials for users
-        /// </summary>
+                 /// Search training materials for users
+                 /// </summary>
         [HttpGet("training-materials/search")]
         [Authorize(Roles = "Caregiver, Client")]
         public async Task<IActionResult> SearchTrainingMaterials([FromQuery] string searchTerm, [FromQuery] string? userType = null)
@@ -433,7 +435,7 @@ namespace CarePro_Api.Controllers.Content
 
                 if (!string.IsNullOrEmpty(userType))
                 {
-                    filteredMaterials = filteredMaterials.Where(m => 
+                    filteredMaterials = filteredMaterials.Where(m =>
                         m.UserType == userType || m.UserType == "Both");
                 }
 
@@ -489,7 +491,7 @@ namespace CarePro_Api.Controllers.Content
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Authenticated download failed: {ex.Message}");
-                    
+
                     try
                     {
                         Console.WriteLine("Trying direct download...");
@@ -499,7 +501,7 @@ namespace CarePro_Api.Controllers.Content
                     catch (Exception ex2)
                     {
                         Console.WriteLine($"Direct download failed: {ex2.Message}");
-                        
+
                         try
                         {
                             Console.WriteLine("Trying signed URL download...");
@@ -509,7 +511,7 @@ namespace CarePro_Api.Controllers.Content
                         catch (Exception ex3)
                         {
                             Console.WriteLine($"Signed URL download failed: {ex3.Message}");
-                            
+
                             try
                             {
                                 Console.WriteLine("Trying alternative download method...");
@@ -519,9 +521,11 @@ namespace CarePro_Api.Controllers.Content
                             catch (Exception ex4)
                             {
                                 Console.WriteLine($"Alternative download failed: {ex4.Message}");
-                                return StatusCode(500, new { 
+                                return StatusCode(500, new
+                                {
                                     error = "Unable to download file from all attempted methods",
-                                    details = new {
+                                    details = new
+                                    {
                                         authenticatedError = ex.Message,
                                         directError = ex2.Message,
                                         signedUrlError = ex3.Message,

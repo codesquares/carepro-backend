@@ -38,10 +38,10 @@ namespace CarePro_Api.Controllers
                     return Forbid("Cannot create order tasks for another client");
 
                 var result = await _orderTasksService.CreateOrderTasksAsync(request);
-                
-                _logger.LogInformation("OrderTasks created: {OrderTasksId} for Client: {ClientId}", 
+
+                _logger.LogInformation("OrderTasks created: {OrderTasksId} for Client: {ClientId}",
                     result.Id, clientId);
-                
+
                 return CreatedAtAction(nameof(GetOrderTasks), new { id = result.Id }, result);
             }
             catch (ArgumentException ex)
@@ -83,9 +83,9 @@ namespace CarePro_Api.Controllers
                     return Forbid("Cannot update order tasks for another client");
 
                 var result = await _orderTasksService.UpdateOrderTasksAsync(request);
-                
+
                 _logger.LogInformation("OrderTasks updated: {OrderTasksId}", id);
-                
+
                 return Ok(result);
             }
             catch (ArgumentException ex)
@@ -114,11 +114,11 @@ namespace CarePro_Api.Controllers
             try
             {
                 var orderTasks = await _orderTasksService.GetOrderTasksByIdAsync(id);
-                
+
                 // Validate authorization
                 var clientId = GetClientIdFromToken();
                 var caregiverId = GetCaregiverIdFromToken();
-                
+
                 // Allow access if user is the client or the assigned caregiver
                 if (!string.IsNullOrEmpty(clientId) && orderTasks.ClientId == clientId)
                 {
@@ -158,10 +158,10 @@ namespace CarePro_Api.Controllers
                     return Unauthorized("Client authorization required");
 
                 var orderTasksList = await _orderTasksService.GetOrderTasksByClientIdAsync(clientId);
-                
-                _logger.LogInformation("Retrieved {Count} order tasks for Client: {ClientId}", 
+
+                _logger.LogInformation("Retrieved {Count} order tasks for Client: {ClientId}",
                     orderTasksList.Count, clientId);
-                
+
                 return Ok(orderTasksList);
             }
             catch (Exception ex)
@@ -190,7 +190,7 @@ namespace CarePro_Api.Controllers
                     return Forbid("Cannot delete order tasks for another client");
 
                 var deleted = await _orderTasksService.DeleteOrderTasksAsync(id);
-                
+
                 if (!deleted)
                     return NotFound("Order tasks not found");
 
@@ -283,7 +283,7 @@ namespace CarePro_Api.Controllers
                     return Forbid("Cannot prepare payment for another client's order tasks");
 
                 var updated = await _orderTasksService.MarkAsPendingPaymentAsync(id);
-                
+
                 if (!updated)
                     return NotFound("Order tasks not found");
 
@@ -306,14 +306,14 @@ namespace CarePro_Api.Controllers
             try
             {
                 var orderTasks = await _orderTasksService.GetOrderTasksByClientOrderIdAsync(clientOrderId);
-                
+
                 if (orderTasks == null)
                     return NotFound("Order tasks not found for the specified client order");
 
                 // Validate authorization
                 var clientId = GetClientIdFromToken();
                 var caregiverId = GetCaregiverIdFromToken();
-                
+
                 // Allow access if user is the client or the assigned caregiver
                 if (!string.IsNullOrEmpty(clientId) && orderTasks.ClientId == clientId)
                 {

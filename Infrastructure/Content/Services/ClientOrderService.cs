@@ -111,13 +111,13 @@ namespace Infrastructure.Content.Services
                 if (!string.IsNullOrEmpty(addClientOrderRequest.OrderTasksId))
                 {
                     var orderTasksLinked = await orderTasksService.LinkToClientOrderAsync(
-                        addClientOrderRequest.OrderTasksId, 
+                        addClientOrderRequest.OrderTasksId,
                         clientOrder.Id.ToString());
-                    
+
                     if (orderTasksLinked)
                     {
                         await orderTasksService.MarkAsPaidAsync(
-                            addClientOrderRequest.OrderTasksId, 
+                            addClientOrderRequest.OrderTasksId,
                             clientOrder.Id.ToString());
 
                         // Trigger contract generation using OrderTasks data
@@ -127,7 +127,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error linking OrderTasks or generating contract for ClientOrder {ClientOrderId}", 
+                logger.LogError(ex, "Error linking OrderTasks or generating contract for ClientOrder {ClientOrderId}",
                     clientOrder.Id.ToString());
                 // Don't fail the order creation, but log the error
             }
@@ -172,13 +172,13 @@ namespace Infrastructure.Content.Services
             {
                 // Prepare contract data from OrderTasks
                 var contractData = await orderTasksService.PrepareContractDataAsync(orderTasksId, transactionId);
-                
+
                 // Generate the contract using the existing GenerateContractAsync method
                 await contractService.GenerateContractAsync(contractData);
-                
+
                 // Mark OrderTasks as contract generated
                 await orderTasksService.MarkAsContractGeneratedAsync(orderTasksId);
-                
+
                 logger.LogInformation("Contract generated successfully for OrderTasks {OrderTasksId}", orderTasksId);
             }
             catch (Exception ex)
