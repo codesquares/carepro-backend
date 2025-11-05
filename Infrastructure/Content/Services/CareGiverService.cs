@@ -40,15 +40,17 @@ namespace Infrastructure.Content.Services
         private readonly ITokenHandler tokenHandler;
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
+        private readonly ILocationService locationService;
 
 
-        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration)
+        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
+            this.locationService = locationService;
 
         }
 
@@ -154,29 +156,53 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
+            #region EmailVerificationHandling
 
-            #region SendVerificationEmail
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                careProAppUser.AppUserId.ToString(),
-                careProAppUser.Email,
-                jwtSecretKey
-            );
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                careProAppUser.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(careProAppUser);
+                await careProDbContext.SaveChangesAsync();
+            }
+            else
+            {
+                // Production/staging: Send verification email
+                try
+                {
+                    var jwtSecretKey = configuration["JwtSettings:Secret"];
+                    var token = tokenHandler.GenerateEmailVerificationToken(
+                        careProAppUser.AppUserId.ToString(),
+                        careProAppUser.Email,
+                        jwtSecretKey
+                    );
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                    string verificationLink;
+                    verificationLink = IsFrontendOrigin(origin)
+                        ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                        : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
+                    await emailService.SendSignUpVerificationEmailAsync(
+                        careProAppUser.Email,
+                        verificationLink,
+                        $"{careProAppUser.FirstName} {careProAppUser.LastName}"
+                    );
+                }
+                catch (Exception emailEx)
+                {
+                    // Log email error but don't fail the registration
+                    // In production, you might want to implement retry logic or queue the email
+                    System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                    // Optionally log to your logging system
+                }
+            }
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                careProAppUser.Email,
-                verificationLink,
-                $"{careProAppUser.FirstName} {careProAppUser.LastName}"
-            );
-
-            #endregion SendVerificationEmail
+            #endregion EmailVerificationHandling
 
 
             var careGiverUserDTO = new CaregiverDTO()
@@ -337,32 +363,52 @@ namespace Infrastructure.Content.Services
             if (user.EmailConfirmed)
                 return "Email already confirmed";
 
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
+
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                user.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(user);
+                await careProDbContext.SaveChangesAsync();
+                return "Email confirmed automatically in development environment.";
+            }
 
             #region SendVerificationEmail
 
+            try
+            {
+                var jwtSecretKey = configuration["JwtSettings:Secret"];
+                var token = tokenHandler.GenerateEmailVerificationToken(
+                    user.AppUserId.ToString(),
+                    user.Email,
+                    jwtSecretKey
+                );
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                user.AppUserId.ToString(),
-                user.Email,
-                jwtSecretKey
-            );
+                string verificationLink;
+                verificationLink = IsFrontendOrigin(origin)
+                    ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                    : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                await emailService.SendSignUpVerificationEmailAsync(
+                    user.Email,
+                    verificationLink,
+                    user.FirstName
+                );
 
+                return "A new confirmation link has been sent to your email.";
+            }
+            catch (Exception emailEx)
+            {
+                // Log email error but don't fail completely
+                System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                return "Failed to send confirmation email. Please try again later.";
+            }
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                user.Email,
-                verificationLink,
-                user.FirstName
-            );
-
-            #endregion         
-
-            return "A new confirmation link has been sent to your email.";
+            #endregion
         }
 
 
@@ -685,6 +731,40 @@ namespace Infrastructure.Content.Services
 
             return $"Caregiver with ID '{caregiverId}' ProfilePicture Updated successfully.";
 
+        }
+
+        public async Task<LocationDTO> UpdateCaregiverLocationAsync(string caregiverId, UpdateCaregiverLocationRequest request)
+        {
+            if (!ObjectId.TryParse(caregiverId, out var objectId))
+            {
+                throw new ArgumentException("Invalid Caregiver ID format.");
+            }
+
+            var existingCaregiver = await careProDbContext.CareGivers.FindAsync(objectId);
+            if (existingCaregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Address))
+            {
+                throw new ArgumentException("Address is required for location update.");
+            }
+
+            // Use the location service to update the caregiver's location
+            var updateLocationRequest = new UpdateUserLocationRequest
+            {
+                UserId = caregiverId,
+                UserType = "Caregiver",
+                Address = request.Address
+            };
+
+            var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
+
+            // The location service automatically updates the caregiver entity's location fields
+            // through its UpdateUserEntityLocation method, so we don't need to manually update here
+
+            return locationResult;
         }
 
 

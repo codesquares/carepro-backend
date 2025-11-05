@@ -200,7 +200,7 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 // Handle other exceptions
-                return StatusCode(500, new { ex });
+                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
         }
 

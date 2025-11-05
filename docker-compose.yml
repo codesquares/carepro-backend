@@ -1,5 +1,5 @@
 # Docker Compose for CarePro Backend Development
-version: '3.8'
+version: '3.3'
 
 services:
   # MongoDB service
@@ -23,7 +23,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
 
   # Redis service for caching (optional)
   redis:
@@ -52,7 +51,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__DefaultConnection=mongodb://admin:password123@mongodb:27017/carepro?authSource=admin
+      - ConnectionStrings__MongoDbConnection=mongodb://admin:password123@mongodb:27017/CarePro_Local_DB?authSource=admin
       - Redis__ConnectionString=redis:6379
       - JWT__Secret=your-super-secret-jwt-key-here-change-in-production
       - JWT__Issuer=CarePro
@@ -67,10 +66,8 @@ services:
     ports:
       - "5000:8080"
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - mongodb
+      - redis
     networks:
       - carepro-network
     volumes:
@@ -80,7 +77,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
 
   # Nginx reverse proxy (optional, for production-like setup)
   nginx:

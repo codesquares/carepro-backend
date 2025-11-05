@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Domain;
@@ -29,14 +30,16 @@ namespace Infrastructure.Content.Services
         private readonly ITokenHandler tokenHandler;
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
+        private readonly IOriginValidationService originValidationService;
 
-        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration)
+        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
+            this.originValidationService = originValidationService;
         }
 
         public async Task<ClientDTO> CreateClientUserAsync(AddClientUserRequest addClientUserRequest, string? origin)
@@ -55,10 +58,10 @@ namespace Infrastructure.Content.Services
             /// CONVERT DTO TO DOMAIN OBJECT            
             var clientUser = new Client
             {
-                FirstName = addClientUserRequest.FirstName,
+                FirstName = addClientUserRequest.FirstName ?? string.Empty,
                 MiddleName = addClientUserRequest.MiddleName,
-                LastName = addClientUserRequest.LastName,
-                Email = addClientUserRequest.Email.ToLower(),
+                LastName = addClientUserRequest.LastName ?? string.Empty,
+                Email = addClientUserRequest.Email?.ToLower() ?? throw new ArgumentException("Email is required"),
                 Password = hashedPassword,
                 HomeAddress = addClientUserRequest.HomeAddress,
 
@@ -93,28 +96,51 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
+            #region EmailVerificationHandling
 
-            #region SendVerificationEmail
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                careProAppUser.AppUserId.ToString(),
-                careProAppUser.Email,
-                jwtSecretKey // inject or get from config
-            );
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                careProAppUser.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(careProAppUser);
+                await careProDbContext.SaveChangesAsync();
+            }
+            else
+            {
+                // Production/staging: Send verification email
+                try
+                {
+                    var jwtSecretKey = configuration["JwtSettings:Secret"];
+                    var token = tokenHandler.GenerateEmailVerificationToken(
+                        careProAppUser.AppUserId.ToString(),
+                        careProAppUser.Email,
+                        jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
+                    );
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                    string verificationLink;
+                    verificationLink = IsFrontendOrigin(origin ?? string.Empty)
+                        ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                        : $"{origin}/api/Clients/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                careProAppUser.Email,
-                verificationLink,
-                careProAppUser.FirstName
-            );
+                    await emailService.SendSignUpVerificationEmailAsync(
+                        careProAppUser.Email,
+                        verificationLink,
+                        careProAppUser.FirstName ?? "User"
+                    );
+                }
+                catch (Exception emailEx)
+                {
+                    // Log email error but don't fail the registration
+                    System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                }
+            }
 
-            #endregion SendVerificationEmail
+            #endregion EmailVerificationHandling
 
 
 
@@ -137,7 +163,7 @@ namespace Infrastructure.Content.Services
         // Detect if request is coming from frontend or not
         private bool IsFrontendOrigin(string origin)
         {
-            return origin.Contains("localhost:5173") || origin.Contains("onrender.com");
+            return originValidationService.IsFrontendOrigin(origin);
         }
 
 
@@ -197,7 +223,7 @@ namespace Infrastructure.Content.Services
         {
             var jwtSecret = configuration["JwtSettings:Secret"];
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(jwtSecret);
+            var key = Encoding.UTF8.GetBytes(jwtSecret ?? throw new InvalidOperationException("JWT Secret Key is not configured"));
 
             try
             {
@@ -260,33 +286,52 @@ namespace Infrastructure.Content.Services
             if (user.EmailConfirmed)
                 return "Email already confirmed";
 
+            // Check if this is a development environment or localhost origin
+            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
+                               origin?.Contains("localhost") == true ||
+                               origin?.Contains("127.0.0.1") == true;
+
+            if (isDevelopment)
+            {
+                // Auto-confirm email for development/localhost
+                user.EmailConfirmed = true;
+                careProDbContext.AppUsers.Update(user);
+                await careProDbContext.SaveChangesAsync();
+                return "Email confirmed automatically in development environment.";
+            }
 
             #region SendVerificationEmail
 
+            try
+            {
+                var jwtSecretKey = configuration["JwtSettings:Secret"];
+                var token = tokenHandler.GenerateEmailVerificationToken(
+                    user.AppUserId.ToString(),
+                    user.Email,
+                    jwtSecretKey ?? throw new InvalidOperationException("JWT Secret Key is not configured")
+                );
 
-            var jwtSecretKey = configuration["JwtSettings:Secret"];
-            var token = tokenHandler.GenerateEmailVerificationToken(
-                user.AppUserId.ToString(),
-                user.Email,
-                jwtSecretKey
-            );
+                string verificationLink;
+                verificationLink = IsFrontendOrigin(origin ?? string.Empty)
+                    ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
+                    : $"{origin}/api/Clients/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
-            string verificationLink;
-            verificationLink = IsFrontendOrigin(origin)
-                ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
+                await emailService.SendSignUpVerificationEmailAsync(
+                    user.Email,
+                    verificationLink,
+                    user.FirstName + " " + user.LastName
+                );
 
-            await emailService.SendSignUpVerificationEmailAsync(
-                user.Email,
-                verificationLink,
-                user.FirstName + " " + user.LastName
-            );
+                return "A new confirmation link has been sent to your email.";
+            }
+            catch (Exception emailEx)
+            {
+                // Log email error but don't fail completely
+                System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                return "Failed to send confirmation email. Please try again later.";
+            }
 
             #endregion
-
-
-
-            return "A new confirmation link has been sent to your email.";
         }
 
 
@@ -367,17 +412,36 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
 
-            existingClient.FirstName = updateClientUserRequest.FirstName;
-            existingClient.MiddleName = updateClientUserRequest.MiddleName;
-            existingClient.LastName = updateClientUserRequest.LastName;
-            existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
+            // Only update fields if new values are provided and not null/empty
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.FirstName))
+            {
+                existingClient.FirstName = updateClientUserRequest.FirstName;
+            }
 
-            existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.MiddleName))
+            {
+                existingClient.MiddleName = updateClientUserRequest.MiddleName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.LastName))
+            {
+                existingClient.LastName = updateClientUserRequest.LastName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.HomeAddress))
+            {
+                existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.PhoneNo))
+            {
+                existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
+            }
 
             careProDbContext.Clients.Update(existingClient);
             await careProDbContext.SaveChangesAsync();
 
-            return $"Client with ID '{clientId}' Availability Status Updated successfully.";
+            return $"Client with ID '{clientId}' profile updated successfully.";
         }
 
 
@@ -445,6 +509,9 @@ namespace Infrastructure.Content.Services
 
         public async Task ChangePasswordAsync(ResetPasswordRequest resetPasswordRequest)
         {
+            if (string.IsNullOrEmpty(resetPasswordRequest.Email))
+                throw new ArgumentException("Email is required.");
+
             var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == resetPasswordRequest.Email.ToLower());
 
             if (user == null)
@@ -467,6 +534,9 @@ namespace Infrastructure.Content.Services
 
         public async Task GeneratePasswordResetTokenAsync(PasswordResetRequestDto passwordResetRequestDto, string? origin)
         {
+            if (string.IsNullOrEmpty(passwordResetRequestDto.Email))
+                throw new ArgumentException("Email is required.");
+
             var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == passwordResetRequestDto.Email.ToLower());
 
             if (user == null)
@@ -476,17 +546,17 @@ namespace Infrastructure.Content.Services
 
             // Build the full reset link (example frontend route)
             string resetLink;
-            resetLink = IsFrontendOrigin(origin)
+            resetLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
-            await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
+            await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName ?? "User");
         }
 
         public async Task ResetPasswordWithJwtAsync(PasswordResetDto request)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"]);
+            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret Key is not configured"));
 
             try
             {

@@ -58,13 +58,21 @@ namespace Infrastructure.Content.Services
 
             if (addGigRequest.Image1 != null)
             {
-                using var memoryStream = new MemoryStream();
-                await addGigRequest.Image1.CopyToAsync(memoryStream);
-                var imageUri = memoryStream.ToArray();
+                try
+                {
+                    using var memoryStream = new MemoryStream();
+                    await addGigRequest.Image1.CopyToAsync(memoryStream);
+                    var imageUri = memoryStream.ToArray();
 
-                // Now upload imageUri to Cloudinary
-                imageURL = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{addGigRequest.PackageName}_gig");
-
+                    // Now upload imageUri to Cloudinary
+                    imageURL = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{addGigRequest.PackageName}_gig");
+                }
+                catch (Exception ex)
+                {
+                    // Log the image upload error but don't fail the entire gig creation
+                    logger.LogWarning(ex, "Failed to upload gig image, proceeding without image");
+                    imageURL = null; // Proceed without image
+                }
             }
 
 

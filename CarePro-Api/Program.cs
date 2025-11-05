@@ -1,6 +1,7 @@
 using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Authentication;
+using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using CloudinaryDotNet;
@@ -8,14 +9,15 @@ using Domain.Entities;
 using Domain.Settings;
 using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
+using MongoDB.Driver;
 using Infrastructure.Content.Services.Authentication;
 using Infrastructure.Services;
+using Infrastructure.Services.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using MongoDB.Driver;
 using Serilog;
 using System.Text;
 
@@ -27,11 +29,15 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__MongoDbConnection")
     ?? Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
-    ?? "mongodb://localhost:27017";
+    ?? "mongodb://localhost:27017/CarePro_Local_DB";
+
+// Extract database name from connection string
+var mongoUrl = new MongoUrl(connectionString);
+var databaseName = mongoUrl.DatabaseName ?? "CarePro_Local_DB";
 
 builder.Services.AddDbContext<CareProDbContext>(options =>
 {
-    options.UseMongoDB(connectionString, "Care-pro_db");
+    options.UseMongoDB(connectionString, databaseName);
 });
 
 /// Configure JWT
@@ -114,6 +120,7 @@ builder.Services.AddScoped<IWithdrawalRequestService, WithdrawalRequestService>(
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
+builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
@@ -125,12 +132,26 @@ builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
 builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
 
+// Order Tasks services (Enhanced Contract Generation feature)
+builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
+
+// Dojah webhook services
+builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
+builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
+builder.Services.AddScoped<IDojahDataFormattingService, DojahDataFormattingService>();
+builder.Services.AddScoped<IDojahApiService, DojahApiService>();
+builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
+builder.Services.AddMemoryCache();
+
 builder.Services.AddHostedService<DailyEarningService>();
 builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
 
 
 
 builder.Services.AddScoped<ITokenHandler, Infrastructure.Content.Services.Authentication.TokenHandler>();
+
+// Add Origin Validation Service
+builder.Services.AddScoped<IOriginValidationService, OriginValidationService>();
 
 // Add SignalR
 builder.Services.AddSignalR();
@@ -186,10 +207,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["JWT:Issuer"] ?? Environment.GetEnvironmentVariable("JWT__Issuer") ?? "CarePro",
-            ValidAudience = builder.Configuration["JWT:Audience"] ?? Environment.GetEnvironmentVariable("JWT__Audience") ?? "CarePro",
+            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? Environment.GetEnvironmentVariable("JWT__Issuer") ?? "CarePro",
+            ValidAudience = builder.Configuration["Jwt:Audience"] ?? Environment.GetEnvironmentVariable("JWT__Audience") ?? "CarePro",
             IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["JWT:Key"] ?? Environment.GetEnvironmentVariable("JWT__Key") ?? "default-secret-key"))
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? Environment.GetEnvironmentVariable("JWT__Key") ?? "default-secret-key"))
         };
 
     });
@@ -214,7 +235,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 builder.Services.AddScoped(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
-    var database = client.GetDatabase("Care-pro_db"); // Replace with your actual DB name
+    var database = client.GetDatabase(databaseName);
     return database;
 });
 
@@ -308,6 +329,5 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
-
 
 app.Run();
