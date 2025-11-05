@@ -44,8 +44,16 @@ namespace Infrastructure.Services.Common
                 // Build query string
                 var queryParams = new List<string>();
                 if (!string.IsNullOrEmpty(term)) queryParams.Add($"term={Uri.EscapeDataString(term)}");
-                if (!string.IsNullOrEmpty(start)) queryParams.Add($"start={Uri.EscapeDataString(start)}");
-                if (!string.IsNullOrEmpty(end)) queryParams.Add($"end={Uri.EscapeDataString(end)}");
+                if (!string.IsNullOrEmpty(start)) 
+                {
+                    var formattedStart = ConvertToRequestedDateFormat(start);
+                    queryParams.Add($"start={Uri.EscapeDataString(formattedStart)}");
+                }
+                if (!string.IsNullOrEmpty(end)) 
+                {
+                    var formattedEnd = ConvertToRequestedDateFormat(end);
+                    queryParams.Add($"end={Uri.EscapeDataString(formattedEnd)}");
+                }
                 if (!string.IsNullOrEmpty(status)) queryParams.Add($"status={Uri.EscapeDataString(status)}");
 
                 var queryString = queryParams.Count > 0 ? "?" + string.Join("&", queryParams) : "";
@@ -122,6 +130,37 @@ namespace Infrastructure.Services.Common
                     Message = $"Error: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// Converts date from ISO format (YYYY-MM-DD) to Dojah expected format (DD/MM/YYYY)
+        /// </summary>
+        /// <param name="dateString">Date string in ISO format or already in DD/MM/YYYY format</param>
+        /// <returns>Date string in DD/MM/YYYY format</returns>
+        private string ConvertToRequestedDateFormat(string dateString)
+        {
+            if (string.IsNullOrEmpty(dateString))
+                return dateString;
+
+            // If already in DD/MM/YYYY format, return as is
+            if (dateString.Contains("/"))
+                return dateString;
+
+            // Try to parse as ISO date (YYYY-MM-DD) and convert to DD/MM/YYYY
+            if (DateTime.TryParseExact(dateString, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var parsedDate))
+            {
+                return parsedDate.ToString("dd/MM/yyyy");
+            }
+
+            // Try to parse as standard date and convert to DD/MM/YYYY
+            if (DateTime.TryParse(dateString, out var generalDate))
+            {
+                return generalDate.ToString("dd/MM/yyyy");
+            }
+
+            // If parsing fails, return original string
+            _logger.LogWarning("Could not parse date string: {DateString}", dateString);
+            return dateString;
         }
     }
 }

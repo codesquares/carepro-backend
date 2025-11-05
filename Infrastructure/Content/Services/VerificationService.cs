@@ -121,6 +121,10 @@ namespace Infrastructure.Content.Services
             existingVerification.VerificationMethod = updateVerificationRequest.VerificationMode;
             existingVerification.VerificationStatus = updateVerificationRequest.VerificationStatus;
             existingVerification.UpdatedOn = DateTime.Now;
+            
+            // Update verified status based on new status
+            existingVerification.IsVerified = updateVerificationRequest.VerificationStatus?.ToLower() == "completed" || 
+                                              updateVerificationRequest.VerificationStatus?.ToLower() == "verified";
 
             careProDbContext.Verifications.Update(existingVerification);
             await careProDbContext.SaveChangesAsync();
@@ -163,8 +167,76 @@ namespace Infrastructure.Content.Services
 
         public async Task<string> AddVerificationAsync(AddVerificationRequest addVerificationRequest)
         {
-            // This is a wrapper around CreateVerificationAsync for Dojah webhook compatibility
-            return await CreateVerificationAsync(addVerificationRequest);
+            // For webhook data, we need a more flexible approach
+            try
+            {
+                logger.LogInformation("Processing verification for UserId: {UserId}", addVerificationRequest.UserId);
+
+                // Check if user exists in AppUsers table
+                var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => 
+                    x.AppUserId.ToString() == addVerificationRequest.UserId || 
+                    x.Email == addVerificationRequest.UserId);
+
+                if (appUser == null)
+                {
+                    logger.LogWarning("User not found in AppUsers table for UserId: {UserId}", addVerificationRequest.UserId);
+                    // For webhook data, we'll still create the verification record
+                    // This allows tracking verification attempts even if user isn't in our system yet
+                }
+
+                // Check for existing verification
+                var existingVerification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId == addVerificationRequest.UserId);
+
+                if (existingVerification != null)
+                {
+                    // Update existing verification instead of throwing error
+                    logger.LogInformation("Updating existing verification for UserId: {UserId}", addVerificationRequest.UserId);
+                    
+                    existingVerification.VerificationMethod = addVerificationRequest.VerificationMethod;
+                    existingVerification.VerificationStatus = addVerificationRequest.VerificationStatus;
+                    existingVerification.VerificationNo = addVerificationRequest.VerificationNo;
+                    existingVerification.UpdatedOn = DateTime.Now;
+                    
+                    // Update verified status based on status
+                    existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" || 
+                                                      addVerificationRequest.VerificationStatus?.ToLower() == "verified";
+
+                    await careProDbContext.SaveChangesAsync();
+                    
+                    logger.LogInformation("Successfully updated verification for UserId: {UserId} with status: {Status}", 
+                        addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
+                    
+                    return existingVerification.VerificationId.ToString();
+                }
+
+                // Create new verification record
+                logger.LogInformation("Creating new verification record for UserId: {UserId}", addVerificationRequest.UserId);
+                
+                var verification = new Verification
+                {
+                    VerificationMethod = addVerificationRequest.VerificationMethod,
+                    VerificationNo = addVerificationRequest.VerificationNo,
+                    VerificationStatus = addVerificationRequest.VerificationStatus,
+                    UserId = addVerificationRequest.UserId,
+                    VerificationId = ObjectId.GenerateNewId(),
+                    IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" || 
+                                 addVerificationRequest.VerificationStatus?.ToLower() == "verified",
+                    VerifiedOn = DateTime.Now,
+                };
+
+                await careProDbContext.Verifications.AddAsync(verification);
+                await careProDbContext.SaveChangesAsync();
+
+                logger.LogInformation("Successfully created verification for UserId: {UserId} with status: {Status}", 
+                    addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
+
+                return verification.VerificationId.ToString();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing verification for UserId: {UserId}", addVerificationRequest.UserId);
+                throw;
+            }
         }
     }
 }

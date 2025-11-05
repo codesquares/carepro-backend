@@ -412,17 +412,36 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
 
-            existingClient.FirstName = updateClientUserRequest.FirstName ?? existingClient.FirstName;
-            existingClient.MiddleName = updateClientUserRequest.MiddleName;
-            existingClient.LastName = updateClientUserRequest.LastName ?? existingClient.LastName;
-            existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
+            // Only update fields if new values are provided and not null/empty
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.FirstName))
+            {
+                existingClient.FirstName = updateClientUserRequest.FirstName;
+            }
 
-            existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.MiddleName))
+            {
+                existingClient.MiddleName = updateClientUserRequest.MiddleName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.LastName))
+            {
+                existingClient.LastName = updateClientUserRequest.LastName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.HomeAddress))
+            {
+                existingClient.HomeAddress = updateClientUserRequest.HomeAddress;
+            }
+
+            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.PhoneNo))
+            {
+                existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
+            }
 
             careProDbContext.Clients.Update(existingClient);
             await careProDbContext.SaveChangesAsync();
 
-            return $"Client with ID '{clientId}' Availability Status Updated successfully.";
+            return $"Client with ID '{clientId}' profile updated successfully.";
         }
 
 

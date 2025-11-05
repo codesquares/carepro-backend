@@ -4,6 +4,7 @@ using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -42,7 +43,32 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                _logger.LogInformation("=== WEBHOOK DEBUG START ===");
                 _logger.LogInformation("Raw Dojah webhook payload: {Payload}", rawPayload?.ToString());
+                
+                // Try to deserialize as string first to see raw JSON
+                var json = rawPayload?.ToString();
+                if (!string.IsNullOrEmpty(json))
+                {
+                    _logger.LogInformation("Raw JSON string: {JsonString}", json);
+                    
+                    // Try to deserialize to our DTO
+                    try
+                    {
+                        var parsedRequest = System.Text.Json.JsonSerializer.Deserialize<DojahWebhookRequest>(json, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+                        _logger.LogInformation("Successfully parsed to DojahWebhookRequest: ReferenceId={ReferenceId}, Status={Status}", 
+                            parsedRequest?.ReferenceId, parsedRequest?.VerificationStatus);
+                    }
+                    catch (Exception parseEx)
+                    {
+                        _logger.LogError(parseEx, "Failed to parse JSON to DojahWebhookRequest");
+                    }
+                }
+                
+                _logger.LogInformation("=== WEBHOOK DEBUG END ===");
                 return Ok(new { message = "Debug webhook received", receivedAt = DateTime.UtcNow });
             }
             catch (Exception ex)
@@ -52,8 +78,53 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        [HttpPost("webhook-raw")]
+        public async Task<IActionResult> HandleWebhookRaw()
+        {
+            try
+            {
+                _logger.LogInformation("=== RAW WEBHOOK START ===");
+                
+                // Read the raw body as string
+                using var reader = new StreamReader(Request.Body);
+                var rawBody = await reader.ReadToEndAsync();
+                
+                _logger.LogInformation("Raw webhook body: {RawBody}", rawBody);
+                _logger.LogInformation("Content-Type: {ContentType}", Request.ContentType);
+                _logger.LogInformation("Headers: {Headers}", string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+                
+                // Try to parse the raw JSON
+                if (!string.IsNullOrEmpty(rawBody))
+                {
+                    try
+                    {
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        };
+                        
+                        var parsedRequest = System.Text.Json.JsonSerializer.Deserialize<DojahWebhookRequest>(rawBody, options);
+                        _logger.LogInformation("Parsed webhook - ReferenceId: {ReferenceId}, Status: {Status}, Value: {Value}", 
+                            parsedRequest?.ReferenceId, parsedRequest?.VerificationStatus, parsedRequest?.Value);
+                    }
+                    catch (Exception parseEx)
+                    {
+                        _logger.LogError(parseEx, "Failed to parse raw JSON");
+                    }
+                }
+                
+                _logger.LogInformation("=== RAW WEBHOOK END ===");
+                return Ok(new { message = "Raw webhook received", receivedAt = DateTime.UtcNow });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in raw webhook");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
+        }
+
         [HttpPost("webhook")]
-        public async Task<IActionResult> HandleWebhook([FromBody] DojahWebhookWrapper wrapper)
+        public async Task<IActionResult> HandleWebhook()
         {
             var startTime = DateTime.UtcNow;
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -61,6 +132,36 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 _logger.LogInformation("Received Dojah webhook from IP: {ClientIp}", clientIp);
+                
+                // Read the raw body as string first
+                string rawBody;
+                using (var reader = new StreamReader(Request.Body))
+                {
+                    rawBody = await reader.ReadToEndAsync();
+                }
+                
+                _logger.LogInformation("Raw webhook body received: {BodyLength} characters", rawBody?.Length ?? 0);
+                
+                // Parse the JSON to our DTO
+                DojahWebhookRequest? request = null;
+                if (!string.IsNullOrEmpty(rawBody))
+                {
+                    try
+                    {
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        };
+                        
+                        request = JsonSerializer.Deserialize<DojahWebhookRequest>(rawBody, options);
+                        _logger.LogInformation("Successfully parsed webhook JSON");
+                    }
+                    catch (Exception parseEx)
+                    {
+                        _logger.LogError(parseEx, "Failed to parse webhook JSON: {RawBody}", rawBody);
+                        return BadRequest(new { error = "Invalid JSON format" });
+                    }
+                }
 
                 // IP Whitelisting check
                 var ipWhitelistEnabled = _config.GetValue<bool>("Dojah:IpWhitelistEnabled", true);
@@ -78,8 +179,7 @@ namespace CarePro_Api.Controllers.Content
                     _logger.LogInformation("IP whitelist check passed for IP: {ClientIp}", clientIp);
                 }
 
-                // Extract the actual request from wrapper
-                var request = wrapper?.Request;
+                // Validate request
                 if (request == null)
                 {
                     _logger.LogWarning("Invalid webhook: missing request data");
@@ -119,8 +219,8 @@ namespace CarePro_Api.Controllers.Content
                         return Unauthorized(new { error = "Invalid signature configuration" });
                     }
 
-                    // Serialize the wrapper back to JSON for signature verification
-                    var payloadJson = System.Text.Json.JsonSerializer.Serialize(wrapper);
+                    // Serialize the request back to JSON for signature verification
+                    var payloadJson = System.Text.Json.JsonSerializer.Serialize(request);
                     _logger.LogInformation("Payload for signature verification: {Payload}", payloadJson);
                     
                     if (!_signatureService.VerifySignature(signature, payloadJson, apiKey))
@@ -138,9 +238,39 @@ namespace CarePro_Api.Controllers.Content
 
                 // Extract user ID with validation
                 var userId = ExtractUserId(request);
+                _logger.LogInformation("=== WEBHOOK PROCESSING ===");
+                _logger.LogInformation("Extracted UserId: '{UserId}'", userId);
+                _logger.LogInformation("Request.UserId: '{RequestUserId}'", request.UserId);
+                _logger.LogInformation("Request.ReferenceId: '{ReferenceId}'", request.ReferenceId);
+                _logger.LogInformation("Request.VerificationStatus: '{VerificationStatus}'", request.VerificationStatus);
+                _logger.LogInformation("Request.IdType: '{IdType}'", request.IdType);
+                _logger.LogInformation("Request.Value: '{Value}'", request.Value);
+                _logger.LogInformation("Request.Message: '{Message}'", request.Message);
+                _logger.LogInformation("Request.Metadata?.UserId: '{MetadataUserId}'", request.Metadata?.UserId);
+                
+                // Log extracted data from nested structures
+                if (request.Data?.Email?.Data?.Email != null)
+                {
+                    _logger.LogInformation("Email from email verification: '{Email}'", request.Data.Email.Data.Email);
+                }
+                
+                if (request.Data?.UserData?.Data != null)
+                {
+                    var userData = request.Data.UserData.Data;
+                    _logger.LogInformation("User data - Email: '{Email}', FirstName: '{FirstName}', LastName: '{LastName}', DOB: '{DOB}'", 
+                        userData.Email, userData.FirstName, userData.LastName, userData.Dob);
+                }
+                
+                if (request.Data?.GovernmentData?.Data?.Bvn?.Entity != null)
+                {
+                    var bvnData = request.Data.GovernmentData.Data.Bvn.Entity;
+                    _logger.LogInformation("BVN data - BVN: '{BVN}', FirstName: '{FirstName}', LastName: '{LastName}', DOB: '{DOB}'", 
+                        bvnData?.Bvn ?? "", bvnData?.FirstName ?? "", bvnData?.LastName ?? "", bvnData?.DateOfBirth ?? "");
+                }
                 
                 // Check if this is a test event
                 var isTestEvent = IsTestEvent(request);
+                _logger.LogInformation("Is test event: {IsTestEvent}", isTestEvent);
                 if (isTestEvent)
                 {
                     _logger.LogInformation("Processing test webhook event from Dojah");
@@ -154,7 +284,11 @@ namespace CarePro_Api.Controllers.Content
                 
                 if (string.IsNullOrEmpty(userId) || !IsValidUserId(userId))
                 {
-                    _logger.LogError("Invalid user ID in webhook: {UserId}", userId);
+                    _logger.LogError("=== INVALID USER ID ===");
+                    _logger.LogError("UserId is null or empty: {IsNullOrEmpty}", string.IsNullOrEmpty(userId));
+                    _logger.LogError("UserId value: '{UserId}'", userId);
+                    _logger.LogError("IsValidUserId result: {IsValid}", IsValidUserId(userId ?? ""));
+                    _logger.LogError("=== END INVALID USER ID ===");
                     return BadRequest(new { error = "Invalid user identification" });
                 }
 
@@ -212,7 +346,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("status")]
-        [Authorize]
+        [AllowAnonymous] // Temporary for testing
         public async Task<IActionResult> GetVerificationStatus([FromQuery] string userId, [FromQuery] string userType, [FromQuery] string token)
         {
             try
@@ -224,9 +358,12 @@ namespace CarePro_Api.Controllers.Content
 
                 var verification = await _verificationService.GetUserVerificationStatusAsync(userId);
                 
+                // Return 200 OK even when no verification is found - this is expected behavior
+                // Frontend should handle this gracefully rather than treating it as an error
                 if (verification == null)
                 {
-                    return NotFound(new { message = "No verification found for user" });
+                    _logger.LogInformation("No verification record found for user {UserId} - this is expected for users who haven't completed verification yet", userId);
+                    return Ok(new { message = "No verification found for user", status = "not_found" });
                 }
 
                 return Ok(verification);
@@ -328,27 +465,87 @@ namespace CarePro_Api.Controllers.Content
 
         private string ExtractUserId(DojahWebhookRequest request)
         {
-            // Try multiple sources for user ID
+            // Priority 1: Direct user_id field
             if (!string.IsNullOrEmpty(request.UserId))
-                return request.UserId;
-                
-            if (!string.IsNullOrEmpty(request.Metadata?.UserId))
-                return request.Metadata.UserId;
-                
-            if (!string.IsNullOrEmpty(request.ReferenceId) && request.ReferenceId.StartsWith("user_"))
             {
-                var parts = request.ReferenceId.Split('_');
-                if (parts.Length >= 2)
-                    return parts[1];
+                _logger.LogInformation("Found UserId in request.UserId: {UserId}", request.UserId);
+                return request.UserId;
+            }
+                
+            // Priority 2: Metadata user_id (new field)
+            if (!string.IsNullOrEmpty(request.Metadata?.UserId))
+            {
+                _logger.LogInformation("Found UserId in request.Metadata.UserId: {UserId}", request.Metadata.UserId);
+                return request.Metadata.UserId;
+            }
+
+            // Priority 3: Extract from reference_id with various patterns
+            if (!string.IsNullOrEmpty(request.ReferenceId))
+            {
+                // Pattern: caregiver_[USER_ID]_[TIMESTAMP] or user_[USER_ID]_[TIMESTAMP]
+                if (request.ReferenceId.StartsWith("caregiver_") || request.ReferenceId.StartsWith("user_"))
+                {
+                    var parts = request.ReferenceId.Split('_');
+                    if (parts.Length >= 3)
+                    {
+                        var extractedUserId = parts[1]; // The user ID is the second part
+                        _logger.LogInformation("Extracted UserId from ReferenceId pattern: {UserId}", extractedUserId);
+                        return extractedUserId;
+                    }
+                }
+                
+                // Fallback: if reference_id starts with user_ but only has 2 parts
+                if (request.ReferenceId.StartsWith("user_"))
+                {
+                    var parts = request.ReferenceId.Split('_');
+                    if (parts.Length >= 2)
+                    {
+                        _logger.LogInformation("Extracted UserId from simple user_ pattern: {UserId}", parts[1]);
+                        return parts[1];
+                    }
+                }
+            }
+
+            // Priority 4: Try to extract from email in user_data
+            if (request.Data?.UserData?.Data?.Email != null && !string.IsNullOrEmpty(request.Data.UserData.Data.Email))
+            {
+                _logger.LogInformation("Using email from user_data as UserId: {Email}", request.Data.UserData.Data.Email);
+                return request.Data.UserData.Data.Email;
+            }
+
+            // Priority 5: Try to extract from email verification data
+            if (request.Data?.Email?.Data?.Email != null && !string.IsNullOrEmpty(request.Data.Email.Data.Email))
+            {
+                _logger.LogInformation("Using email from email verification as UserId: {Email}", request.Data.Email.Data.Email);
+                return request.Data.Email.Data.Email;
             }
             
+            _logger.LogWarning("Could not extract UserId from any source, falling back to ReferenceId: {ReferenceId}", request.ReferenceId);
             return request.ReferenceId;
         }
 
         private bool IsValidUserId(string userId)
         {
-            return !string.IsNullOrEmpty(userId) &&
-                   userId.Length >= 3 &&
+            if (string.IsNullOrEmpty(userId))
+                return false;
+
+            // Allow email addresses as valid user IDs
+            if (userId.Contains("@") && userId.Contains("."))
+            {
+                // Basic email validation
+                try
+                {
+                    var addr = new System.Net.Mail.MailAddress(userId);
+                    return addr.Address == userId;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            // Original validation for non-email user IDs
+            return userId.Length >= 3 &&
                    userId.Length <= 50 &&
                    Regex.IsMatch(userId, @"^[a-zA-Z0-9_-]+$") &&
                    !userId.ToLower().Contains("admin") &&

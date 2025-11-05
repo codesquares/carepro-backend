@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 
 namespace Application.DTOs
 {
@@ -14,23 +15,62 @@ namespace Application.DTOs
 
     public class DojahWebhookRequest
     {
+        [JsonPropertyName("status")]
         public bool Status { get; set; }
+        
+        [JsonPropertyName("verification_status")]
         public string VerificationStatus { get; set; } = string.Empty; // Ongoing, Abandoned, Completed, Pending, Failed
+        
+        [JsonPropertyName("reference_id")]
         public string ReferenceId { get; set; } = string.Empty;
+        
+        [JsonPropertyName("user_id")]
         public string UserId { get; set; } = string.Empty;
+        
+        [JsonPropertyName("data")]
         public DojahWebhookData? Data { get; set; }
+        
+        [JsonPropertyName("metadata")]
         public DojahWebhookMetadata? Metadata { get; set; }
+        
+        [JsonPropertyName("id_type")]
         public string IdType { get; set; } = string.Empty;
+        
+        [JsonPropertyName("verification_type")]
         public string VerificationType { get; set; } = string.Empty;
+        
+        [JsonPropertyName("value")]
         public string Value { get; set; } = string.Empty;
+        
+        [JsonPropertyName("verification_value")]
         public string VerificationValue { get; set; } = string.Empty;
+        
+        [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
+        
+        [JsonPropertyName("id_url")]
         public string IdUrl { get; set; } = string.Empty;
+        
+        [JsonPropertyName("back_url")]
         public string BackUrl { get; set; } = string.Empty;
+        
+        [JsonPropertyName("selfie_url")]
         public string SelfieUrl { get; set; } = string.Empty;
+        
+        [JsonPropertyName("verification_url")]
         public string VerificationUrl { get; set; } = string.Empty;
+        
+        [JsonPropertyName("verification_mode")]
         public string VerificationMode { get; set; } = string.Empty;
+        
+        [JsonPropertyName("aml")]
         public DojahAmlData? Aml { get; set; }
+        
+        [JsonPropertyName("widget_id")]
+        public string WidgetId { get; set; } = string.Empty;
+        
+        [JsonPropertyName("signature")]
+        public string Signature { get; set; } = string.Empty;
     }
 
     public class DojahAmlData
@@ -40,41 +80,76 @@ namespace Application.DTOs
 
     public class DojahWebhookData
     {
+        [JsonPropertyName("government_data")]
         public DojahGovernmentData? GovernmentData { get; set; }
+        
+        [JsonPropertyName("user_data")]
         public DojahUserData? UserData { get; set; }
+        
+        [JsonPropertyName("id")]
         public DojahIdData? Id { get; set; }
+        
+        [JsonPropertyName("email")]
         public DojahEmailData? Email { get; set; }
+        
+        [JsonPropertyName("selfie")]
         public DojahSelfieData? Selfie { get; set; }
+        
+        [JsonPropertyName("phone_number")]
         public DojahPhoneData? PhoneNumber { get; set; }
+        
+        [JsonPropertyName("business_data")]
         public DojahBusinessData? BusinessData { get; set; }
+        
+        [JsonPropertyName("business_id")]
         public DojahBusinessIdData? BusinessId { get; set; }
+        
+        [JsonPropertyName("countries")]
         public DojahCountriesData? Countries { get; set; }
+        
+        [JsonPropertyName("index")]
         public DojahIndexData? Index { get; set; }
+        
+        [JsonPropertyName("additional_document")]
         public List<DojahAdditionalDocument>? AdditionalDocument { get; set; }
     }
 
     public class DojahGovernmentData
     {
+        [JsonPropertyName("data")]
         public DojahGovernmentDataContent? Data { get; set; }
+        
+        [JsonPropertyName("status")]
         public bool Status { get; set; }
+        
+        [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
     }
 
     public class DojahGovernmentDataContent
     {
+        [JsonPropertyName("bvn")]
         public DojahBvnEntity? Bvn { get; set; }
+        
+        [JsonPropertyName("nin")]
         public DojahNinEntity? Nin { get; set; }
     }
 
     public class DojahEmailData
     {
+        [JsonPropertyName("data")]
         public DojahEmailContent? Data { get; set; }
+        
+        [JsonPropertyName("status")]
         public bool Status { get; set; }
+        
+        [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
     }
 
     public class DojahEmailContent
     {
+        [JsonPropertyName("email")]
         public string Email { get; set; } = string.Empty;
     }
 
@@ -158,30 +233,65 @@ namespace Application.DTOs
 
     public class DojahEntityData
     {
+        [JsonPropertyName("bvn")]
         public string Bvn { get; set; } = string.Empty;
+        
+        [JsonPropertyName("nin")]
         public string Nin { get; set; } = string.Empty;
+        
+        [JsonPropertyName("first_name")]
         public string FirstName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("last_name")]
         public string LastName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("middle_name")]
         public string MiddleName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("date_of_birth")]
         public string DateOfBirth { get; set; } = string.Empty;
+        
+        [JsonPropertyName("phone_number")]
         public string PhoneNumber { get; set; } = string.Empty;
+        
+        [JsonPropertyName("phone_number1")]
         public string PhoneNumber1 { get; set; } = string.Empty;
+        
+        [JsonPropertyName("gender")]
         public string Gender { get; set; } = string.Empty;
+        
+        [JsonPropertyName("image")]
         public string Image { get; set; } = string.Empty;
+        
+        [JsonPropertyName("image_url")]
+        public string ImageUrl { get; set; } = string.Empty;
     }
 
     public class DojahUserData
     {
+        [JsonPropertyName("data")]
         public DojahUserDataContent? Data { get; set; }
+        
+        [JsonPropertyName("status")]
         public bool Status { get; set; }
+        
+        [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
     }
 
     public class DojahUserDataContent
     {
+        [JsonPropertyName("dob")]
         public string Dob { get; set; } = string.Empty;
+        
+        [JsonPropertyName("last_name")]
         public string LastName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("first_name")]
         public string FirstName { get; set; } = string.Empty;
+        
+        [JsonPropertyName("email")]
+        public string Email { get; set; } = string.Empty;
     }
 
     public class DojahIdData
@@ -215,9 +325,23 @@ namespace Application.DTOs
 
     public class DojahWebhookMetadata
     {
+        [JsonPropertyName("user_id")]
         public string UserId { get; set; } = string.Empty;
+        
+        [JsonPropertyName("ipinfo")]
         public DojahIpInfo? IpInfo { get; set; }
+        
+        [JsonPropertyName("device_info")]
         public string DeviceInfo { get; set; } = string.Empty;
+        
+        [JsonPropertyName("user_type")]
+        public string UserType { get; set; } = string.Empty;
+        
+        [JsonPropertyName("platform")]
+        public string Platform { get; set; } = string.Empty;
+        
+        [JsonPropertyName("timestamp")]
+        public string Timestamp { get; set; } = string.Empty;
     }
 
     public class DojahIpInfo

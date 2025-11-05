@@ -49,6 +49,8 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Verification>().ToCollection("Verifications");
             modelBuilder.Entity<Assessment>().ToCollection("Assessments");
             modelBuilder.Entity<ClientPreference>().ToCollection("ClientPreferences");
+            modelBuilder.Entity<ClientPreference>().HasKey(cp => cp.Id);
+            modelBuilder.Entity<ClientPreference>().Property(cp => cp.Id).HasElementName("_id");
             modelBuilder.Entity<Notification>().ToCollection("Notifications");
             modelBuilder.Entity<QuestionBank>().ToCollection("QuestionBank");
             modelBuilder.Entity<Earnings>().ToCollection("Earnings");
@@ -60,6 +62,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
             modelBuilder.Entity<OrderTasks>().ToCollection("OrderTasks");
+            modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
+            modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
+            modelBuilder.Entity<TrainingMaterial>().Property(tm => tm.Id).HasElementName("_id");
 
         }
 
@@ -83,5 +88,6 @@ namespace Infrastructure.Content.Data
         public DbSet<Location> Locations { get; set; }
         public DbSet<Contract> Contracts { get; set; }
         public DbSet<OrderTasks> OrderTasks { get; set; }
+        public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
     }
 }

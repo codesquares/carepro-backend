@@ -40,15 +40,17 @@ namespace Infrastructure.Content.Services
         private readonly ITokenHandler tokenHandler;
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
+        private readonly ILocationService locationService;
 
 
-        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration)
+        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
+            this.locationService = locationService;
 
         }
 
@@ -729,6 +731,40 @@ namespace Infrastructure.Content.Services
 
             return $"Caregiver with ID '{caregiverId}' ProfilePicture Updated successfully.";
 
+        }
+
+        public async Task<LocationDTO> UpdateCaregiverLocationAsync(string caregiverId, UpdateCaregiverLocationRequest request)
+        {
+            if (!ObjectId.TryParse(caregiverId, out var objectId))
+            {
+                throw new ArgumentException("Invalid Caregiver ID format.");
+            }
+
+            var existingCaregiver = await careProDbContext.CareGivers.FindAsync(objectId);
+            if (existingCaregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Address))
+            {
+                throw new ArgumentException("Address is required for location update.");
+            }
+
+            // Use the location service to update the caregiver's location
+            var updateLocationRequest = new UpdateUserLocationRequest
+            {
+                UserId = caregiverId,
+                UserType = "Caregiver",
+                Address = request.Address
+            };
+
+            var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
+
+            // The location service automatically updates the caregiver entity's location fields
+            // through its UpdateUserEntityLocation method, so we don't need to manually update here
+            
+            return locationResult;
         }
 
 

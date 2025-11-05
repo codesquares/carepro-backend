@@ -3,6 +3,7 @@ using Application.Interfaces.Content;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -124,6 +125,89 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { message = ex.Message });
             }
 
+        }
+
+
+        // GET: api/ClientPreferences/notification-preferences/{clientId}
+        [HttpGet]
+        [Route("notification-preferences/{clientId}")]
+        // [Authorize(Roles = "Client, Admin")]
+        public async Task<IActionResult> GetNotificationPreferencesAsync(string clientId)
+        {
+            try
+            {
+                logger.LogInformation($"Retrieving notification preferences for Client with ID '{clientId}'.");
+
+                var preferences = await clientPreferenceService.GetNotificationPreferencesAsync(clientId);
+
+                return Ok(new NotificationPreferencesResponse
+                {
+                    Success = true,
+                    Message = "Notification preferences retrieved successfully",
+                    Data = preferences
+                });
+
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { success = false, message = appEx.Message });
+            }
+            catch (HttpRequestException httpEx)
+            {
+                return StatusCode(500, new { success = false, message = "HTTP request error", error = httpEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred while retrieving notification preferences");
+                return StatusCode(500, new { success = false, message = "An error occurred on the server.", error = ex.Message });
+            }
+        }
+
+        // PUT: api/ClientPreferences/notification-preferences/{clientId}
+        [HttpPut]
+        [Route("notification-preferences/{clientId}")]
+        // [Authorize(Roles = "Client, Admin")]
+        public async Task<IActionResult> UpdateNotificationPreferencesAsync(string clientId, [FromBody] UpdateNotificationPreferencesRequest updateRequest)
+        {
+            try
+            {
+                logger.LogInformation($"Updating notification preferences for Client with ID '{clientId}'.");
+
+                var updatedPreferences = await clientPreferenceService.UpdateNotificationPreferencesAsync(clientId, updateRequest);
+
+                return Ok(new NotificationPreferencesResponse
+                {
+                    Success = true,
+                    Message = "Notification preferences updated successfully",
+                    Data = updatedPreferences
+                });
+
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { success = false, message = appEx.Message });
+            }
+            catch (HttpRequestException httpEx)
+            {
+                return StatusCode(500, new { success = false, message = "HTTP request error", error = httpEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred while updating notification preferences");
+                return StatusCode(500, new { success = false, message = "An error occurred on the server.", error = ex.Message });
+            }
         }
 
 

@@ -118,6 +118,7 @@ builder.Services.AddScoped<IWithdrawalRequestService, WithdrawalRequestService>(
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
+builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
@@ -204,10 +205,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["JWT:Issuer"] ?? Environment.GetEnvironmentVariable("JWT__Issuer") ?? "CarePro",
-            ValidAudience = builder.Configuration["JWT:Audience"] ?? Environment.GetEnvironmentVariable("JWT__Audience") ?? "CarePro",
+            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? Environment.GetEnvironmentVariable("JWT__Issuer") ?? "CarePro",
+            ValidAudience = builder.Configuration["Jwt:Audience"] ?? Environment.GetEnvironmentVariable("JWT__Audience") ?? "CarePro",
             IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["JWT:Key"] ?? Environment.GetEnvironmentVariable("JWT__Key") ?? "default-secret-key"))
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? Environment.GetEnvironmentVariable("JWT__Key") ?? "default-secret-key"))
         };
 
     });
