@@ -48,11 +48,11 @@ namespace CarePro_Api.Controllers.Content
 
 
 
-                HttpContext httpContext = httpContextAccessor.HttpContext;
+                HttpContext? httpContext = httpContextAccessor.HttpContext;
 
                 // Get frontend origin from the request
-                string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
-                                ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+                string origin = httpContext?.Request.Headers["Origin"].FirstOrDefault()
+                                ?? $"{httpContext?.Request.Scheme}://{httpContext?.Request.Host}";
 
 
 
@@ -139,11 +139,11 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                HttpContext httpContext = httpContextAccessor.HttpContext;
+                HttpContext? httpContext = httpContextAccessor.HttpContext;
 
                 // Get frontend origin from the request
-                string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
-                                ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+                string origin = httpContext?.Request.Headers["Origin"].FirstOrDefault()
+                                ?? $"{httpContext?.Request.Scheme}://{httpContext?.Request.Host}";
 
 
 
@@ -166,10 +166,10 @@ namespace CarePro_Api.Controllers.Content
         public IActionResult GetOrigin()
         {
             // Retrieve the Origin header from the HTTP request
-            HttpContext httpContext = httpContextAccessor.HttpContext;
+            HttpContext? httpContext = httpContextAccessor.HttpContext;
 
             // Get the Referer header of the incoming request
-            string referer = httpContext.Request.Headers["Referer"];
+            string? referer = httpContext?.Request.Headers["Referer"];
 
             if (string.IsNullOrEmpty(referer))
             {
@@ -179,7 +179,7 @@ namespace CarePro_Api.Controllers.Content
             else
             {
                 // Referer header is present, extract the origin URL
-                Uri refererUri;
+                Uri? refererUri;
                 if (Uri.TryCreate(referer, UriKind.Absolute, out refererUri))
                 {
                     // Build the base URL with scheme, host, and port components
@@ -370,6 +370,51 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
+        [Route("UpdateCaregiverLocation/{caregiverId}")]
+        //[Authorize(Roles = "Caregiver, Admin")]
+        public async Task<IActionResult> UpdateCaregiverLocationAsync(string caregiverId, [FromBody] UpdateCaregiverLocationRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                logger.LogInformation($"Updating location for caregiver with ID: {caregiverId}");
+                var result = await careGiverService.UpdateCaregiverLocationAsync(caregiverId, request);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Caregiver location updated successfully",
+                    data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                logger.LogWarning(ex, $"Invalid request data for updating caregiver {caregiverId} location");
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                logger.LogWarning(ex, $"Caregiver {caregiverId} not found");
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, $"Invalid operation for updating caregiver {caregiverId} location");
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Error updating location for caregiver {caregiverId}");
+                return StatusCode(500, new { success = false, message = "An error occurred while updating the caregiver location" });
+            }
+        }
+
+
+
+        [HttpPut]
         [Route("SoftDeleteCaregiver/{caregiverId}")]
         //[Authorize(Roles = "Caregiver, Client, Admin")]
         public async Task<IActionResult> SoftDeleteCaregiverAsync(string caregiverId)
@@ -427,11 +472,11 @@ namespace CarePro_Api.Controllers.Content
         [AllowAnonymous] // Allow unauthenticated access
         public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetRequestDto request)
         {
-            HttpContext httpContext = httpContextAccessor.HttpContext;
+            HttpContext? httpContext = httpContextAccessor.HttpContext;
 
             // Determine the origin of the request (frontend/backend)
-            string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
-                            ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+            string origin = httpContext?.Request.Headers["Origin"].FirstOrDefault()
+                            ?? $"{httpContext?.Request.Scheme}://{httpContext?.Request.Host}";
 
             await careGiverService.GeneratePasswordResetTokenAsync(request, origin);
             return Ok(new { message = "A reset link has been sent to the registered Email ." });

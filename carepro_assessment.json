@@ -1,0 +1,2088 @@
+[
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What is the primary purpose of caregiving according to CarePro?",
+    "options": [
+      "To complete all tasks for the client as quickly as possible",
+      "To enhance another person's quality of life while promoting dignity and independence",
+      "To provide medical treatment and prescribe medications",
+      "To make all decisions on behalf of the client"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Caregiving is a commitment to enhancing quality of life while promoting dignity and independence, empowering clients to do what they can safely.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "Which of the following is NOT listed as a key quality of CarePro caregivers?",
+    "options": [
+      "Compassion",
+      "Respect",
+      "Speed",
+      "Reliability"
+    ],
+    "correctAnswer": "C",
+    "explanation": "The key qualities are compassion, respect, reliability, and professionalism. Speed is not emphasized as a core quality.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What should a caregiver do at the beginning of each shift?",
+    "options": [
+      "Immediately start cleaning the home",
+      "Greet the client warmly, ask how they're feeling, and review the daily care plan",
+      "Check social media for updates",
+      "Wait for the client to give instructions"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Caregivers should begin each shift by greeting the client warmly, asking how they're feeling, and reviewing the care plan in the CarePro App.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What type of caregiver works through formal platforms like CarePro?",
+    "options": [
+      "Family Caregiver",
+      "Volunteer Caregiver",
+      "Professional Caregiver",
+      "Informal Caregiver"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Professional caregivers are trained employees providing formal care through platforms like CarePro.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "Why is empowering clients better than doing everything for them?",
+    "options": [
+      "It saves time for the caregiver",
+      "It reduces the caregiver's workload",
+      "It promotes client independence, confidence, and dignity",
+      "It allows caregivers to leave earlier"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Empowering clients to do what they can safely promotes their independence, confidence, and dignity rather than creating dependency.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What does 'viewing the client as a whole person, not just their condition' demonstrate?",
+    "options": [
+      "Professionalism",
+      "Compassion",
+      "Reliability",
+      "Efficiency"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Compassion involves viewing the client as a whole person, not just their condition or limitations.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What does confidentiality mean in caregiving?",
+    "options": [
+      "Sharing client information with friends to get advice",
+      "Protecting personal and medical information at all times",
+      "Discussing client details with other clients",
+      "Posting about work experiences on social media"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Confidentiality means protecting personal and medical information at all times and only sharing with authorized individuals.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "Which core principle involves understanding the feelings and perspective of others?",
+    "options": [
+      "Respect",
+      "Empathy",
+      "Dignity",
+      "Equality"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Empathy is understanding the feelings and perspective of others, which is essential in caregiving.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "When discussing care details, where should private conversations take place?",
+    "options": [
+      "In front of other family members or visitors",
+      "Away from others or using secure messaging in the CarePro App",
+      "In public areas of the home",
+      "Over the phone in shared spaces"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Private conversations should happen away from others or use the secure messaging feature in the CarePro App.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What is the first question to ask when making ethical decisions?",
+    "options": [
+      "Will this save me time?",
+      "Does this respect the client's rights and dignity?",
+      "Will the family agree with this?",
+      "Is this the easiest option?"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The first ethical question is whether the decision respects the client's rights and dignity.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "How do equality and diversity strengthen care quality?",
+    "options": [
+      "By treating everyone exactly the same way",
+      "By ignoring cultural differences",
+      "By valuing people regardless of age, culture, religion, gender, or ability",
+      "By focusing only on medical needs"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Equality and diversity strengthen care by valuing people regardless of age, culture, religion, gender, or ability.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What should you consider when asking 'Is this within my scope of practice?'",
+    "options": [
+      "Whether you feel comfortable doing it",
+      "Whether you have the training and authorization to perform the task",
+      "Whether the client wants you to do it",
+      "Whether it will be faster than calling a supervisor"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Scope of practice refers to whether you have the proper training and authorization to perform a specific task.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the 'S' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "Safety",
+      "Supplies gathered",
+      "Sanitize",
+      "Start procedure"
+    ],
+    "correctAnswer": "B",
+    "explanation": "S.W.I.P.E.S. stands for: Supplies gathered, Wash hands, Identify client, Provide privacy, Explain procedure, Safety and cleanliness maintained.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "How long should you wash your hands with soap and warm water?",
+    "options": [
+      "5 seconds",
+      "10 seconds",
+      "20 seconds",
+      "30 seconds"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Hands should be washed with soap and warm water for 20 seconds for proper infection control.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "Why should you bend at your knees instead of your waist when lifting?",
+    "options": [
+      "It looks more professional",
+      "It prevents back injury by using leg muscles instead of back muscles",
+      "It's faster",
+      "Clients prefer it"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Bending at the knees uses stronger leg muscles and prevents back injury, which is a key principle of proper body mechanics.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "When should you use alcohol sanitizer instead of soap and water?",
+    "options": [
+      "Always, it's more convenient",
+      "When hands are not visibly soiled",
+      "Never, always use soap and water",
+      "Only at the end of the shift"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Alcohol sanitizer can be used when hands are not visibly soiled; otherwise, soap and water should be used.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What should you do instead of twisting your body when moving objects?",
+    "options": [
+      "Bend forward",
+      "Reach as far as possible",
+      "Pivot your feet",
+      "Move quickly"
+    ],
+    "correctAnswer": "C",
+    "explanation": "To prevent injury, you should pivot your feet instead of twisting your body when moving objects.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "Which of the following is NOT part of the home safety checklist?",
+    "options": [
+      "Pathways clear of cords and rugs",
+      "Smoke and CO₂ detectors functioning",
+      "Television volume at maximum",
+      "Adequate lighting in halls and stairs"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Television volume is not part of the safety checklist. The checklist includes clear pathways, functioning detectors, grab bars, and adequate lighting.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "Where should you record home hazards and maintenance issues?",
+    "options": [
+      "In a personal notebook",
+      "Tell the client to fix them",
+      "In the CarePro App's 'Safety Report' section",
+      "Ignore them if they're minor"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Home hazards and maintenance issues should be recorded in the CarePro App's 'Safety Report' section to alert supervisors immediately.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does 'Provide privacy' mean in the S.W.I.P.E.S. method?",
+    "options": [
+      "Close all windows",
+      "Ensure the client has privacy during care procedures",
+      "Leave the room",
+      "Turn off all lights"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Providing privacy means ensuring the client has appropriate privacy during care procedures to maintain dignity.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "When should you use assistive devices like gait belts or lifts?",
+    "options": [
+      "Only in emergencies",
+      "Whenever possible to ensure safe movement",
+      "Never, they make clients feel dependent",
+      "Only when you're tired"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Assistive devices should be used whenever possible to ensure safe movement and prevent injury to both caregiver and client.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What is the purpose of keeping objects close to your body when lifting?",
+    "options": [
+      "To hide them from view",
+      "To reduce strain on your back and improve stability",
+      "To move faster",
+      "To appear more professional"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Keeping objects close to your body reduces strain on your back and improves stability during lifting.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What does FAST stand for in stroke recognition?",
+    "options": [
+      "Feel, Ask, See, Tell",
+      "Face droop, Arm weakness, Speech difficulty, Time to call emergency services",
+      "First Aid, Safety, Treatment, Transport",
+      "Find help, Assess situation, Secure area, Tell supervisor"
+    ],
+    "correctAnswer": "B",
+    "explanation": "FAST stands for Face droop, Arm weakness, Speech difficulty, Time to call emergency service line.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What should you do first if your client collapses?",
+    "options": [
+      "Immediately lift them back up",
+      "Check for responsiveness and breathing",
+      "Call their family",
+      "Give them water"
+    ],
+    "correctAnswer": "B",
+    "explanation": "First, check for responsiveness and breathing before taking any other action.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What should you do if a client falls?",
+    "options": [
+      "Lift them immediately",
+      "Do not lift immediately; check for injury first",
+      "Leave them on the floor and call family",
+      "Help them stand up quickly before they get cold"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Do not lift a fallen client immediately; check for injury first to avoid causing further harm.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What is the correct rate for chest compressions during CPR?",
+    "options": [
+      "50-80 per minute",
+      "80-100 per minute",
+      "100-120 per minute",
+      "120-140 per minute"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Chest compressions should be performed at 100-120 per minute if you are trained in CPR.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What should you do if a choking client can still cough?",
+    "options": [
+      "Immediately perform abdominal thrusts",
+      "Encourage coughing; it may clear the obstruction",
+      "Give them water to drink",
+      "Lay them down flat"
+    ],
+    "correctAnswer": "B",
+    "explanation": "If a client can still cough, encourage coughing as it may clear the obstruction naturally.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "How should emergencies be reported in the CarePro system?",
+    "options": [
+      "Send a text message to your supervisor",
+      "Through the CarePro App's 'Incident Report'",
+      "Call the office during business hours",
+      "Wait until the next shift briefing"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Emergencies should be reported through the CarePro App's 'Incident Report' feature.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What should you always keep updated in the CarePro App for emergency preparedness?",
+    "options": [
+      "Your personal schedule",
+      "Client's emergency contact list and medication log",
+      "Your vacation plans",
+      "Client's favorite TV shows"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The client's emergency contact list and medication log should always be kept updated for emergency preparedness.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What is the first step in the Emergency Communication Protocol?",
+    "options": [
+      "Call 911",
+      "Ensure the scene is safe",
+      "Start CPR",
+      "Call the supervisor"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The first step is to ensure the scene is safe before taking any other action.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "When should you continue CPR?",
+    "options": [
+      "For exactly 5 minutes then stop",
+      "Until help arrives or the client recovers",
+      "Until you get tired",
+      "Only until the supervisor arrives"
+    ],
+    "correctAnswer": "B",
+    "explanation": "CPR should continue until help arrives or the client recovers.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What is the most important attitude to maintain during an emergency?",
+    "options": [
+      "Move as quickly as possible",
+      "Stay calm and act quickly with clear observation",
+      "Wait for instructions before doing anything",
+      "Show strong emotions to demonstrate care"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Staying calm, observing carefully, and acting quickly are essential during emergencies.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "Which of the following demonstrates professional conduct?",
+    "options": [
+      "Arriving late but working faster to catch up",
+      "Arriving on time, dressing neatly, and communicating clearly",
+      "Discussing personal problems with clients",
+      "Using casual slang when talking to elderly clients"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Professional conduct includes arriving on time, dressing neatly, and communicating clearly.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What type of language should be used when documenting in the CarePro App?",
+    "options": [
+      "Emotional and descriptive",
+      "Objective terms like 'client appeared tired'",
+      "Personal opinions about the client's mood",
+      "Medical diagnoses"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Documentation should use objective terms like 'client appeared tired' rather than subjective assessments like 'client seemed sad.'",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "When should documentation be completed?",
+    "options": [
+      "At the end of the week",
+      "Immediately after providing care",
+      "Whenever you have free time",
+      "Only if something unusual happens"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Documentation should be completed immediately after providing care to ensure accuracy.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What should you do if you're unsure about accepting a gift from a client?",
+    "options": [
+      "Accept it to avoid hurting their feelings",
+      "Ask the quality assurance team",
+      "Refuse all gifts automatically",
+      "Accept only if it's expensive"
+    ],
+    "correctAnswer": "B",
+    "explanation": "If unsure about accepting gifts, caregivers should ask the quality assurance team for guidance.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "Why is confidentiality essential in caregiving?",
+    "options": [
+      "It's required by law only",
+      "It builds trust and protects client privacy and dignity",
+      "It makes documentation easier",
+      "It prevents family members from interfering"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Confidentiality builds trust and protects client privacy and dignity, which are fundamental to quality care.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "With whom can client information be shared?",
+    "options": [
+      "Anyone who asks politely",
+      "Family and friends for advice",
+      "Only authorized individuals",
+      "Other clients in similar situations"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Client information must be shared only with authorized individuals to maintain confidentiality.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What should you avoid when documenting observations?",
+    "options": [
+      "Using clear, simple language",
+      "Recording facts",
+      "Making assumptions or subjective judgments",
+      "Completing entries promptly"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Documentation should record observations factually and avoid assumptions or subjective judgments.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What is an example of maintaining healthy boundaries?",
+    "options": [
+      "Accepting expensive gifts regularly",
+      "Sharing your personal problems with clients",
+      "Keeping relationships professional and avoiding large gifts",
+      "Becoming friends with clients on social media"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Maintaining healthy boundaries includes keeping relationships professional and avoiding accepting large gifts.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What demonstrates reliability as a caregiver?",
+    "options": [
+      "Working only when it's convenient",
+      "Being consistent, punctual, and dependable",
+      "Changing schedules frequently",
+      "Arriving whenever you finish your personal errands"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Reliability means being consistent, punctual, and dependable in your caregiving duties.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "Can you post about your work or clients on social media?",
+    "options": [
+      "Yes, if you don't use their real names",
+      "Yes, if the post is positive",
+      "No, never discuss client details outside of work or post online",
+      "Yes, if your account is private"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Client information must never be discussed outside of work or posted online, regardless of privacy settings.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Why is a clean, organized space important for clients?",
+    "options": [
+      "It makes the caregiver look good",
+      "It protects clients from falls, infections, and stress",
+      "It's required by insurance companies",
+      "It impresses visitors"
+    ],
+    "correctAnswer": "B",
+    "explanation": "A clean, organized space protects clients from falls, infections, and stress while promoting safety and comfort.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Which of the following is a daily homekeeping task?",
+    "options": [
+      "Deep cleaning carpets",
+      "Painting walls",
+      "Making beds and tidying personal areas",
+      "Rearranging furniture"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Daily tasks include making beds, tidying personal areas, washing dishes, emptying trash, and maintaining walkways.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What is a key principle of food safety?",
+    "options": [
+      "Cook all foods to the same temperature",
+      "Separate raw and cooked foods to prevent cross-contamination",
+      "Leave leftovers out to cool completely before storing",
+      "Use the same cutting board for all foods"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Separating raw and cooked foods prevents cross-contamination, which is essential for food safety.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "When should you wash your hands during food preparation?",
+    "options": [
+      "Only before starting",
+      "Only after finishing",
+      "Before and after food handling",
+      "Only if hands look dirty"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Hands should be washed before and after food handling to maintain proper food safety.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Where should grocery needs or expired items be recorded?",
+    "options": [
+      "On a piece of paper left on the counter",
+      "In the CarePro App under 'Home Notes'",
+      "Tell the client to remember",
+      "In a text message to family"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Grocery needs or expired items should be recorded in the CarePro App under 'Home Notes' to coordinate supplies.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What should you do with leftovers after a meal?",
+    "options": [
+      "Leave them on the counter until the next day",
+      "Label and store them promptly",
+      "Throw them away immediately",
+      "Only refrigerate if asked"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Leftovers should be labeled and stored promptly to maintain food safety and prevent waste.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What hazards should you check for during each shift?",
+    "options": [
+      "Only fire hazards",
+      "Cluttered walkways, poor lighting, and potential fall risks",
+      "Only if the client mentions something",
+      "Hazards don't need regular checking"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Caregivers should regularly check for cluttered walkways, poor lighting, and potential fall risks during each shift.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Why is maintaining adequate lighting important?",
+    "options": [
+      "It saves electricity",
+      "It prevents falls and helps clients navigate safely",
+      "It makes the home look better",
+      "It's only important at night"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Adequate lighting prevents falls and helps clients navigate their home safely, especially in halls and stairs.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What temperature range is safe for cooking meats?",
+    "options": [
+      "Any temperature as long as it looks done",
+      "Safe internal temperatures as specified by food safety guidelines",
+      "Always cook on high heat",
+      "Room temperature is sufficient"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Meats must be cooked to safe internal temperatures according to food safety standards to prevent foodborne illness.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What are the three steps of active listening?",
+    "options": [
+      "Hear, ignore, respond",
+      "Listen completely, acknowledge feelings, respond thoughtfully",
+      "Talk, listen, agree",
+      "Nod, smile, leave"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Active listening involves: 1) Listening completely, 2) Acknowledging feelings, 3) Responding thoughtfully.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "How does honesty build trust with clients?",
+    "options": [
+      "It doesn't; clients prefer white lies",
+      "By demonstrating reliability, transparency, and respect for their intelligence",
+      "Only when delivering good news",
+      "By never admitting mistakes"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Honesty builds trust by demonstrating reliability, transparency, and respect for the client's intelligence and autonomy.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What should you do when a client becomes angry?",
+    "options": [
+      "Argue to prove your point",
+      "Leave immediately",
+      "Stay calm, validate their feelings, and offer solutions or call a supervisor",
+      "Ignore them until they calm down"
+    ],
+    "correctAnswer": "C",
+    "explanation": "When a client is angry, stay calm, validate their feelings, offer solutions, or call a supervisor if needed.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What does active listening include?",
+    "options": [
+      "Thinking about your response while they talk",
+      "Checking your phone occasionally",
+      "Using eye contact, nods, and clarifying questions",
+      "Interrupting with your own stories"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Active listening includes focusing fully, using eye contact, nods, and clarifying questions to ensure understanding.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "How can you prevent misunderstandings with clients?",
+    "options": [
+      "Avoid all communication",
+      "Use the 'Message Log' feature in CarePro App to keep written records",
+      "Rely only on verbal communication",
+      "Assume everyone understands you"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Using the Message Log feature in the CarePro App keeps written records of important communications and prevents misunderstandings.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What should you do when communicating delays to clients?",
+    "options": [
+      "Don't mention it and hope they don't notice",
+      "Communicate any delays promptly to maintain trust",
+      "Only tell them if the delay is more than an hour",
+      "Have someone else tell them"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Promptly communicating any delays maintains trust and shows respect for the client's time and schedule.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "How should you introduce yourself to a new client?",
+    "options": [
+      "Wait for them to ask your name",
+      "Introduce yourself clearly and professionally",
+      "Just start working without introduction",
+      "Have them read your name badge"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Clear, professional introductions help build trust and rapport from the beginning of the caregiver-client relationship.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What does 'validate their feelings' mean when managing difficult conversations?",
+    "options": [
+      "Agree with everything they say",
+      "Acknowledge their emotions as real and understandable",
+      "Tell them they shouldn't feel that way",
+      "Change the subject quickly"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Validating feelings means acknowledging their emotions as real and understandable, such as saying 'I understand this is frustrating.'",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What builds trust through consistency?",
+    "options": [
+      "Changing your approach based on your mood",
+      "Following through on promises and maintaining reliable behavior",
+      "Always agreeing with the client",
+      "Working faster than scheduled"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Trust grows through consistency, honesty, and respect, including following through on promises and maintaining reliable behavior.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What does 'you cannot pour from an empty cup' mean?",
+    "options": [
+      "You need to drink more water",
+      "You must care for yourself to effectively care for others",
+      "You should avoid helping others",
+      "Clients should be self-sufficient"
+    ],
+    "correctAnswer": "B",
+    "explanation": "This phrase means you must care for yourself physically and emotionally to maintain the energy and compassion needed to care for others.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What is signal breathing?",
+    "options": [
+      "Breathing only through your nose",
+      "Inhale 4 seconds, hold 4 seconds, exhale 4 seconds",
+      "Taking deep breaths only during breaks",
+      "Breathing exercises done with clients"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Signal breathing is a stress management technique: inhale for 4 seconds, hold for 4 seconds, exhale for 4 seconds.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "Which of the following is a warning sign of burnout?",
+    "options": [
+      "Feeling energized after shifts",
+      "Fatigue, irritability, and loss of motivation",
+      "Enjoying work more than usual",
+      "Increased enthusiasm for caregiving"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Warning signs of burnout include fatigue, irritability, loss of motivation, and emotional numbness.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "When should you seek support for stress or burnout?",
+    "options": [
+      "Only after you've quit your job",
+      "Early, through supervisors or peer networks",
+      "Never, it shows weakness",
+      "Only if it affects your personal life"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Support should be sought early through supervisors or peer networks to prevent burnout from worsening.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "Why is self-care a professional responsibility?",
+    "options": [
+      "It's not; it's purely personal",
+      "It preserves your energy and ability to provide compassionate, quality care",
+      "It makes you look better to supervisors",
+      "It's only important outside of work"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Self-care is a professional responsibility because it preserves your energy, prevents burnout, and maintains your ability to provide compassionate care.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What is one everyday stress management technique mentioned in the manual?",
+    "options": [
+      "Skip meals to save time",
+      "Stretch gently between tasks",
+      "Work through breaks to finish faster",
+      "Avoid taking time for yourself"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Everyday techniques include stretching gently between tasks, signal breathing, mindful pauses, and maintaining balanced meals.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "How often should you use the 'Well-Being Check-In' tool in the CarePro App?",
+    "options": [
+      "Only when feeling stressed",
+      "Once a week",
+      "Once a month",
+      "Only when required by supervisors"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The Well-Being Check-In tool should be used once a week to monitor stress levels and access coping resources.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What should you maintain for physical wellness?",
+    "options": [
+      "Skip meals when busy",
+      "Balanced meals and hydration",
+      "Only drink coffee for energy",
+      "Eat only at the end of your shift"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Maintaining balanced meals and proper hydration is essential for physical wellness and sustained energy.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What is emotional numbness a sign of?",
+    "options": [
+      "Professional maturity",
+      "Potential burnout",
+      "Good stress management",
+      "Increased efficiency"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Emotional numbness is a warning sign of potential burnout and should prompt seeking support.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "When should you take mindful pauses?",
+    "options": [
+      "Only at the end of the day",
+      "During breaks throughout your shift",
+      "Never during work hours",
+      "Only when clients are sleeping"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Short mindful pauses should be taken during breaks throughout your shift to manage stress and maintain focus.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What are two core features of the CarePro App?",
+    "options": [
+      "Gaming and entertainment",
+      "Dashboard for shifts and Reports for visit summaries",
+      "Social media and shopping",
+      "Weather and news"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Core features include Dashboard (view shifts, clients, reminders) and Reports (submit visit summaries, safety notes, emergencies).",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "Why is objective language important in documentation?",
+    "options": [
+      "It sounds more professional",
+      "It provides factual, unbiased records that are legally defensible",
+      "It's easier to type",
+      "Supervisors prefer it"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Objective language provides factual, unbiased records that accurately reflect observations without assumptions or personal interpretations.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "When should you complete your visit report?",
+    "options": [
+      "At the end of the week",
+      "Promptly after visits",
+      "Whenever convenient",
+      "Only if something unusual happened"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Visit reports should be completed promptly after visits to ensure accuracy and timely communication.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What should you do before clocking out?",
+    "options": [
+      "Leave immediately",
+      "Review daily tasks and complete documentation",
+      "Just clock out quickly",
+      "Wait for the client to dismiss you"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Before clocking out, caregivers should review daily tasks and ensure all documentation is complete.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What feature allows secure communication with supervisors?",
+    "options": [
+      "Personal email",
+      "Messages feature in CarePro App",
+      "Social media",
+      "Phone calls only"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The Messages feature in the CarePro App allows secure communication with supervisors.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What should you enable to stay updated on schedule changes?",
+    "options": [
+      "Email only",
+      "Notifications for schedule changes and supervisor messages",
+      "Nothing; check manually",
+      "Phone calls"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Enabling notifications for schedule changes and supervisor messages helps caregivers stay up to date.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "Where can you access manuals and quick guides?",
+    "options": [
+      "Only in printed form",
+      "Resources section of the CarePro App",
+      "From other caregivers",
+      "They're not available digitally"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Manuals and quick guides are accessible in the Resources section of the CarePro App.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What does the Dashboard show?",
+    "options": [
+      "Only your personal information",
+      "Shifts, clients, and reminders",
+      "News and weather",
+      "Other caregivers' schedules"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The Dashboard displays your shifts, client information, and important reminders.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What is an example of objective documentation?",
+    "options": [
+      "Client seemed depressed today",
+      "Client ate 50% of meal",
+      "Client was being difficult",
+      "I think client is getting worse"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Objective documentation states facts like 'Client ate 50% of meal' rather than subjective interpretations.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "How does the CarePro App support emergency reporting?",
+    "options": [
+      "It doesn't; use phone calls only",
+      "Through the Incident Report feature for immediate supervisor notification",
+      "By automatically calling 911",
+      "Only through email"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The CarePro App supports emergency reporting through the Incident Report feature, which immediately notifies supervisors.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What are the five core principles of caregiving according to the manual?",
+    "options": [
+      "Speed, efficiency, cost, quality, safety",
+      "Person-centered care, safety and hygiene, ethical professionalism, communication and empathy, self-care",
+      "Medical knowledge, physical strength, time management, documentation, reporting",
+      "Client satisfaction, supervisor approval, schedule adherence, task completion, appearance"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The five core principles are: person-centered care prioritizing dignity, safety and hygiene, ethical professionalism and confidentiality, communication and empathy, and self-care for sustainable caregiving.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What should you do before each shift?",
+    "options": [
+      "Arrive and start working immediately",
+      "Review care plan and client notes in the app, wash hands, gather supplies",
+      "Wait for the client to tell you what to do",
+      "Check social media"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Before each shift, review the care plan and client notes in the app, wash hands, and gather necessary supplies.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What should you do during your shift?",
+    "options": [
+      "Work in silence",
+      "Communicate clearly and document tasks; observe for changes in condition",
+      "Rush through all tasks",
+      "Avoid documenting to save time"
+    ],
+    "correctAnswer": "B",
+    "explanation": "During shifts, caregivers should communicate clearly, document tasks, and observe for any changes in the client's condition.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What should you do after your shift?",
+    "options": [
+      "Leave immediately without documentation",
+      "Record visit summary and safety notes; report incidents promptly",
+      "Tell the next caregiver verbally",
+      "Only document if something went wrong"
+    ],
+    "correctAnswer": "B",
+    "explanation": "After shifts, caregivers must record visit summaries and safety notes, and report any incidents promptly.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What is the target score for the CarePro post-training assessment?",
+    "options": [
+      "50% or higher",
+      "70% or higher",
+      "80% or higher",
+      "100% required"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Trainees are expected to score 80% or higher on the CarePro post-training assessment.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What does person-centered care prioritize?",
+    "options": [
+      "Completing tasks efficiently",
+      "Dignity and respect for the individual",
+      "Following strict schedules",
+      "Minimizing caregiver workload"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Person-centered care prioritizes dignity and respect for the individual, focusing on their unique needs and preferences.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "According to the manual, quality caregiving starts with what?",
+    "options": [
+      "Medical expertise",
+      "Compassion, supported by consistent learning and self-care",
+      "Years of experience",
+      "Physical strength"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Quality caregiving starts with compassion, supported by consistent learning and self-care.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What should you use as study material for the assessment?",
+    "options": [
+      "Only the mini-assessments",
+      "Completed reflections and notes from all modules",
+      "Just the first module",
+      "Online searches"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Trainees should use their completed reflections and notes from all modules as study material for the assessment.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "Why do safety and hygiene protect both clients and caregivers?",
+    "options": [
+      "They only protect clients",
+      "They prevent infections, injuries, and create a safe environment for everyone",
+      "They only protect caregivers",
+      "They're mainly for legal compliance"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Safety and hygiene practices prevent infections and injuries, creating a safe environment that protects both clients and caregivers.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What does treating every client with dignity and patience demonstrate?",
+    "options": [
+      "Compassion",
+      "Respect",
+      "Reliability",
+      "Professionalism"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Treating every client with dignity and patience demonstrates respect, one of the key qualities of CarePro caregivers.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What does maintaining ethical standards and boundaries demonstrate?",
+    "options": [
+      "Compassion",
+      "Respect",
+      "Reliability",
+      "Professionalism"
+    ],
+    "correctAnswer": "D",
+    "explanation": "Maintaining ethical standards and boundaries demonstrates professionalism in caregiving.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What does giving clients privacy, autonomy, and a voice in their care demonstrate?",
+    "options": [
+      "Empathy only",
+      "Respect and dignity",
+      "Efficiency",
+      "Convenience"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Giving clients privacy, autonomy, and a voice in their care demonstrates respect and dignity.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What does valuing people regardless of age, culture, religion, gender, or ability demonstrate?",
+    "options": [
+      "Empathy",
+      "Respect only",
+      "Equality and diversity",
+      "Confidentiality"
+    ],
+    "correctAnswer": "C",
+    "explanation": "Valuing people regardless of age, culture, religion, gender, or ability demonstrates the principles of equality and diversity.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the 'W' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "Wait for instructions",
+      "Wash hands",
+      "Wear gloves",
+      "Watch client"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'W' in S.W.I.P.E.S. stands for 'Wash hands' - proper hand hygiene before client contact.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the 'I' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "Inspect area",
+      "Identify client",
+      "Initiate procedure",
+      "Inform supervisor"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'I' in S.W.I.P.E.S. stands for 'Identify client' to ensure you're providing care to the correct person.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the 'P' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "Perform task",
+      "Provide privacy",
+      "Prepare equipment",
+      "Practice safety"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'P' in S.W.I.P.E.S. stands for 'Provide privacy' to maintain client dignity during care.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the 'E' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "End procedure",
+      "Examine client",
+      "Explain procedure",
+      "Ensure comfort"
+    ],
+    "correctAnswer": "C",
+    "explanation": "The 'E' in S.W.I.P.E.S. stands for 'Explain procedure' so the client knows what to expect.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What does the final 'S' in S.W.I.P.E.S. stand for?",
+    "options": [
+      "Stop and assess",
+      "Safety and cleanliness maintained",
+      "Supervise closely",
+      "Sanitize equipment"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The final 'S' in S.W.I.P.E.S. stands for 'Safety and cleanliness maintained' throughout the procedure.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What does the 'F' in FAST stand for?",
+    "options": [
+      "Find help",
+      "Face droop",
+      "Feel pulse",
+      "First aid"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'F' in FAST stands for 'Face droop' - one of the key signs of stroke.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What does the 'A' in FAST stand for?",
+    "options": [
+      "Act quickly",
+      "Arm weakness",
+      "Ask questions",
+      "Assess situation"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'A' in FAST stands for 'Arm weakness' - another key sign of stroke.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What does the 'S' in FAST stand for?",
+    "options": [
+      "Stay calm",
+      "Speech difficulty",
+      "Seek help",
+      "Safety first"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'S' in FAST stands for 'Speech difficulty' - a critical stroke symptom.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What does the 'T' in FAST stand for?",
+    "options": [
+      "Test reflexes",
+      "Time to call emergency service line",
+      "Transport immediately",
+      "Take vital signs"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The 'T' in FAST stands for 'Time to call emergency service line' - emphasizing the urgency of stroke care.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "After calling 911, what should you do?",
+    "options": [
+      "Leave the scene",
+      "Notify the supervisor through CarePro App's Incident Report and stay with the client",
+      "Wait for family to arrive before doing anything else",
+      "Clean up the area"
+    ],
+    "correctAnswer": "B",
+    "explanation": "After calling 911, notify the supervisor through the CarePro App's Incident Report and stay with the client until relieved.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What does following agency policies demonstrate?",
+    "options": [
+      "Professional behavior",
+      "Compassion",
+      "Empathy",
+      "Personal preference"
+    ],
+    "correctAnswer": "A",
+    "explanation": "Following agency policies is part of professional behavior and demonstrates accountability.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What type of tone should be used when communicating with clients?",
+    "options": [
+      "Authoritative and commanding",
+      "Respectful and professional",
+      "Casual and informal",
+      "Childlike and simple"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Communication should use respectful language and tone appropriate to the professional caregiver-client relationship.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "How should concerns be reported?",
+    "options": [
+      "Only when they become serious",
+      "Accurately and promptly",
+      "At the end of the week",
+      "Only to family members"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Concerns should be reported accurately and promptly to ensure proper follow-up and client safety.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What should you check for regarding odors during housekeeping?",
+    "options": [
+      "Only check if client mentions it",
+      "Empty trash and check for odors that might indicate safety issues",
+      "Use air freshener to cover any smells",
+      "Odors aren't part of caregiving duties"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Caregivers should empty trash and check for odors that might indicate spoiled food, gas leaks, or other safety issues.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Why should countertops be sanitized?",
+    "options": [
+      "To make them look clean",
+      "To prevent cross-contamination and maintain food safety",
+      "Only if visibly dirty",
+      "It's not necessary"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Sanitizing countertops prevents cross-contamination and maintains food safety, protecting client health.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What is the first step in active listening?",
+    "options": [
+      "Respond immediately",
+      "Listen completely",
+      "Think of solutions",
+      "Interrupt with questions"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The first step in active listening is to listen completely before acknowledging feelings and responding thoughtfully.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What is the second step in active listening?",
+    "options": [
+      "Provide solutions",
+      "Acknowledge feelings",
+      "Change the subject",
+      "Argue your point"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The second step in active listening is to acknowledge the other person's feelings before responding.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What is the third step in active listening?",
+    "options": [
+      "End the conversation",
+      "Repeat what you heard",
+      "Respond thoughtfully",
+      "Dismiss their concerns"
+    ],
+    "correctAnswer": "C",
+    "explanation": "The third step in active listening is to respond thoughtfully after fully listening and acknowledging feelings.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What physical symptoms might indicate stress or burnout?",
+    "options": [
+      "Increased energy and enthusiasm",
+      "Fatigue and physical exhaustion",
+      "Improved sleep quality",
+      "Enhanced appetite"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Fatigue and physical exhaustion are physical symptoms of stress and burnout that require attention.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What emotional symptoms might indicate burnout?",
+    "options": [
+      "Increased patience and empathy",
+      "Irritability and emotional numbness",
+      "Greater job satisfaction",
+      "Improved mood"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Irritability and emotional numbness are emotional symptoms that indicate potential burnout.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "How long should you inhale during signal breathing?",
+    "options": [
+      "2 seconds",
+      "4 seconds",
+      "6 seconds",
+      "8 seconds"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Signal breathing involves inhaling for 4 seconds, holding for 4 seconds, and exhaling for 4 seconds.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What is one benefit of taking short mindful pauses?",
+    "options": [
+      "It wastes time",
+      "It helps manage stress and maintain focus",
+      "It makes shifts longer",
+      "It's only for experienced caregivers"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Short mindful pauses during breaks help manage stress and maintain focus throughout the shift.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What information can you find on the Dashboard?",
+    "options": [
+      "Only your personal contact information",
+      "Your shifts, clients, and reminders",
+      "Other caregivers' performance",
+      "Client financial information"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The Dashboard shows your shifts, client information, and important reminders for your work.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What types of reports can you submit through the app?",
+    "options": [
+      "Only emergency reports",
+      "Visit summaries, safety notes, and emergencies",
+      "Only incident reports",
+      "Personal time-off requests only"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The Reports feature allows submission of visit summaries, safety notes, and emergency incidents.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "Why should observations be recorded promptly after visits?",
+    "options": [
+      "To meet quotas",
+      "To ensure accuracy and prevent forgetting important details",
+      "It's only a suggestion",
+      "To impress supervisors"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Recording observations promptly ensures accuracy and prevents forgetting important details about the client's condition.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What does 'stick to objective facts' mean in documentation?",
+    "options": [
+      "Include your opinions about the client",
+      "Record measurable observations like 'Client ate 50% of meal'",
+      "Write long detailed stories",
+      "Only document problems"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Sticking to objective facts means recording measurable observations without personal interpretations or assumptions.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What does the manual emphasize about learning in caregiving?",
+    "options": [
+      "Learning stops after initial training",
+      "Consistent learning supports quality caregiving",
+      "Experience is more important than learning",
+      "Only supervisors need ongoing learning"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The manual emphasizes that consistent learning, along with compassion and self-care, supports quality caregiving.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What should reflection exercises help you with?",
+    "options": [
+      "Pass the test only",
+      "Understand and apply caregiving principles in real situations",
+      "Fill time during training",
+      "Impress your supervisor"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Reflection exercises help caregivers understand and internalize principles so they can apply them in real caregiving situations.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What areas do CarePro caregivers assist clients with?",
+    "options": [
+      "Only medical treatments",
+      "Personal needs, mobility, meals, and emotional support",
+      "Only housekeeping",
+      "Only medication management"
+    ],
+    "correctAnswer": "B",
+    "explanation": "CarePro caregivers assist with personal needs, mobility, meals, and emotional support while promoting dignity and independence.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "What is the goal when empowering clients?",
+    "options": [
+      "To make them fully independent immediately",
+      "To help them do what they can, safely and confidently",
+      "To do nothing for them",
+      "To test their abilities"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Empowerment means helping clients do what they can safely and confidently, not doing everything for them or nothing at all.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "When making ethical decisions, what is meant by 'within my scope of practice'?",
+    "options": [
+      "Whatever the client asks for",
+      "Tasks you are trained and authorized to perform",
+      "Anything that seems easy",
+      "Only emergency procedures"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Scope of practice refers to tasks you are trained and authorized to perform based on your role and credentials.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What is an example of respecting a client's dignity?",
+    "options": [
+      "Making all decisions for them",
+      "Ensuring privacy during personal care and including them in care decisions",
+      "Rushing through care tasks",
+      "Discussing their condition with neighbors"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Respecting dignity includes ensuring privacy during personal care and including clients in decisions about their own care.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "Why is infection prevention 'everyone's responsibility'?",
+    "options": [
+      "It's actually only the nurse's responsibility",
+      "Everyone in the care environment can spread or prevent infections",
+      "It's only management's concern",
+      "Only clients need to worry about it"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Infection prevention is everyone's responsibility because anyone in the care environment can either spread or help prevent infections.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What is the purpose of bathroom grab bars?",
+    "options": [
+      "Decoration",
+      "To provide stability and prevent falls",
+      "To hang towels",
+      "They're optional amenities"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Bathroom grab bars provide stability and help prevent falls, especially for clients with mobility challenges.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "Why should you stay with the client after calling 911?",
+    "options": [
+      "It's required by law",
+      "To provide comfort, monitor condition, and give information to emergency responders",
+      "To prevent liability",
+      "Only if the supervisor tells you to"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Staying with the client provides comfort, allows monitoring of their condition, and enables you to give important information to emergency responders.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What should you do while waiting for emergency services to arrive?",
+    "options": [
+      "Leave to meet them outside",
+      "Continue monitoring the client and be prepared to provide information",
+      "Start cleaning up",
+      "Call family members repeatedly"
+    ],
+    "correctAnswer": "B",
+    "explanation": "While waiting for emergency services, continue monitoring the client and be prepared to provide information about the emergency.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "Why should you dress neatly as a caregiver?",
+    "options": [
+      "To impress clients",
+      "It demonstrates professionalism and respect for the role",
+      "It's only important for office visits",
+      "To compete with other caregivers"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Dressing neatly demonstrates professionalism and respect for your role, clients, and the caregiving profession.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "What is meant by 'maintaining ethical standards'?",
+    "options": [
+      "Following rules only when supervised",
+      "Adhering to professional values and doing what's right even when no one is watching",
+      "Doing whatever is easiest",
+      "Only following rules you agree with"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Maintaining ethical standards means adhering to professional values and doing what's right even when no one is watching.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What is the relationship between a clean environment and client stress?",
+    "options": [
+      "There is no relationship",
+      "A clean, organized environment reduces stress and promotes well-being",
+      "Only clients with OCD care about cleanliness",
+      "Cleanliness increases stress"
+    ],
+    "correctAnswer": "B",
+    "explanation": "A clean, organized environment reduces stress and promotes well-being by creating a calm, safe space.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "Why should you maintain clear walkways?",
+    "options": [
+      "It looks better",
+      "To prevent trips and falls",
+      "For easier vacuuming",
+      "It's not really necessary"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Maintaining clear walkways prevents trips and falls, which is critical for client safety, especially those with mobility issues.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "Why is eye contact important in active listening?",
+    "options": [
+      "It's a rule you must follow",
+      "It shows you're focused and engaged in what they're saying",
+      "It intimidates the speaker",
+      "It's only important in formal settings"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Eye contact shows you're focused and engaged, which helps build trust and demonstrates that you value what the client is saying.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "What is the purpose of clarifying questions in active listening?",
+    "options": [
+      "To interrupt the speaker",
+      "To ensure you correctly understand what's being communicated",
+      "To show you know more",
+      "To change the subject"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Clarifying questions ensure you correctly understand what's being communicated and demonstrate engagement in the conversation.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "How does consistency build trust with clients?",
+    "options": [
+      "By always agreeing with them",
+      "By demonstrating reliable behavior and following through on commitments",
+      "By never changing your routine",
+      "By being strict and inflexible"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Consistency builds trust through reliable behavior, following through on commitments, and maintaining professional standards.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "Why is hydration important for caregiver wellness?",
+    "options": [
+      "It's not particularly important",
+      "It maintains energy levels, cognitive function, and physical health",
+      "Only for weight loss",
+      "Only during summer"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Proper hydration maintains energy levels, cognitive function, and physical health, all essential for effective caregiving.",
+    "active": true
+  },
+  {
+    "category": "Caregiver Self-Care and Stress Management",
+    "userType": "Caregiver",
+    "question": "What is the benefit of gentle stretching between tasks?",
+    "options": [
+      "It wastes time",
+      "It prevents muscle tension and injury while refreshing your energy",
+      "It's only for athletes",
+      "It makes shifts longer"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Gentle stretching between tasks prevents muscle tension and injury while helping refresh your energy for continued care.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "How does the CarePro App enhance accountability?",
+    "options": [
+      "By tracking caregivers' locations constantly",
+      "By providing clear documentation of care provided and communication",
+      "By comparing caregivers to each other",
+      "It doesn't enhance accountability"
+    ],
+    "correctAnswer": "B",
+    "explanation": "The app enhances accountability by providing clear documentation of care provided, safety observations, and professional communication.",
+    "active": true
+  },
+  {
+    "category": "CarePro App Orientation and Role Integration",
+    "userType": "Caregiver",
+    "question": "What is the advantage of having manuals in the Resources section?",
+    "options": [
+      "They're just for decoration",
+      "They provide quick reference and support for caregivers in the field",
+      "They're only for new caregivers",
+      "They replace training"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Having manuals in the Resources section provides quick reference and ongoing support for caregivers when they need guidance.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "What is the purpose of completing all modules before the assessment?",
+    "options": [
+      "It's just a formality",
+      "To ensure comprehensive preparation and understanding of all caregiving aspects",
+      "To make the course longer",
+      "Only to satisfy requirements"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Completing all modules ensures comprehensive preparation and thorough understanding of all aspects of caregiving before assessment.",
+    "active": true
+  },
+  {
+    "category": "Assessment Readiness and Practical Checklists",
+    "userType": "Caregiver",
+    "question": "Why are practical checklists included in the training?",
+    "options": [
+      "To fill space in the manual",
+      "To provide step-by-step guidance for daily caregiving tasks",
+      "They're optional suggestions",
+      "Only for supervisors to use"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Practical checklists provide step-by-step guidance to help caregivers perform daily tasks consistently and thoroughly.",
+    "active": true
+  },
+  {
+    "category": "Introduction to Caregiving",
+    "userType": "Caregiver",
+    "question": "How does caregiving differ from simply completing tasks?",
+    "options": [
+      "There is no difference",
+      "Caregiving is a commitment to enhancing quality of life, not just task completion",
+      "Caregiving is faster",
+      "Tasks are more important than relationships"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Caregiving is a commitment to enhancing quality of life through compassion and person-centered care, not merely completing tasks.",
+    "active": true
+  },
+  {
+    "category": "Fundamentals and Core Principles of Care",
+    "userType": "Caregiver",
+    "question": "What question helps test if a decision is ethical: 'Would I feel comfortable if this decision were made public?'",
+    "options": [
+      "Yes, this helps ensure transparency and accountability",
+      "No, all decisions should be private",
+      "Only for major decisions",
+      "This doesn't matter"
+    ],
+    "correctAnswer": "A",
+    "explanation": "This question helps ensure transparency and accountability by considering whether the decision aligns with ethical standards and values.",
+    "active": true
+  },
+  {
+    "category": "Health, Safety, and Hygiene",
+    "userType": "Caregiver",
+    "question": "What is the purpose of having functioning smoke and CO₂ detectors?",
+    "options": [
+      "They're required by insurance only",
+      "To provide early warning of fire or carbon monoxide and save lives",
+      "Decoration",
+      "They're optional"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Functioning smoke and CO₂ detectors provide early warning of dangerous conditions and can save lives.",
+    "active": true
+  },
+  {
+    "category": "Responding to Emergencies in a Client's Home",
+    "userType": "Caregiver",
+    "question": "What makes a scene 'safe' before you respond to an emergency?",
+    "options": [
+      "If someone else is there",
+      "If there are no immediate dangers to you or others",
+      "If it looks safe",
+      "Scenes are always safe in homes"
+    ],
+    "correctAnswer": "B",
+    "explanation": "A scene is safe when there are no immediate dangers to you or others, such as fire, electrical hazards, or aggressive individuals.",
+    "active": true
+  },
+  {
+    "category": "Professionalism and Ethics",
+    "userType": "Caregiver",
+    "question": "Why is punctuality important in caregiving?",
+    "options": [
+      "It only matters to supervisors",
+      "Clients depend on caregivers for essential needs and schedule their lives around care times",
+      "It's not really important",
+      "Only for first impressions"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Punctuality is critical because clients depend on caregivers for essential needs and schedule their lives around expected care times.",
+    "active": true
+  },
+  {
+    "category": "Basic Homekeeping and Environmental Care",
+    "userType": "Caregiver",
+    "question": "What does 'minimize waste' mean in the context of recording grocery needs?",
+    "options": [
+      "Buy less food",
+      "Tracking needs prevents buying duplicates and helps use food before it expires",
+      "Throw away leftovers",
+      "Only buy non-perishables"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Recording grocery needs and expired items helps coordinate supplies, prevents buying duplicates, and ensures food is used before expiring.",
+    "active": true
+  },
+  {
+    "category": "Customer Care and Communication Skills",
+    "userType": "Caregiver",
+    "question": "When should you call a supervisor during a difficult conversation?",
+    "options": [
+      "Immediately, for any disagreement",
+      "When the situation escalates beyond your ability to resolve or requires additional authority",
+      "Never, always handle it yourself",
+      "Only if the client demands it"
+    ],
+    "correctAnswer": "B",
+    "explanation": "Call a supervisor when the situation escalates beyond your ability to resolve or when additional authority or guidance is needed.",
+    "active": true
+  }
+]

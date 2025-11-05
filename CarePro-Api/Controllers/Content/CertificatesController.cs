@@ -69,7 +69,7 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 // Handle other exceptions
-                return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
+                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
 
         }
@@ -104,7 +104,7 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 // Handle other exceptions
-                return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
+                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
 
         }
@@ -141,7 +141,7 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 // Handle other exceptions
-                return StatusCode(500, new { ex /*ErrorMessage = "An error occurred on the server."*/ });
+                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
 
         }

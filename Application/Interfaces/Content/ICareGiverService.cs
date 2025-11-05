@@ -36,6 +36,8 @@ namespace Application.Interfaces.Content
         Task<string> UpdateCaregiverAvailabilityAsync(string caregiverId, UpdateCaregiverAvailabilityRequest updateCaregiverAvailabilityRequest);
         Task<string> UpdateProfilePictureAsync(string caregiverId, UpdateProfilePictureRequest updateProfilePictureRequest);
 
+        Task<LocationDTO> UpdateCaregiverLocationAsync(string caregiverId, UpdateCaregiverLocationRequest request);
+
         Task<string> SoftDeleteCaregiverAsync(string caregiverId);
 
 

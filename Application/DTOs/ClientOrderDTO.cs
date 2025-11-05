@@ -69,6 +69,7 @@ namespace Application.DTOs
         public string? PaymentOption { get; set; }
         public int Amount { get; set; }
         public string? TransactionId { get; set; }
+        public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
     }
 
     public class UpdateClientOrderStatusRequest
