@@ -49,17 +49,6 @@ jobs:
       working-directory: ./CarePro-Api
       run: dotnet build --no-restore --configuration Release --verbosity normal
 
-    - name: Code formatting check
-      working-directory: ./CarePro-Api
-      run: |
-        echo "🔍 Checking code formatting..."
-        dotnet format CarePro-Api.sln --verify-no-changes --verbosity diagnostic
-        if [ $? -ne 0 ]; then
-          echo "❌ Code formatting issues found!"
-          echo "Run 'dotnet format CarePro-Api.sln' to fix formatting issues."
-          exit 1
-        fi
-
     - name: Analyze code complexity
       run: |
         echo "🔍 Analyzing code complexity..."

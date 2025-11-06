@@ -144,7 +144,14 @@ builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHostedService<DailyEarningService>();
-builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
+// Old background service - now replaced by specialized processors
+// builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
+
+// New sophisticated email notification system
+builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationTrackingService>();
+builder.Services.AddHostedService<ImmediateNotificationProcessor>();
+builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
+builder.Services.AddHostedService<ContractReminderProcessor>();
 
 
 
@@ -266,8 +273,8 @@ builder.Services.AddCors(options =>
             "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173",
             "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com",
             "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com")
-               .AllowAnyHeader()
-               .AllowAnyMethod()
+               .WithHeaders("Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With")
+               .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                .AllowCredentials();
     });
 });

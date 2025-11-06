@@ -1,4 +1,5 @@
 ﻿using Application.Interfaces.Email;
+using Domain.Entities;
 using Domain.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -119,6 +120,458 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
+            using var client = new SmtpClient();
+            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+        }
+
+        // New immediate notification methods
+        public async Task SendNewGigNotificationEmailAsync(string toEmail, string firstName, string gigDetails)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "New Care Opportunity Available - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>A new care opportunity is available that matches your profile!</p>
+                    <p>{gigDetails}</p>
+                    <p>Please log in to your CarePro dashboard to view details and apply.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendSystemNotificationEmailAsync(string toEmail, string firstName, string title, string content)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"{title} - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4>{title}</h4>
+                    <p>{content}</p>
+                    <p>Please log in to your CarePro dashboard for more information.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendWithdrawalStatusEmailAsync(string toEmail, string firstName, string status, string content)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"Withdrawal {status} - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>Your withdrawal request has been {status.ToLower()}.</p>
+                    <p>{content}</p>
+                    <p>Please log in to your CarePro dashboard to view your earnings and withdrawal history.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>{content}</p>
+                    <p>Please log in to your CarePro dashboard for more information.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        // Payment-related notification methods
+        public async Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Payment Confirmation - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>✅ Payment Confirmed</h4>
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <p><strong>Service:</strong> {service}</p>
+                        <p><strong>Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Transaction ID:</strong> {transactionId}</p>
+                        <p><strong>Status:</strong> <span style='color: #28a745;'>Confirmed</span></p>
+                    </div>
+                    <p>Your payment has been successfully processed. Your caregiver will be notified and will contact you soon.</p>
+                    <p>You can track your service progress in your CarePro dashboard.</p>
+                    <p>Thanks for choosing CarePro!<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendEarningsNotificationEmailAsync(string toEmail, string firstName, decimal amount, string clientName, string serviceType)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Earnings Added - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>💰 You've Earned Money!</h4>
+                    <div style='background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;'>
+                        <p><strong>Amount Earned:</strong> ₦{amount:N2}</p>
+                        <p><strong>Client:</strong> {clientName}</p>
+                        <p><strong>Service:</strong> {serviceType}</p>
+                        <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>Congratulations! Your earnings have been added to your account.</p>
+                    <p>You can view your earnings and request withdrawals from your CarePro dashboard.</p>
+                    <p>Keep up the great work!<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendWithdrawalRequestEmailAsync(string toEmail, string firstName, decimal amount, string status)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"Withdrawal Request {status} - CarePro";
+
+            var statusColor = status.ToLower() switch
+            {
+                "submitted" => "#007bff",
+                "verified" => "#17a2b8", 
+                "completed" => "#28a745",
+                "rejected" => "#dc3545",
+                _ => "#6c757d"
+            };
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: {statusColor};'>Withdrawal Request Update</h4>
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <p><strong>Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Status:</strong> <span style='color: {statusColor}; font-weight: bold;'>{status.ToUpper()}</span></p>
+                        <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>{GetWithdrawalStatusMessage(status, amount)}</p>
+                    <p>You can view your withdrawal history and account balance in your CarePro dashboard.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendPaymentFailedEmailAsync(string toEmail, string firstName, decimal amount, string reason)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Payment Failed - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #dc3545;'>❌ Payment Failed</h4>
+                    <div style='background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc3545;'>
+                        <p><strong>Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Reason:</strong> {reason}</p>
+                        <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>Your payment could not be processed. Please try again or contact our support team.</p>
+                    <p>You can retry the payment from your CarePro dashboard.</p>
+                    <p>If you continue to experience issues, please contact our support team.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendRefundNotificationEmailAsync(string toEmail, string firstName, decimal amount, string reason)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Refund Processed - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #17a2b8;'>💳 Refund Processed</h4>
+                    <div style='background-color: #d1ecf1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #17a2b8;'>
+                        <p><strong>Refund Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Reason:</strong> {reason}</p>
+                        <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>Your refund has been processed and will be credited to your original payment method within 3-5 business days.</p>
+                    <p>If you have any questions about this refund, please contact our support team.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        // Helper method for withdrawal status messages
+        private string GetWithdrawalStatusMessage(string status, decimal amount)
+        {
+            return status.ToLower() switch
+            {
+                "submitted" => $"Your withdrawal request for ₦{amount:N2} has been submitted and is being reviewed by our team.",
+                "verified" => $"Your withdrawal request for ₦{amount:N2} has been verified and is being processed.",
+                "completed" => $"Your withdrawal of ₦{amount:N2} has been completed and transferred to your bank account.",
+                "rejected" => $"Your withdrawal request for ₦{amount:N2} has been rejected. Please contact support for more information.",
+                _ => $"Your withdrawal request for ₦{amount:N2} status has been updated."
+            };
+        }
+
+        // Batch notification methods
+        public async Task SendBatchMessageNotificationEmailAsync(string toEmail, string firstName, int messageCount, 
+            Dictionary<string, ConversationSummary> conversationSummaries)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"You have {messageCount} unread message{(messageCount > 1 ? "s" : "")} - CarePro";
+
+            var conversationList = new StringBuilder();
+            foreach (var conversation in conversationSummaries.Values.OrderByDescending(c => c.LatestMessageTime))
+            {
+                conversationList.AppendLine($"<li><strong>{conversation.SenderName}</strong>: {conversation.MessageCount} message{(conversation.MessageCount > 1 ? "s" : "")} (latest: {conversation.LatestMessageTime:MMM dd, HH:mm})</li>");
+            }
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>You have {messageCount} unread message{(messageCount > 1 ? "s" : "")} in your CarePro account from {conversationSummaries.Count} conversation{(conversationSummaries.Count > 1 ? "s" : "")}:</p>
+                    <ul>
+                        {conversationList}
+                    </ul>
+                    <p>Please log in to your CarePro dashboard to read and respond to your messages.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        // Contract reminder methods
+        public async Task SendContractReminderEmailAsync(string toEmail, string firstName, string subject, string message, 
+            ContractDetails? contractDetails, EmailType reminderLevel)
+        {
+            var emailMessage = new MimeMessage();
+            emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            emailMessage.To.Add(MailboxAddress.Parse(toEmail));
+            emailMessage.Subject = subject;
+
+            var urgencyText = reminderLevel switch
+            {
+                EmailType.Reminder1 => "Reminder",
+                EmailType.Reminder2 => "Urgent Reminder",
+                EmailType.Final => "Final Reminder",
+                _ => "Reminder"
+            };
+
+            var contractInfo = contractDetails != null 
+                ? $@"
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <h4 style='margin-top: 0;'>Contract Details:</h4>
+                        <p><strong>Client:</strong> {contractDetails.ClientName}</p>
+                        <p><strong>Service:</strong> {contractDetails.GigTitle}</p>
+                        <p><strong>Contract Date:</strong> {contractDetails.CreatedAt:MMM dd, yyyy}</p>
+                        {(contractDetails.ExpiryDate.HasValue ? $"<p><strong>Expires:</strong> {contractDetails.ExpiryDate.Value:MMM dd, yyyy}</p>" : "")}
+                    </div>"
+                : "";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: {(reminderLevel == EmailType.Final ? "#dc3545" : "#007bff")};'>{urgencyText}: Contract Response Needed</h4>
+                    <p>{message}</p>
+                    {contractInfo}
+                    <div style='text-align: center; margin: 30px 0;'>
+                        <a href='#' style='background-color: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;'>View Contract</a>
+                    </div>
+                    <p>Please log in to your CarePro dashboard to respond to this contract.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            emailMessage.Body = builder.ToMessageBody();
+            await SendEmailAsync(emailMessage);
+        }
+
+        // Order notification methods
+        public async Task SendOrderReceivedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string clientName, string orderId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "New Order Received - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>📋 New Order Received</h4>
+                    <div style='background-color: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;'>
+                        <p><strong>Service:</strong> {gigTitle}</p>
+                        <p><strong>Client:</strong> {clientName}</p>
+                        <p><strong>Order Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Order ID:</strong> {orderId}</p>
+                        <p><strong>Order Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>You have received a new order for your service! The client has paid and is ready to begin working with you.</p>
+                    <p>Please log in to your CarePro dashboard to review the order details and begin coordination with your client.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendOrderConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Order Confirmation - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #007bff;'>✅ Order Confirmed</h4>
+                    <div style='background-color: #d1ecf1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #007bff;'>
+                        <p><strong>Service:</strong> {gigTitle}</p>
+                        <p><strong>Order Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Order ID:</strong> {orderId}</p>
+                        <p><strong>Confirmation Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>Your order has been confirmed! Your caregiver will begin providing the requested services according to your agreed schedule.</p>
+                    <p>You can track your order progress and communicate with your caregiver through your CarePro dashboard.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendOrderCompletedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Order Completed - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>🎉 Order Completed</h4>
+                    <div style='background-color: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;'>
+                        <p><strong>Service:</strong> {gigTitle}</p>
+                        <p><strong>Order Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Order ID:</strong> {orderId}</p>
+                        <p><strong>Completion Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>Your order has been successfully completed! We hope you had a great experience with our care services.</p>
+                    <p>Please consider leaving a review for your caregiver to help other clients make informed decisions.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendOrderCancelledEmailAsync(string toEmail, string firstName, string gigTitle, string reason, string orderId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Order Cancelled - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #dc3545;'>❌ Order Cancelled</h4>
+                    <div style='background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc3545;'>
+                        <p><strong>Service:</strong> {gigTitle}</p>
+                        <p><strong>Order ID:</strong> {orderId}</p>
+                        <p><strong>Cancellation Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                        <p><strong>Reason:</strong> {reason}</p>
+                    </div>
+                    <p>Your order has been cancelled. If you paid for this service, a refund will be processed within 3-5 business days.</p>
+                    <p>If you have any questions about this cancellation, please contact our support team.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        // Helper method to reduce code duplication
+        private async Task SendEmailAsync(MimeMessage message)
+        {
             using var client = new SmtpClient();
             await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);

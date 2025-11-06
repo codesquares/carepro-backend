@@ -39,6 +39,17 @@ namespace Application.DTOs
         public List<string> RequestedChanges { get; set; } = new List<string>();
     }
 
+    // New DTOs for specific caregiver actions
+    public class ContractRejectRequestDTO
+    {
+        public string? Reason { get; set; }
+    }
+
+    public class ContractReviewRequestDTO
+    {
+        public string? Comments { get; set; }
+    }
+
     // Response DTOs
     public class ContractDTO
     {
@@ -52,10 +63,19 @@ namespace Application.DTOs
         public string GeneratedTerms { get; set; }
         public decimal TotalAmount { get; set; }
         public string Status { get; set; }
+        public string? PaymentTransactionId { get; set; }
         public DateTime? SentAt { get; set; }
         public DateTime? RespondedAt { get; set; }
+        public DateTime? AcceptedAt { get; set; }
+        public string? AcceptedBy { get; set; }
+        public DateTime? RejectedAt { get; set; }
+        public string? RejectedBy { get; set; }
+        public string? RejectionReason { get; set; }
+        public DateTime? ReviewRequestedAt { get; set; }
+        public string? ReviewRequestedBy { get; set; }
+        public string? ReviewComments { get; set; }
         public string CaregiverResponse { get; set; }
-        public List<string> ReviewComments { get; set; }
+        public List<string> Comments { get; set; } = new List<string>();
         public DateTime ContractStartDate { get; set; }
         public DateTime ContractEndDate { get; set; }
         public DateTime CreatedAt { get; set; }

@@ -65,6 +65,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
             modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
             modelBuilder.Entity<TrainingMaterial>().Property(tm => tm.Id).HasElementName("_id");
+            modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
+            modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
+            modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");
 
         }
 
@@ -89,5 +92,6 @@ namespace Infrastructure.Content.Data
         public DbSet<Contract> Contracts { get; set; }
         public DbSet<OrderTasks> OrderTasks { get; set; }
         public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
+        public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
     }
 }
