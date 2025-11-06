@@ -120,8 +120,9 @@ namespace Infrastructure.Content.Services
                             addClientOrderRequest.OrderTasksId,
                             clientOrder.Id.ToString());
 
-                        // Trigger contract generation using OrderTasks data
-                        await TriggerContractGenerationAsync(addClientOrderRequest.OrderTasksId, addClientOrderRequest.TransactionId ?? string.Empty);
+                        // Contract generation is now manual via frontend button
+                        logger.LogInformation("OrderTasks {OrderTasksId} linked to ClientOrder {ClientOrderId}. Contract generation can be triggered manually.",
+                            addClientOrderRequest.OrderTasksId, clientOrder.Id.ToString());
                     }
                 }
             }
@@ -136,12 +137,12 @@ namespace Infrastructure.Content.Services
             var caregiver = await careGiverService.GetCaregiverUserAsync(clientOrder.CaregiverId);
             if (caregiver != null)
             {
-                string notificationContent = $"New order received for your service: {gig!.Title} - Amount: ${clientOrder.Amount}";
+                string notificationContent = $"New order received for your service: {gig!.Title} - Amount: ₦{clientOrder.Amount} from {client!.FirstName} {client.LastName}";
 
                 await notificationService.CreateNotificationAsync(
                     clientOrder.CaregiverId,
                     clientOrder.ClientId ?? string.Empty,
-                    "Payment",
+                    "OrderReceived",
                     notificationContent,
                     "New Order Received",
                     clientOrder.Id.ToString()

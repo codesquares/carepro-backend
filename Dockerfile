@@ -1,5 +1,5 @@
-# Use the official .NET 8 SDK image for building
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Use the official .NET 8 SDK image for building (latest patch version)
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 WORKDIR /app
 
 # Copy csproj files and restore dependencies
@@ -21,17 +21,16 @@ RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build
 # Publish the application
 RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# Use the official .NET 8 runtime image for the final stage
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+# Use the official .NET 8 runtime image for the final stage (latest patch version)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final
 WORKDIR /app
 
-# Create a non-root user for security
-RUN groupadd -r carepro && useradd -r -g carepro carepro
+# Create a non-root user for security (Alpine version)
+RUN addgroup -g 1001 -S carepro && \
+    adduser -S carepro -G carepro -u 1001
 
-# Install required packages for health checks and security
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install required packages for health checks and security (Alpine)
+RUN apk add --no-cache curl
 
 # Copy the published application
 COPY --from=build /app/publish .

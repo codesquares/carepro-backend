@@ -144,13 +144,6 @@ jobs:
         
         echo "✅ Configuration validation passed"
 
-    - name: Code formatting check
-      working-directory: ./CarePro-Api
-      run: |
-        echo "🔍 Checking code formatting..."
-        dotnet format CarePro-Api.sln --verify-no-changes --verbosity diagnostic || true
-        echo "⚠️ Code formatting check completed (warnings only)"
-
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest

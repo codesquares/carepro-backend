@@ -180,8 +180,10 @@ namespace Infrastructure.Content.Services
             {
                 var principal = tokenHandler.ValidateToken(token, new TokenValidationParameters
                 {
-                    ValidateIssuer = false,
-                    ValidateAudience = false,
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidIssuer = configuration["JwtSettings:Issuer"],
+                    ValidAudience = configuration["JwtSettings:Audience"],
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(key),
@@ -229,8 +231,10 @@ namespace Infrastructure.Content.Services
             {
                 var principal = tokenHandler.ValidateToken(token, new TokenValidationParameters
                 {
-                    ValidateIssuer = false,
-                    ValidateAudience = false,
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidIssuer = configuration["JwtSettings:Issuer"],
+                    ValidAudience = configuration["JwtSettings:Audience"],
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = new SymmetricSecurityKey(key),
@@ -548,7 +552,7 @@ namespace Infrastructure.Content.Services
             string resetLink;
             resetLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
+                : $"{origin}/api/Clients/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
             await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName ?? "User");
         }
