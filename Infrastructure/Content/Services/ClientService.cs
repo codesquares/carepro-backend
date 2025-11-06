@@ -548,7 +548,7 @@ namespace Infrastructure.Content.Services
             string resetLink;
             resetLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
-                : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
+                : $"{origin}/api/Clients/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
             await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName ?? "User");
         }

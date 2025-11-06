@@ -2,6 +2,7 @@
 using Application.DTOs.Email;
 using Application.Interfaces;
 using Application.Interfaces.Authentication;
+using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain;
@@ -41,9 +42,10 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
         private readonly ILocationService locationService;
+        private readonly IOriginValidationService originValidationService;
 
 
-        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService)
+        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService, IOriginValidationService originValidationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
@@ -51,6 +53,7 @@ namespace Infrastructure.Content.Services
             this.emailService = emailService;
             this.configuration = configuration;
             this.locationService = locationService;
+            this.originValidationService = originValidationService;
 
         }
 
@@ -224,7 +227,7 @@ namespace Infrastructure.Content.Services
         // Detect if request is coming from frontend or not
         private bool IsFrontendOrigin(string origin)
         {
-            return origin.Contains("localhost:5173") || origin.Contains("onrender.com");
+            return originValidationService.IsFrontendOrigin(origin);
         }
 
 
