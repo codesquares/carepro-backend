@@ -24,8 +24,16 @@ namespace Domain.Entities
         // Response Management
         public DateTime? SentAt { get; set; }
         public DateTime? RespondedAt { get; set; }
+        public DateTime? AcceptedAt { get; set; }
+        public string? AcceptedBy { get; set; }
+        public DateTime? RejectedAt { get; set; }
+        public string? RejectedBy { get; set; }
+        public string? RejectionReason { get; set; }
+        public DateTime? ReviewRequestedAt { get; set; }
+        public string? ReviewRequestedBy { get; set; }
+        public string? ReviewComments { get; set; }
         public string CaregiverResponse { get; set; } = string.Empty;
-        public List<string> ReviewComments { get; set; } = new List<string>();
+        public List<string> Comments { get; set; } = new List<string>();
 
         // Contract History
         public DateTime ContractStartDate { get; set; }
@@ -60,11 +68,12 @@ namespace Domain.Entities
     public enum ContractStatus
     {
         Generated,      // Contract created after payment
-        Sent,          // Sent to caregiver
+        Sent,          // Sent to caregiver (frontend expects this)
         Pending,       // Awaiting caregiver response
-        Accepted,      // Caregiver accepted
-        Rejected,      // Caregiver rejected
-        ReviewRequested, // Caregiver requested review
+        Accepted,      // Caregiver accepted (frontend expects this)
+        Rejected,      // Caregiver rejected (frontend expects this)
+        ReviewRequested, // Caregiver requested review (frontend expects "Review Requested")
+        UnderReview,   // Client is reviewing caregiver's requests
         Revised,       // Client made revisions
         Expired,       // Contract expired without response
         Completed,     // Service completed

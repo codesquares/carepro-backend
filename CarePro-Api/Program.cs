@@ -142,7 +142,14 @@ builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHostedService<DailyEarningService>();
-builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
+// Old background service - now replaced by specialized processors
+// builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();
+
+// New sophisticated email notification system
+builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationTrackingService>();
+builder.Services.AddHostedService<ImmediateNotificationProcessor>();
+builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
+builder.Services.AddHostedService<ContractReminderProcessor>();
 
 
 

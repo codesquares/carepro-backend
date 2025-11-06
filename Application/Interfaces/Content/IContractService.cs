@@ -7,14 +7,19 @@ namespace Application.Interfaces.Content
     {
         // Contract Generation (triggered by payment success)
         Task<ContractDTO> GenerateContractAsync(ContractGenerationRequestDTO request);
+        Task<ContractDTO> GenerateContractFromOrderAsync(string orderId);
         Task<bool> SendContractToCaregiverAsync(string contractId);
 
         // Caregiver Response Management
         Task<ContractDTO> ProcessCaregiverResponseAsync(CaregiverContractResponseDTO response);
+        Task<ContractDTO> AcceptContractAsync(string contractId, string caregiverId);
+        Task<ContractDTO> RejectContractAsync(string contractId, string caregiverId, string? reason);
+        Task<ContractDTO> RequestContractReviewAsync(string contractId, string caregiverId, string? comments);
         Task<List<AlternativeCaregiverDTO>> GetAlternativeCaregiversAsync(string contractId);
 
         // Contract Status Management
         Task<ContractDTO> GetContractByIdAsync(string contractId);
+        Task<ContractDTO?> GetContractByOrderIdAsync(string orderId);
         Task<List<ContractDTO>> GetContractsByClientIdAsync(string clientId);
         Task<List<ContractDTO>> GetContractsByCaregiverIdAsync(string caregiverId);
         Task<List<ContractDTO>> GetPendingContractsForCaregiverAsync(string caregiverId);

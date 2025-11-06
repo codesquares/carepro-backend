@@ -17,6 +17,148 @@ namespace CarePro_Api.Controllers.Content
             _logger = logger;
         }
 
+        // Manual Contract Generation from Order
+        [HttpPost("generate-from-order/{orderId}")]
+        public async Task<ActionResult<ContractDTO>> GenerateContractFromOrder(string orderId)
+        {
+            try
+            {
+                var contract = await _contractService.GenerateContractFromOrderAsync(orderId);
+                
+                _logger.LogInformation("Contract {ContractId} generated from order {OrderId}",
+                    contract.Id, orderId);
+                
+                return Ok(contract);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Invalid request to generate contract for order {OrderId}: {Message}", 
+                    orderId, ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating contract from order {OrderId}", orderId);
+                return StatusCode(500, "Failed to generate contract from order");
+            }
+        }
+
+        // New Caregiver Contract Action Endpoints
+        [HttpPut("{contractId}/accept")]
+        public async Task<ActionResult<ContractDTO>> AcceptContract(string contractId)
+        {
+            try
+            {
+                // Get caregiver ID from JWT token - you'll need to implement this based on your auth system
+                var caregiverId = GetCaregiverIdFromToken();
+                if (string.IsNullOrEmpty(caregiverId))
+                    return Unauthorized("Caregiver authorization required");
+
+                var contract = await _contractService.AcceptContractAsync(contractId, caregiverId);
+                
+                _logger.LogInformation("Contract {ContractId} accepted by caregiver {CaregiverId}",
+                    contractId, caregiverId);
+                
+                return Ok(contract);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Invalid contract accept request for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning("Unauthorized contract accept attempt for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return Forbid(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error accepting contract {ContractId}", contractId);
+                return StatusCode(500, "Failed to accept contract");
+            }
+        }
+
+        [HttpPut("{contractId}/reject")]
+        public async Task<ActionResult<ContractDTO>> RejectContract(string contractId, [FromBody] ContractRejectRequestDTO request)
+        {
+            try
+            {
+                var caregiverId = GetCaregiverIdFromToken();
+                if (string.IsNullOrEmpty(caregiverId))
+                    return Unauthorized("Caregiver authorization required");
+
+                var contract = await _contractService.RejectContractAsync(contractId, caregiverId, request?.Reason);
+                
+                _logger.LogInformation("Contract {ContractId} rejected by caregiver {CaregiverId} with reason: {Reason}",
+                    contractId, caregiverId, request?.Reason ?? "No reason provided");
+                
+                return Ok(contract);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Invalid contract reject request for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning("Unauthorized contract reject attempt for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return Forbid(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error rejecting contract {ContractId}", contractId);
+                return StatusCode(500, "Failed to reject contract");
+            }
+        }
+
+        [HttpPut("{contractId}/request-review")]
+        public async Task<ActionResult<ContractDTO>> RequestContractReview(string contractId, [FromBody] ContractReviewRequestDTO request)
+        {
+            try
+            {
+                var caregiverId = GetCaregiverIdFromToken();
+                if (string.IsNullOrEmpty(caregiverId))
+                    return Unauthorized("Caregiver authorization required");
+
+                var contract = await _contractService.RequestContractReviewAsync(contractId, caregiverId, request?.Comments);
+                
+                _logger.LogInformation("Contract review requested for {ContractId} by caregiver {CaregiverId}",
+                    contractId, caregiverId);
+                
+                return Ok(contract);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning("Invalid contract review request for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return BadRequest(ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning("Unauthorized contract review request attempt for {ContractId}: {Message}", 
+                    contractId, ex.Message);
+                return Forbid(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error requesting contract review for {ContractId}", contractId);
+                return StatusCode(500, "Failed to request contract review");
+            }
+        }
+
+        // Helper method to extract caregiver ID from JWT token
+        private string? GetCaregiverIdFromToken()
+        {
+            // TODO: Implement based on your JWT token structure
+            // This is a placeholder - you'll need to extract the caregiver ID from the JWT claims
+            var userIdClaim = User.FindFirst("userId") ?? User.FindFirst("sub") ?? User.FindFirst("id");
+            return userIdClaim?.Value;
+        }
+
         // Caregiver Dashboard Endpoints
         [HttpGet("caregiver/{caregiverId}/pending")]
         public async Task<ActionResult<List<ContractDTO>>> GetPendingContracts(string caregiverId)
@@ -62,6 +204,24 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting contract {ContractId}", contractId);
+                return StatusCode(500, "Failed to get contract");
+            }
+        }
+
+        [HttpGet("by-order/{orderId}")]
+        public async Task<ActionResult<ContractDTO>> GetContractByOrder(string orderId)
+        {
+            try
+            {
+                var contract = await _contractService.GetContractByOrderIdAsync(orderId);
+                if (contract == null)
+                    return NotFound("Contract not found for this order");
+
+                return Ok(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting contract for order {OrderId}", orderId);
                 return StatusCode(500, "Failed to get contract");
             }
         }

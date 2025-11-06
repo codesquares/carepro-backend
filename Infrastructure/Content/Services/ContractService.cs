@@ -117,6 +117,76 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<ContractDTO> GenerateContractFromOrderAsync(string orderId)
+        {
+            try
+            {
+                _logger.LogInformation("Generating contract from order {OrderId}", orderId);
+
+                // Get the order
+                var order = await _context.ClientOrders
+                    .FirstOrDefaultAsync(o => o.Id.ToString() == orderId);
+
+                if (order == null)
+                    throw new InvalidOperationException($"Order {orderId} not found");
+
+                // Get OrderTasks to extract contract details
+                var orderTasks = await _context.OrderTasks
+                    .FirstOrDefaultAsync(ot => ot.ClientOrderId == orderId);
+
+                if (orderTasks == null)
+                    throw new InvalidOperationException($"OrderTasks not found for order {orderId}");
+
+                // Check if contract already exists for this order
+                var existingContract = await _context.Contracts
+                    .FirstOrDefaultAsync(c => c.PaymentTransactionId == order.TransactionId);
+
+                if (existingContract != null)
+                    throw new InvalidOperationException($"Contract already exists for order {orderId}");
+
+                // Prepare contract generation request using OrderTasks data
+                var contractRequest = new ContractGenerationRequestDTO
+                {
+                    GigId = orderTasks.GigId,
+                    ClientId = orderTasks.ClientId,
+                    CaregiverId = orderTasks.CaregiverId,
+                    PaymentTransactionId = order.TransactionId,
+                    SelectedPackage = new PackageSelectionDTO
+                    {
+                        PackageType = orderTasks.PackageSelection.PackageType,
+                        VisitsPerWeek = orderTasks.PackageSelection.VisitsPerWeek,
+                        PricePerVisit = orderTasks.PackageSelection.PricePerVisit,
+                        TotalWeeklyPrice = orderTasks.PackageSelection.TotalWeeklyPrice,
+                        DurationWeeks = orderTasks.PackageSelection.DurationWeeks
+                    },
+                    Tasks = orderTasks.CareTasks.Select(t => new ClientTaskDTO
+                    {
+                        Title = t.Title,
+                        Description = t.Description,
+                        Category = t.Category.ToString(),
+                        Priority = t.Priority.ToString(),
+                        SpecialRequirements = t.SpecialRequirements
+                    }).ToList()
+                };
+
+                // Generate the contract using existing method
+                var contract = await GenerateContractAsync(contractRequest);
+
+                // Send contract to caregiver
+                await SendContractToCaregiverAsync(contract.Id);
+
+                _logger.LogInformation("Contract {ContractId} generated and sent from order {OrderId}",
+                    contract.Id, orderId);
+
+                return contract;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating contract from order {OrderId}", orderId);
+                throw;
+            }
+        }
+
         public async Task<bool> SendContractToCaregiverAsync(string contractId)
         {
             try
@@ -153,7 +223,7 @@ namespace Infrastructure.Content.Services
 
                 if (response.Response.ToLower() == "review")
                 {
-                    contract.ReviewComments = response.Comments ?? new List<string>();
+                    contract.ReviewComments = string.Join("; ", response.Comments ?? new List<string>());
                 }
 
                 await _context.SaveChangesAsync();
@@ -164,6 +234,120 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing caregiver response for contract {ContractId}", response.ContractId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> AcceptContractAsync(string contractId, string caregiverId)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Caregiver not authorized for this contract");
+
+                if (contract.Status != ContractStatus.Sent)
+                    throw new InvalidOperationException($"Contract cannot be accepted. Current status: {contract.Status}");
+
+                // Update contract status
+                contract.Status = ContractStatus.Accepted;
+                contract.RespondedAt = DateTime.UtcNow;
+                contract.AcceptedAt = DateTime.UtcNow;
+                contract.AcceptedBy = caregiverId;
+                contract.CaregiverResponse = "accept";
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                // Notify client of acceptance
+                await _notificationService.NotifyClientOfResponseAsync(contractId, "accept");
+
+                _logger.LogInformation("Contract {ContractId} accepted by caregiver {CaregiverId}", contractId, caregiverId);
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error accepting contract {ContractId} by caregiver {CaregiverId}", contractId, caregiverId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> RejectContractAsync(string contractId, string caregiverId, string? reason)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Caregiver not authorized for this contract");
+
+                if (contract.Status != ContractStatus.Sent)
+                    throw new InvalidOperationException($"Contract cannot be rejected. Current status: {contract.Status}");
+
+                // Update contract status
+                contract.Status = ContractStatus.Rejected;
+                contract.RespondedAt = DateTime.UtcNow;
+                contract.RejectedAt = DateTime.UtcNow;
+                contract.RejectedBy = caregiverId;
+                contract.RejectionReason = reason ?? "No reason provided";
+                contract.CaregiverResponse = "reject";
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                // Notify client of rejection
+                await _notificationService.NotifyClientOfResponseAsync(contractId, "reject");
+
+                _logger.LogInformation("Contract {ContractId} rejected by caregiver {CaregiverId} with reason: {Reason}", 
+                    contractId, caregiverId, reason ?? "No reason provided");
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error rejecting contract {ContractId} by caregiver {CaregiverId}", contractId, caregiverId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> RequestContractReviewAsync(string contractId, string caregiverId, string? comments)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Caregiver not authorized for this contract");
+
+                if (contract.Status != ContractStatus.Sent)
+                    throw new InvalidOperationException($"Contract review cannot be requested. Current status: {contract.Status}");
+
+                // Update contract status
+                contract.Status = ContractStatus.ReviewRequested;
+                contract.RespondedAt = DateTime.UtcNow;
+                contract.ReviewRequestedAt = DateTime.UtcNow;
+                contract.ReviewRequestedBy = caregiverId;
+                contract.ReviewComments = comments ?? "No comments provided";
+                contract.CaregiverResponse = "review";
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                // Notify client of review request
+                await _notificationService.NotifyClientOfResponseAsync(contractId, "review");
+
+                _logger.LogInformation("Contract review requested for {ContractId} by caregiver {CaregiverId}", contractId, caregiverId);
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error requesting contract review for {ContractId} by caregiver {CaregiverId}", contractId, caregiverId);
                 throw;
             }
         }
@@ -227,6 +411,28 @@ namespace Infrastructure.Content.Services
         {
             var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
             return contract != null ? MapToContractDTO(contract) : throw new InvalidOperationException("Contract not found");
+        }
+
+        public async Task<ContractDTO?> GetContractByOrderIdAsync(string orderId)
+        {
+            try
+            {
+                // First get the order to find the transaction ID
+                var order = await _context.ClientOrders.FirstOrDefaultAsync(o => o.Id.ToString() == orderId);
+                if (order == null)
+                    return null;
+
+                // Find contract by transaction ID
+                var contract = await _context.Contracts
+                    .FirstOrDefaultAsync(c => c.PaymentTransactionId == order.TransactionId);
+
+                return contract != null ? MapToContractDTO(contract) : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting contract for order {OrderId}", orderId);
+                throw;
+            }
         }
 
         public async Task<List<ContractDTO>> GetContractsByClientIdAsync(string clientId)
@@ -549,10 +755,19 @@ namespace Infrastructure.Content.Services
                 GeneratedTerms = contract.GeneratedTerms,
                 TotalAmount = contract.TotalAmount,
                 Status = contract.Status.ToString(),
+                PaymentTransactionId = contract.PaymentTransactionId,
                 SentAt = contract.SentAt,
                 RespondedAt = contract.RespondedAt,
-                CaregiverResponse = contract.CaregiverResponse,
+                AcceptedAt = contract.AcceptedAt,
+                AcceptedBy = contract.AcceptedBy,
+                RejectedAt = contract.RejectedAt,
+                RejectedBy = contract.RejectedBy,
+                RejectionReason = contract.RejectionReason,
+                ReviewRequestedAt = contract.ReviewRequestedAt,
+                ReviewRequestedBy = contract.ReviewRequestedBy,
                 ReviewComments = contract.ReviewComments,
+                CaregiverResponse = contract.CaregiverResponse,
+                Comments = contract.Comments,
                 ContractStartDate = contract.ContractStartDate,
                 ContractEndDate = contract.ContractEndDate,
                 CreatedAt = contract.CreatedAt
