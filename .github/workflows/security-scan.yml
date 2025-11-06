@@ -10,6 +10,14 @@ on:
       - '**/*.cs'
       - '**/*.csproj'
       - 'CarePro-Api/appsettings*.json'
+  pull_request:
+    branches: [ main, staging ]
+    paths:
+      - '**/*.cs'
+      - '**/*.csproj'
+      - 'CarePro-Api/appsettings*.json'
+      - 'Dockerfile*'
+      - '.github/workflows/security-scan.yml'
 
 env:
   DOTNET_VERSION: '8.0.x'
@@ -326,7 +334,6 @@ jobs:
   docker-security-scan:
     name: Docker Security Scan
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
     permissions:
       contents: read
       security-events: write
