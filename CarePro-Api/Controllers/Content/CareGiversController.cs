@@ -472,14 +472,34 @@ namespace CarePro_Api.Controllers.Content
         [AllowAnonymous] // Allow unauthenticated access
         public async Task<IActionResult> RequestPasswordReset([FromBody] PasswordResetRequestDto request)
         {
-            HttpContext? httpContext = httpContextAccessor.HttpContext;
+            try
+            {
+                HttpContext? httpContext = httpContextAccessor.HttpContext;
 
-            // Determine the origin of the request (frontend/backend)
-            string origin = httpContext?.Request.Headers["Origin"].FirstOrDefault()
-                            ?? $"{httpContext?.Request.Scheme}://{httpContext?.Request.Host}";
+                // Determine the origin of the request (frontend/backend)
+                string origin = httpContext?.Request.Headers["Origin"].FirstOrDefault()
+                                ?? $"{httpContext?.Request.Scheme}://{httpContext?.Request.Host}";
 
-            await careGiverService.GeneratePasswordResetTokenAsync(request, origin);
-            return Ok(new { message = "A reset link has been sent to the registered Email ." });
+                await careGiverService.GeneratePasswordResetTokenAsync(request, origin);
+                return Ok(new { message = "A reset link has been sent to the registered Email." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Handle business logic errors (e.g., user not found)
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                // Handle unexpected errors (e.g., email service failures)
+                // Log the error for debugging
+                // Note: In production, you should use proper logging
+                Console.WriteLine($"Password reset error: {ex.Message}");
+                
+                return StatusCode(500, new { 
+                    message = "Password reset request processed. If the email exists, a reset link will be sent.",
+                    error = "Email service temporarily unavailable"
+                });
+            }
         }
 
 

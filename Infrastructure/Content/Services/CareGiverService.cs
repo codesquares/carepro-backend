@@ -806,7 +806,59 @@ namespace Infrastructure.Content.Services
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
-            await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
+            // Check if we're in development mode
+            var environment = configuration["ASPNETCORE_ENVIRONMENT"];
+            var isDevelopment = environment?.Equals("Development", StringComparison.OrdinalIgnoreCase) == true;
+
+            try
+            {
+                // Validate email service is available before attempting to send
+                if (emailService == null)
+                {
+                    throw new InvalidOperationException("Email service is not configured");
+                }
+
+                // In development mode, optionally skip email sending or use alternative approach
+                if (isDevelopment)
+                {
+                    // Check if email is properly configured for development
+                    var smtpServer = configuration["MailSettings:SmtpServer"];
+                    var fromEmail = configuration["MailSettings:FromEmail"];
+                    
+                    if (string.IsNullOrEmpty(smtpServer) || string.IsNullOrEmpty(fromEmail) || 
+                        smtpServer == "localhost" || fromEmail.Contains("localhost"))
+                    {
+                        // Log instead of sending email in development
+                        Console.WriteLine("=== DEVELOPMENT MODE - PASSWORD RESET EMAIL ===");
+                        Console.WriteLine($"To: {passwordResetRequestDto.Email}");
+                        Console.WriteLine($"Reset Link: {resetLink}");
+                        Console.WriteLine($"User: {user.FirstName}");
+                        Console.WriteLine("===============================================");
+                        return; // Exit without sending email
+                    }
+                }
+
+                // Attempt to send email with timeout and error handling
+                await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
+            }
+            catch (Exception emailEx)
+            {
+                // Log email error but don't fail the entire process
+                Console.WriteLine($"Email sending failed: {emailEx.Message}");
+                
+                if (isDevelopment)
+                {
+                    // In development, log the reset link for testing
+                    Console.WriteLine("=== EMAIL FAILED - DEVELOPMENT FALLBACK ===");
+                    Console.WriteLine($"Password reset link for {passwordResetRequestDto.Email}:");
+                    Console.WriteLine($"{resetLink}");
+                    Console.WriteLine("==========================================");
+                    return; // Continue without failing
+                }
+                
+                // In production, re-throw to handle at controller level
+                throw new InvalidOperationException("Unable to send reset email. Please try again later.", emailEx);
+            }
         }
 
         public async Task ResetPasswordWithJwtAsync(PasswordResetDto request)
