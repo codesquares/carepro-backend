@@ -145,21 +145,24 @@ jobs:
         SECRETS_FOUND=false
         
         for pattern in "${SECRET_PATTERNS[@]}"; do
-          if grep -r -E "$pattern" --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj .; then
+          if grep -r -E "$pattern" --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj --exclude="*.template.json" .; then
             echo "❌ Potential secret pattern found: $pattern"
             SECRETS_FOUND=true
           fi
         done
         
         # Additional checks for common secret indicators
-        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
+        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj --exclude="*.template.json" \
           -E "(sk-|pk_|secret|token|password|apikey).*[\"'][a-zA-Z0-9]{20,}[\"']" . | \
           grep -v "Password { get; set; }" | \
           grep -v "_configuration\[" | \
           grep -v "IConfiguration" | \
           grep -v "GetSection" | \
           grep -v "string.*=.*null" | \
-          grep -v "string.*=.*\"\""; then
+          grep -v "string.*=.*\"\"" | \
+          grep -v "YOUR_.*_HERE" | \
+          grep -v "YOUR_.*_KEY" | \
+          grep -v "YOUR_.*_SECRET"; then
           echo "❌ Potential hardcoded credentials found!"
           SECRETS_FOUND=true
         fi
@@ -272,12 +275,12 @@ jobs:
         
         CONFIG_ISSUES=false
         
-        # Check all appsettings files
-        for config_file in $(find . -name "appsettings*.json" -not -path "./bin/*" -not -path "./obj/*"); do
+        # Check all appsettings files (excluding templates)
+        for config_file in $(find . -name "appsettings*.json" -not -path "./bin/*" -not -path "./obj/*" -not -name "*.template.json"); do
           echo "Checking $config_file..."
           
           # Check for secrets in config files
-          if grep -E "(ApiKey|Password|Secret|Token).*[\"'].[^\"']{10,}" "$config_file"; then
+          if grep -E "(ApiKey|Password|Secret|Token).*[\"'].[^\"']{10,}" "$config_file" | grep -v "YOUR_.*_HERE" | grep -v "YOUR_.*_KEY" | grep -v "YOUR_.*_SECRET"; then
             echo "❌ Potential secrets found in $config_file"
             CONFIG_ISSUES=true
           fi
