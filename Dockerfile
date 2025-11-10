@@ -1,5 +1,5 @@
 # Use the official .NET 8 SDK image for building (latest patch version)
-FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
 WORKDIR /app
 
 # Copy csproj files and restore dependencies
