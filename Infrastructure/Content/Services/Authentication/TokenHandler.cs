@@ -28,10 +28,9 @@ namespace Infrastructure.Content.Services.Authentication
         {
             // Create Claims
             var claims = new List<Claim>();
-            //claims.Add(new Claim(ClaimTypes.GivenName, appUser.FirstName));
-            //claims.Add(new Claim(ClaimTypes.Surname, appUser.LastName));
             claims.Add(new Claim(ClaimTypes.Email, appUserDTO.Email));
             claims.Add(new Claim(ClaimTypes.Role, appUserDTO.Role));
+            claims.Add(new Claim("userId", appUserDTO.AppUserId));
 
             // Get JWT configuration with null checks
             var jwtKey = configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not found in configuration");
@@ -44,24 +43,37 @@ namespace Infrastructure.Content.Services.Authentication
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+            // Get token expiration from configuration, default to 30 minutes
+            var tokenExpirationHours = configuration.GetValue<double>("Jwt:DurationInHours", 0.5); // 30 minutes default
+            
             var token = new JwtSecurityToken(
                 jwtIssuer,
                 jwtAudience,
                 claims,
-                expires: DateTime.Now.AddMinutes(40),
+                expires: DateTime.UtcNow.AddHours(tokenExpirationHours),
                 signingCredentials: credentials);
 
             return Task.FromResult(new JwtSecurityTokenHandler().WriteToken(token));
+        }
+
+        public string GenerateRefreshToken()
+        {
+            // Generate a cryptographically secure random string
+            var randomBytes = new byte[64];
+            using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+            rng.GetBytes(randomBytes);
+            return Convert.ToBase64String(randomBytes);
         }
 
 
 
         public string GeneratePasswordResetToken(string email)
         {
-            var secretKey = configuration["JwtSettings:Secret"];
-            var issuer = configuration["JwtSettings:Issuer"];
-            var audience = configuration["JwtSettings:Audience"];
-            var expires = DateTime.UtcNow.AddMinutes(int.Parse(configuration["JwtSettings:ExpiresInMinutes"]));
+            var secretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret not found");
+            var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
+            var audience = configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not found");
+            var expiresInMinutes = configuration["JwtSettings:ExpiresInMinutes"] ?? "30";
+            var expires = DateTime.UtcNow.AddMinutes(int.Parse(expiresInMinutes));
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

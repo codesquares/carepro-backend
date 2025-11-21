@@ -421,31 +421,48 @@ namespace Infrastructure.Content.Services
                     throw new KeyNotFoundException($"Gig with ID '{gigId}' not found.");
                 }
 
+                // Normalize and validate status
+                var normalizedStatus = NormalizeGigStatus(updateGigStatusToPauseRequest.Status);
+                if (string.IsNullOrEmpty(normalizedStatus))
+                {
+                    throw new ArgumentException($"Invalid status value. Allowed values are: Published, Draft, Paused, Active");
+                }
 
-                //var existingGig = await careProDbContext.Gigs.FindAsync(gigId);
-
-                //if (existingGig == null)
-                //{
-                //    throw new KeyNotFoundException($"Gigs with ID '{gigId}' not found.");
-                //}
-
-
-                existingGig.Status = updateGigStatusToPauseRequest.Status;
+                existingGig.Status = normalizedStatus;
                 existingGig.UpdatedOn = DateTime.Now;
-                existingGig.IsUpdatedToPause = true;
+                existingGig.IsUpdatedToPause = normalizedStatus == "Paused" || normalizedStatus == "Draft";
 
 
                 careProDbContext.Gigs.Update(existingGig);
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Gig Status updated (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
-                return $"Gig with ID '{gigId}' updated successfully.";
+                LogAuditEvent($"Gig Status updated to {normalizedStatus} (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
+                return $"Gig with ID '{gigId}' updated successfully to {normalizedStatus}.";
             }
             catch (Exception ex)
             {
                 LogException(ex);
                 throw new Exception(ex.Message);
             }
+        }
+
+        private string? NormalizeGigStatus(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+            {
+                return null;
+            }
+
+            var normalizedStatus = status.Trim().ToLowerInvariant();
+
+            return normalizedStatus switch
+            {
+                "published" => "Published",
+                "draft" => "Draft",
+                "paused" => "Paused",
+                "active" => "Active",
+                _ => null
+            };
         }
 
 

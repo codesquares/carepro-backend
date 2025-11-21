@@ -488,6 +488,37 @@ namespace Infrastructure.Content.Services
         }
 
         /// <summary>
+        /// Upload certificate image to Cloudinary with proper folder organization
+        /// </summary>
+        public async Task<(string Url, string PublicId)> UploadCertificateAsync(byte[] imageBytes, string fileName)
+        {
+            using var stream = new MemoryStream(imageBytes);
+
+            var uploadParams = new ImageUploadParams
+            {
+                File = new FileDescription(fileName, stream),
+                Folder = "certificates",
+                PublicId = null, // Let Cloudinary generate ID
+                Overwrite = false,
+                Type = "upload",
+                AccessMode = "public", // Set to public for easier viewing
+                Tags = "certificate,verification"
+            };
+
+            var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+
+            if (uploadResult.StatusCode == System.Net.HttpStatusCode.OK)
+            {
+                Console.WriteLine($"Certificate Upload Success - URL: {uploadResult.SecureUrl}");
+                Console.WriteLine($"Certificate Upload Success - PublicId: {uploadResult.PublicId}");
+
+                return (uploadResult.SecureUrl.AbsoluteUri, uploadResult.PublicId);
+            }
+
+            throw new Exception($"Certificate upload failed. Status: {uploadResult.StatusCode}, Error: {uploadResult.Error?.Message}");
+        }
+
+        /// <summary>
         /// Re-upload file with public access (for fixing access issues)
         /// </summary>
         public async Task<(string Url, string PublicId)> ReuploadAsPublicAsync(string existingPublicId, string fileName)

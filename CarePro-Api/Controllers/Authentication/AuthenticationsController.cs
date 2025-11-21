@@ -120,6 +120,48 @@ namespace CarePro_Api.Controllers.Authentication
             }
         }
 
+        [HttpPost("RefreshToken")]
+        [AllowAnonymous]
+        public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+        {
+            try
+            {
+                var response = await authService.RefreshTokenAsync(request);
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server.", Details = ex.Message });
+            }
+        }
+
+        [HttpPost("RevokeToken")]
+        [AllowAnonymous]
+        public async Task<IActionResult> RevokeToken([FromBody] RefreshTokenRequest request)
+        {
+            try
+            {
+                var success = await authService.RevokeRefreshTokenAsync(request.RefreshToken);
+                if (success)
+                {
+                    return Ok(new { message = "Token revoked successfully" });
+                }
+                return BadRequest(new { message = "Failed to revoke token" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server.", Details = ex.Message });
+            }
+        }
+
 
     }
 }

@@ -11,20 +11,42 @@ namespace Domain.Entities
     {
         public ObjectId Id { get; set; }
 
-        public string CaregiverId { get; set; }
+        public string CaregiverId { get; set; } = string.Empty;
 
-        public string CertificateName { get; set; }
+        public string CertificateName { get; set; } = string.Empty;
 
-        public string CertificateIssuer { get; set; }
+        public string CertificateIssuer { get; set; } = string.Empty;
 
-        public byte[] Certificate { get; set; }
+        public string? CloudinaryUrl { get; set; } = string.Empty;
+
+        public string? CloudinaryPublicId { get; set; } = string.Empty;
 
         public bool IsVerified { get; set; }
 
-        //public string VerificationStatus { get; set; }
+        public DocumentVerificationStatus? VerificationStatus { get; set; }
+
+        public DateTime? VerificationDate { get; set; }
+
+        public string? DojahVerificationResponse { get; set; }
+
+        public decimal? VerificationConfidence { get; set; }
+
+        public string? ExtractedCertificateInfo { get; set; }
+
+        public int? VerificationAttempts { get; set; }
 
         public DateTime YearObtained { get; set; }
 
         public DateTime SubmittedOn { get; set; }
+    }
+
+    public enum DocumentVerificationStatus
+    {
+        PendingVerification = 0,
+        Verified = 1,
+        Invalid = 2,
+        VerificationFailed = 3,
+        ManualReviewRequired = 4,
+        NotVerified = 5
     }
 }

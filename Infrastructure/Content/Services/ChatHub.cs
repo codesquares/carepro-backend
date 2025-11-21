@@ -1,6 +1,8 @@
 ﻿using Application.DTOs;
 using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
@@ -10,24 +12,36 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
 {
+    [Authorize]
     public class ChatHub : Hub
     {
         private readonly ChatRepository _chatRepository;
+        private readonly ILogger<ChatHub> _logger;
 
-        public ChatHub(ChatRepository chatRepository)
+        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger)
         {
             _chatRepository = chatRepository;
+            _logger = logger;
         }
 
 
         /// Connection Management
         public override async Task OnConnectedAsync()
         {
-            // Get user ID from authenticated context
-            var userId = Context.User.FindFirst("id")?.Value;
-
-            if (!string.IsNullOrEmpty(userId))
+            try
             {
+                // Get user ID from authenticated context
+                var userId = Context.User?.FindFirst("userId")?.Value;
+
+                if (string.IsNullOrEmpty(userId))
+                {
+                    _logger.LogWarning("User connected without userId claim. ConnectionId: {ConnectionId}", Context.ConnectionId);
+                    await base.OnConnectedAsync();
+                    return;
+                }
+
+                _logger.LogInformation("User {UserId} connecting with ConnectionId: {ConnectionId}", userId, Context.ConnectionId);
+
                 // Associate connection ID with user ID
                 await Groups.AddToGroupAsync(Context.ConnectionId, userId);
 
@@ -36,19 +50,34 @@ namespace Infrastructure.Content.Services
 
                 // Store user connection info in database/cache
                 await _chatRepository.UpdateUserConnectionStatus(userId, true, Context.ConnectionId);
+
+                _logger.LogInformation("User {UserId} successfully connected", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnConnectedAsync for ConnectionId: {ConnectionId}", Context.ConnectionId);
             }
 
             await base.OnConnectedAsync();
         }
 
 
-        public override async Task OnDisconnectedAsync(Exception exception)
+        public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            // Get user ID from authenticated context
-            var userId = Context.User.FindFirst("id")?.Value;
-
-            if (!string.IsNullOrEmpty(userId))
+            try
             {
+                // Get user ID from authenticated context
+                var userId = Context.User?.FindFirst("userId")?.Value;
+
+                if (string.IsNullOrEmpty(userId))
+                {
+                    _logger.LogWarning("User disconnected without userId claim. ConnectionId: {ConnectionId}", Context.ConnectionId);
+                    await base.OnDisconnectedAsync(exception);
+                    return;
+                }
+
+                _logger.LogInformation("User {UserId} disconnecting. ConnectionId: {ConnectionId}", userId, Context.ConnectionId);
+
                 // Remove connection ID from user's group
                 await Groups.RemoveFromGroupAsync(Context.ConnectionId, userId);
 
@@ -56,7 +85,13 @@ namespace Infrastructure.Content.Services
                 await Clients.All.SendAsync("UserStatusChanged", userId, "Offline");
 
                 // Update user connection status in database/cache
-                await _chatRepository.UpdateUserConnectionStatus(userId, false, null);
+                await _chatRepository.UpdateUserConnectionStatus(userId, false, string.Empty);
+
+                _logger.LogInformation("User {UserId} successfully disconnected", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnDisconnectedAsync for ConnectionId: {ConnectionId}", Context.ConnectionId);
             }
 
             await base.OnDisconnectedAsync(exception);
@@ -95,8 +130,11 @@ namespace Infrastructure.Content.Services
             // Validate input
             if (string.IsNullOrEmpty(senderId) || string.IsNullOrEmpty(receiverId) || string.IsNullOrEmpty(message))
             {
+                _logger.LogWarning("SendMessage called with invalid parameters. SenderId: {SenderId}, ReceiverId: {ReceiverId}", senderId ?? "null", receiverId ?? "null");
                 throw new HubException("Invalid message parameters");
             }
+
+            _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", senderId, receiverId);
 
             // Create message object
             //var messageId = Guid.NewGuid().ToString();
@@ -116,6 +154,8 @@ namespace Infrastructure.Content.Services
 
             // Send to recipient if online (their connection ID is in their user group)
             await Clients.Group(receiverId).SendAsync("ReceiveMessage", senderId, message, chatMessage.MessageId.ToString(), "sent");
+
+            _logger.LogInformation("Message {MessageId} sent successfully from {SenderId} to {ReceiverId}", chatMessage.MessageId.ToString(), senderId, receiverId);
 
             // Return message ID to sender for tracking
             return chatMessage.MessageId.ToString();

@@ -12,6 +12,8 @@ namespace Application.Interfaces.Authentication
     {
         Task<string> CreateTokenAsync(AppUserDTO appUserDTO);
 
+        string GenerateRefreshToken();
+
         string GeneratePasswordResetToken(string email);
 
 

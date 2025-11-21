@@ -51,6 +51,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ClientPreference>().ToCollection("ClientPreferences");
             modelBuilder.Entity<ClientPreference>().HasKey(cp => cp.Id);
             modelBuilder.Entity<ClientPreference>().Property(cp => cp.Id).HasElementName("_id");
+            modelBuilder.Entity<ClientRecommendation>().ToCollection("ClientRecommendations");
+            modelBuilder.Entity<ClientRecommendation>().HasKey(cr => cr.Id);
+            modelBuilder.Entity<ClientRecommendation>().Property(cr => cr.Id).HasElementName("_id");
             modelBuilder.Entity<Notification>().ToCollection("Notifications");
             modelBuilder.Entity<QuestionBank>().ToCollection("QuestionBank");
             modelBuilder.Entity<Earnings>().ToCollection("Earnings");
@@ -68,6 +71,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
             modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
             modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");
+            modelBuilder.Entity<RefreshToken>().ToCollection("RefreshTokens");
+            modelBuilder.Entity<RefreshToken>().HasKey(rt => rt.Id);
+            modelBuilder.Entity<RefreshToken>().Property(rt => rt.Id).HasElementName("_id");
 
         }
 
@@ -82,6 +88,7 @@ namespace Infrastructure.Content.Data
         public DbSet<Verification> Verifications { get; set; }
         public DbSet<Assessment> Assessments { get; set; }
         public DbSet<ClientPreference> ClientPreferences { get; set; }
+        public DbSet<ClientRecommendation> ClientRecommendations { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<QuestionBank> QuestionBank { get; set; }
         public DbSet<Earnings> Earnings { get; set; }
@@ -93,5 +100,6 @@ namespace Infrastructure.Content.Data
         public DbSet<OrderTasks> OrderTasks { get; set; }
         public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
         public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
     }
 }
