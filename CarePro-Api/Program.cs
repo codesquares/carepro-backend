@@ -141,6 +141,10 @@ builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
 builder.Services.AddScoped<IDojahDataFormattingService, DojahDataFormattingService>();
 builder.Services.AddScoped<IDojahApiService, DojahApiService>();
 builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
+
+// Dojah document verification service
+builder.Services.AddScoped<DojahDocumentVerificationService>();
+builder.Services.AddHttpClient<DojahDocumentVerificationService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHostedService<DailyEarningService>();

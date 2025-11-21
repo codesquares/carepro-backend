@@ -10,6 +10,11 @@ namespace Application.Interfaces.Content
     public interface IClientRecommendationService
     {
         Task<ClientRecommendationDTO> GetClientRecommendationAsync(string clientId);
-
+        
+        Task<ClientRecommendationResponse> CreateClientRecommendationAsync(string clientId, CreateClientRecommendationRequest request);
+        
+        Task<ClientRecommendationResponse> UpdateClientRecommendationAsync(string clientId, UpdateClientRecommendationRequest request);
+        
+        Task<bool> DeleteClientRecommendationAsync(string recommendationId);
     }
 }

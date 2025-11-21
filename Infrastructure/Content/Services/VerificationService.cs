@@ -29,55 +29,125 @@ namespace Infrastructure.Content.Services
 
         public async Task<string> CreateVerificationAsync(AddVerificationRequest addVerificationRequest)
         {
-            //var appUser = await careGiverService.GetCaregiverUserAsync(addVerificationRequest.UserId);
-            var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.AppUserId.ToString() == addVerificationRequest.UserId);
-            if (appUser == null)
+            try
             {
-                throw new KeyNotFoundException("The User MessageId entered is not a Valid ID");
+                logger.LogInformation("Starting CreateVerificationAsync for UserId: {UserId}", addVerificationRequest?.UserId);
+                
+                // Validate input
+                if (addVerificationRequest == null)
+                {
+                    logger.LogError("AddVerificationRequest is null");
+                    throw new ArgumentNullException(nameof(addVerificationRequest), "Verification request cannot be null");
+                }
+                
+                if (string.IsNullOrEmpty(addVerificationRequest.UserId))
+                {
+                    logger.LogError("UserId is null or empty");
+                    throw new ArgumentException("UserId is required", nameof(addVerificationRequest.UserId));
+                }
+                
+                // Log the request details for debugging
+                logger.LogInformation("Processing verification request - UserId: {UserId}, Method: {Method}, Status: {Status}, VerificationNo: {VerificationNo}",
+                    addVerificationRequest.UserId, addVerificationRequest.VerificationMethod, 
+                    addVerificationRequest.VerificationStatus, addVerificationRequest.VerificationNo);
+
+                // Check if user exists - try both AppUserId and direct UserId match
+                logger.LogInformation("Looking for user with ID: {UserId}", addVerificationRequest.UserId);
+                
+                var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => 
+                    x.AppUserId.ToString() == addVerificationRequest.UserId || 
+                    x.Email == addVerificationRequest.UserId);
+                
+                if (appUser == null)
+                {
+                    logger.LogWarning("User not found in AppUsers table for UserId: {UserId}. Checking if this is a valid ObjectId format.", addVerificationRequest.UserId);
+                    
+                    // Try to parse as ObjectId to give better error message
+                    if (!ObjectId.TryParse(addVerificationRequest.UserId, out var objectId))
+                    {
+                        throw new ArgumentException($"The User ID '{addVerificationRequest.UserId}' is not in a valid format and no user was found");
+                    }
+                    
+                    throw new KeyNotFoundException($"No user found with ID '{addVerificationRequest.UserId}'");
+                }
+
+                logger.LogInformation("Found user: {FirstName} {LastName} with email: {Email}", 
+                    appUser.FirstName, appUser.LastName, appUser.Email);
+
+                // Check name matching - but make it more flexible since the DTO doesn't include these fields
+                if (!string.IsNullOrEmpty(addVerificationRequest.VerifiedFirstName) && 
+                    !string.IsNullOrEmpty(addVerificationRequest.VerifiedLastName))
+                {
+                    if (appUser.FirstName?.Trim().ToLowerInvariant() != addVerificationRequest.VerifiedFirstName?.Trim().ToLowerInvariant() || 
+                        appUser.LastName?.Trim().ToLowerInvariant() != addVerificationRequest.VerifiedLastName?.Trim().ToLowerInvariant())
+                    {
+                        logger.LogWarning("Name mismatch - Stored: {StoredFirst} {StoredLast}, Verified: {VerifiedFirst} {VerifiedLast}",
+                            appUser.FirstName, appUser.LastName, addVerificationRequest.VerifiedFirstName, addVerificationRequest.VerifiedLastName);
+                        
+                        throw new InvalidOperationException($"The verified name '{addVerificationRequest.VerifiedFirstName} {addVerificationRequest.VerifiedLastName}' does not match the stored name '{appUser.FirstName} {appUser.LastName}'");
+                    }
+                }
+
+                // Check for existing verification
+                logger.LogInformation("Checking for existing verification for UserId: {UserId}", addVerificationRequest.UserId);
+                
+                var existingVerification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId == addVerificationRequest.UserId);
+
+                if (existingVerification != null)
+                {
+                    logger.LogInformation("Found existing verification with ID: {VerificationId}. Current status: {Status}", 
+                        existingVerification.VerificationId, existingVerification.VerificationStatus);
+                    
+                    // Instead of throwing error, update the existing verification
+                    logger.LogInformation("Updating existing verification instead of creating new one");
+                    
+                    existingVerification.VerificationMethod = addVerificationRequest.VerificationMethod;
+                    existingVerification.VerificationStatus = addVerificationRequest.VerificationStatus;
+                    existingVerification.VerificationNo = addVerificationRequest.VerificationNo;
+                    existingVerification.UpdatedOn = DateTime.UtcNow;
+                    
+                    // Update verified status based on new status
+                    existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "verified" ||
+                                                      addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "completed";
+                    
+                    careProDbContext.Verifications.Update(existingVerification);
+                    await careProDbContext.SaveChangesAsync();
+                    
+                    logger.LogInformation("Successfully updated existing verification with ID: {VerificationId}", existingVerification.VerificationId);
+                    return existingVerification.VerificationId.ToString();
+                }
+
+                // Create new verification record
+                logger.LogInformation("Creating new verification record for UserId: {UserId}", addVerificationRequest.UserId);
+
+                var verification = new Verification
+                {
+                    VerificationMethod = addVerificationRequest.VerificationMethod,
+                    VerificationNo = addVerificationRequest.VerificationNo,
+                    VerificationStatus = addVerificationRequest.VerificationStatus,
+                    UserId = addVerificationRequest.UserId,
+                    VerificationId = ObjectId.GenerateNewId(),
+                    IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "verified" ||
+                                 addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "completed",
+                    VerifiedOn = DateTime.UtcNow,
+                };
+
+                logger.LogInformation("Generated new verification with ID: {VerificationId}", verification.VerificationId);
+
+                await careProDbContext.Verifications.AddAsync(verification);
+                await careProDbContext.SaveChangesAsync();
+
+                logger.LogInformation("Successfully created verification with ID: {VerificationId} for UserId: {UserId}",
+                    verification.VerificationId, addVerificationRequest.UserId);
+
+                return verification.VerificationId.ToString();
             }
-
-            if (appUser.FirstName != addVerificationRequest.VerifiedFirstName && appUser.LastName != addVerificationRequest.VerifiedLastName)
+            catch (Exception ex)
             {
-                throw new InvalidOperationException("The Verified data and saved data do not match.");
+                logger.LogError(ex, "Error in CreateVerificationAsync for UserId: {UserId}. Exception: {ExceptionType}", 
+                    addVerificationRequest?.UserId, ex.GetType().Name);
+                throw;
             }
-
-
-            var existingVerification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId == addVerificationRequest.UserId);
-
-            if (existingVerification != null)
-            {
-                // Option 1: Prompt or return message to update instead
-                throw new InvalidOperationException("This User has already been verified. Please update the existing verification.");
-
-                // OR Option 2: Update existing verification here instead of throwing
-                // existingVerification.VerificationMethod = addVerificationRequest.VerificationMethod;
-                // existingVerification.VerificationStatus = addVerificationRequest.VerificationStatus;
-                // existingVerification.UpdatedOn = DateTime.Now;
-                // await careProDbContext.SaveChangesAsync();
-                // return existingVerification.VerificationId.ToString();
-            }
-
-
-            /// CONVERT DTO TO DOMAIN OBJECT            
-            var verification = new Verification
-            {
-                VerificationMethod = addVerificationRequest.VerificationMethod,
-                VerificationNo = addVerificationRequest.VerificationNo,
-                VerificationStatus = addVerificationRequest.VerificationStatus,
-                UserId = addVerificationRequest.UserId,
-
-                // Assign new ID
-                VerificationId = ObjectId.GenerateNewId(),
-                IsVerified = true,
-                VerifiedOn = DateTime.Now,
-            };
-
-            await careProDbContext.Verifications.AddAsync(verification);
-
-            await careProDbContext.SaveChangesAsync();
-
-            return verification.VerificationId.ToString();
-
         }
 
         public async Task<VerificationResponse> GetVerificationAsync(string userId)

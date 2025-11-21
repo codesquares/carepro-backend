@@ -15,5 +15,9 @@ namespace Application.Interfaces.Authentication
 
         Task<LoginResponse> AuthenticateUserLoginAsync(LoginRequest loginRequest);
 
+        Task<RefreshTokenResponse> RefreshTokenAsync(RefreshTokenRequest request);
+
+        Task<bool> RevokeRefreshTokenAsync(string refreshToken);
+
     }
 }

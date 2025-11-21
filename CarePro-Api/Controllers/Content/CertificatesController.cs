@@ -26,7 +26,9 @@ namespace CarePro_Api.Controllers.Content
             this.careGiverService = careGiverService;
         }
 
-        /// ENDPOINT TO CREATE  Certificate Services TO THE DATABASE
+        /// <summary>
+        /// Upload a new certificate with automatic verification
+        /// </summary>
         [HttpPost]
         // [Authorize(Roles = "Caregiver")]
         public async Task<IActionResult> AddCertificateAsync([FromBody] AddCertificationRequest addCertificationRequest)
@@ -39,13 +41,16 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(ModelState);
                 }
 
+                // Create certificate with verification
+                var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
 
-                // Pass Domain Object to Repository, to Persisit this
-                var certificate = await certificationService.CreateCertificateAsync(addCertificationRequest);
-
-
-                // Send DTO response back to ClientUser
-                return Ok(certificate);
+                // Send response with upload status and verification results
+                return Ok(new
+                {
+                    success = true,
+                    message = "Certificate uploaded successfully",
+                    data = result
+                });
 
             }
             catch (ArgumentException ex)
@@ -58,71 +63,105 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (ApplicationException appEx)
             {
-                // Handle application-specific exceptions
                 return BadRequest(new { ErrorMessage = appEx.Message });
             }
             catch (HttpRequestException httpEx)
             {
-                // Handle HTTP request-related exceptions
                 return StatusCode(500, new { ErrorMessage = httpEx.Message });
             }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
-
+        /// <summary>
+        /// Get all certificates for a caregiver
+        /// </summary>
         [HttpGet]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetAllCertificatesAsync(string caregiverId)
         {
             try
             {
-                logger.LogInformation($"Retrieving all Certification for Caregiver with MessageId: {caregiverId}");
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { message = "CaregiverId is required" });
+                }
+
+                logger.LogInformation($"Retrieving all certificates for caregiver: {caregiverId}");
 
                 var certificates = await certificationService.GetAllCaregiverCertificateAsync(caregiverId);
 
-                return Ok(certificates);
+                return Ok(new
+                {
+                    success = true,
+                    data = certificates
+                });
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
+            catch (ApplicationException appEx) when (appEx.Message.Contains("legacy data schema"))
+            {
+                return StatusCode(422, new { 
+                    ErrorMessage = "Legacy certificate data detected", 
+                    Details = appEx.Message,
+                    Resolution = "Please contact support to migrate your certificate data or manually clean up legacy documents."
+                });
+            }
             catch (ApplicationException appEx)
             {
-                // Handle application-specific exceptions
                 return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (InvalidOperationException invOpEx) when (invOpEx.Message.Contains("Document element is missing"))
+            {
+                return StatusCode(422, new { 
+                    ErrorMessage = "Certificate data schema incompatibility", 
+                    Details = "Your certificate data was created with an older version of the system and is incompatible with the current schema.",
+                    Resolution = "Please delete existing certificates and re-upload them, or contact support for data migration."
+                });
             }
             catch (HttpRequestException httpEx)
             {
-                // Handle HTTP request-related exceptions
                 return StatusCode(500, new { ErrorMessage = httpEx.Message });
             }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred while retrieving certificates for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { 
+                    ErrorMessage = "An error occurred on the server.",
+                    Details = ex.Message,
+                    RequestId = HttpContext.TraceIdentifier
+                });
             }
-
         }
 
-
-
-        [HttpGet]
-        [Route("certificateId")]
+        /// <summary>
+        /// Get a specific certificate by ID
+        /// </summary>
+        [HttpGet("{certificateId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetCertificateAsync(string certificateId)
         {
             try
             {
-                logger.LogInformation($"Retrieving Certificate for Caregiver with MessageId: {certificateId}");
+                if (string.IsNullOrWhiteSpace(certificateId))
+                {
+                    return BadRequest(new { message = "CertificateId is required" });
+                }
+
+                logger.LogInformation($"Retrieving certificate: {certificateId}");
 
                 var certificate = await certificationService.GetCertificateAsync(certificateId);
 
-                return Ok(certificate);
+                return Ok(new
+                {
+                    success = true,
+                    data = certificate
+                });
             }
             catch (KeyNotFoundException ex)
             {
@@ -130,23 +169,136 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (ApplicationException appEx)
             {
-                // Handle application-specific exceptions
                 return BadRequest(new { ErrorMessage = appEx.Message });
             }
             catch (HttpRequestException httpEx)
             {
-                // Handle HTTP request-related exceptions
                 return StatusCode(500, new { ErrorMessage = httpEx.Message });
             }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
+        /// <summary>
+        /// Delete all certificates for a caregiver (admin only - useful for cleaning up legacy data)
+        /// </summary>
+        [HttpDelete("caregiver/{caregiverId}")]
+        // [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteAllCaregiverCertificatesAsync(string caregiverId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { message = "CaregiverId is required" });
+                }
 
+                logger.LogInformation($"Deleting all certificates for caregiver: {caregiverId}");
+
+                await certificationService.DeleteAllCaregiverCertificatesAsync(caregiverId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "All certificates deleted successfully"
+                });
+            }
+            catch (ApplicationException appEx) when (appEx.Message.Contains("legacy data schema"))
+            {
+                return StatusCode(422, new { 
+                    ErrorMessage = "Cannot delete legacy certificate data", 
+                    Details = appEx.Message,
+                    Resolution = "Manual database cleanup required. Use MongoDB tools to remove incompatible documents."
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during bulk certificate deletion for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { 
+                    ErrorMessage = "An error occurred on the server.",
+                    Details = ex.Message,
+                    RequestId = HttpContext.TraceIdentifier
+                });
+            }
+        }
+
+        /// <summary>
+        /// Delete a specific certificate
+        /// </summary>
+        [HttpDelete("{certificateId}")]
+        // [Authorize(Roles = "Caregiver, Admin")]
+        public async Task<IActionResult> DeleteCertificateAsync(string certificateId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(certificateId))
+                {
+                    return BadRequest(new { message = "CertificateId is required" });
+                }
+
+                logger.LogInformation($"Deleting certificate: {certificateId}");
+
+                await certificationService.DeleteCertificateAsync(certificateId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Certificate deleted successfully"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during certificate deletion");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Retry verification for a specific certificate
+        /// </summary>
+        [HttpPost("{certificateId}/retry-verification")]
+        // [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> RetryVerificationAsync(string certificateId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(certificateId))
+                {
+                    return BadRequest(new { message = "CertificateId is required" });
+                }
+
+                logger.LogInformation($"Retrying verification for certificate: {certificateId}");
+
+                var result = await certificationService.RetryVerificationAsync(certificateId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Verification retry completed",
+                    data = result
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during verification retry");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+            }
+        }
 
         #region Validation Region
 
@@ -154,10 +306,15 @@ namespace CarePro_Api.Controllers.Content
         {
             if (addCertificationRequest == null)
             {
-                ModelState.AddModelError(nameof(addCertificationRequest), $" cannot be empty.");
+                ModelState.AddModelError(nameof(addCertificationRequest), $"Request cannot be empty.");
                 return false;
             }
 
+            if (string.IsNullOrWhiteSpace(addCertificationRequest.CaregiverId))
+            {
+                ModelState.AddModelError(nameof(addCertificationRequest.CaregiverId), "CaregiverId is required.");
+                return false;
+            }
 
             var user = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == addCertificationRequest.CaregiverId);
             if (user == null)
@@ -166,7 +323,6 @@ namespace CarePro_Api.Controllers.Content
                     "UserId entered is Invalid or does not exist");
                 return false;
             }
-
 
             if (string.IsNullOrWhiteSpace(addCertificationRequest.CertificateName))
             {
@@ -180,6 +336,24 @@ namespace CarePro_Api.Controllers.Content
                     $"{nameof(addCertificationRequest.CertificateIssuer)} is required");
             }
 
+            if (string.IsNullOrWhiteSpace(addCertificationRequest.Certificate))
+            {
+                ModelState.AddModelError(nameof(addCertificationRequest.Certificate),
+                    "Certificate image data is required");
+            }
+            else
+            {
+                // Validate base64 format
+                try
+                {
+                    Convert.FromBase64String(addCertificationRequest.Certificate);
+                }
+                catch (FormatException)
+                {
+                    ModelState.AddModelError(nameof(addCertificationRequest.Certificate),
+                        "Certificate must be valid base64 image data");
+                }
+            }
 
             if (ModelState.ErrorCount > 0)
             {
@@ -188,8 +362,6 @@ namespace CarePro_Api.Controllers.Content
 
             return true;
         }
-
-
 
         #endregion
     }
