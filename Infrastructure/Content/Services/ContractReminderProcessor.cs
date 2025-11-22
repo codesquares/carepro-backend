@@ -194,7 +194,7 @@ namespace Infrastructure.Content.Services
                     ClientName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Client",
                     GigTitle = gig?.Title ?? "Care Services",
                     CreatedAt = contract.CreatedAt,
-                    ExpiryDate = null // TODO: Add ExpiryDate to Contract entity if needed
+                    ExpiryDate = null // Contract expiry date not currently used
                 };
             }
             catch (Exception ex)

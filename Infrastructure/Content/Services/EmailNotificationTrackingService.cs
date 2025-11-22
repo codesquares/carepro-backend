@@ -303,14 +303,14 @@ namespace Infrastructure.Content.Services
             {
                 var user = await _dbContext.AppUsers.FirstOrDefaultAsync(u => u.AppUserId.ToString() == userId);
                 
-                // For now, just check if user exists and has an email
-                // TODO: Implement user notification preferences when the NotificationPreferences entity is added to AppUser
+                // Check if user exists and has a valid email address
+                // Note: User notification preferences can be implemented via NotificationPreferences entity in future
                 if (user == null || string.IsNullOrEmpty(user.Email))
                 {
                     return false;
                 }
 
-                // Default to sending emails until user preferences are implemented
+                // Default behavior: send emails to all users with valid email addresses
                 return true;
             }
             catch (Exception ex)

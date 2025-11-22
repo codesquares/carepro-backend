@@ -153,8 +153,7 @@ namespace CarePro_Api.Controllers.Content
         // Helper method to extract caregiver ID from JWT token
         private string? GetCaregiverIdFromToken()
         {
-            // TODO: Implement based on your JWT token structure
-            // This is a placeholder - you'll need to extract the caregiver ID from the JWT claims
+            // Extract caregiver ID from JWT claims (userId, sub, or id)
             var userIdClaim = User.FindFirst("userId") ?? User.FindFirst("sub") ?? User.FindFirst("id");
             return userIdClaim?.Value;
         }

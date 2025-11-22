@@ -207,6 +207,28 @@ namespace Infrastructure.Content.Services
 
             #endregion EmailVerificationHandling
 
+            #region CreateDefaultLocation
+
+            // Auto-create default location for new caregiver
+            try
+            {
+                var defaultLocationRequest = new SetLocationRequest
+                {
+                    UserId = caregiver.Id.ToString(),
+                    UserType = "Caregiver",
+                    Address = "Adeola Odeku Street, Victoria Island, Lagos, Nigeria"
+                };
+
+                await locationService.SetUserLocationAsync(defaultLocationRequest);
+            }
+            catch (Exception locationEx)
+            {
+                // Log location creation error but don't fail the registration
+                System.Diagnostics.Debug.WriteLine($"Location creation failed: {locationEx.Message}");
+            }
+
+            #endregion CreateDefaultLocation
+
 
             var careGiverUserDTO = new CaregiverDTO()
             {
