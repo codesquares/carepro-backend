@@ -41,5 +41,7 @@ namespace Application.Interfaces.Content
 
         Task ResetPasswordWithJwtAsync(PasswordResetDto request);
 
+        Task<LocationDTO> UpdateClientLocationAsync(string clientId, UpdateCaregiverLocationRequest request);
+
     }
 }
