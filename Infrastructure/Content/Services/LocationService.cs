@@ -93,6 +93,9 @@ namespace Infrastructure.Content.Services
 
                 await _context.SaveChangesAsync();
 
+                // 4. Also update HomeAddress field to keep it in sync
+                await UpdateUserEntityHomeAddressAsync(request.UserId, request.UserType, request.Address);
+
                 return new LocationDTO
                 {
                     Id = location.Id.ToString(),
@@ -147,8 +150,18 @@ namespace Infrastructure.Content.Services
                                         l.UserType == request.UserType &&
                                         !l.IsDeleted);
 
+            // If location doesn't exist, create it (upsert pattern)
             if (location == null)
-                throw new InvalidOperationException("User location not found");
+            {
+                var createRequest = new SetLocationRequest
+                {
+                    UserId = request.UserId,
+                    UserType = request.UserType,
+                    Address = request.Address ?? throw new ArgumentException("Address is required when creating a new location")
+                };
+
+                return await SetUserLocationAsync(createRequest);
+            }
 
             // Update provided fields
             if (!string.IsNullOrEmpty(request.Address))
@@ -175,6 +188,11 @@ namespace Infrastructure.Content.Services
             location.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            _logger.LogInformation($"Location saved. Now attempting to sync HomeAddress for {request.UserType} {request.UserId}");
+
+            // Update HomeAddress field on user entity to keep it in sync
+            await UpdateUserEntityHomeAddressAsync(request.UserId, request.UserType, location.Address);
 
             return new LocationDTO
             {
@@ -408,6 +426,9 @@ namespace Infrastructure.Content.Services
                     caregiver.ServiceAddress = geocodeResult.FormattedAddress;
                     caregiver.Latitude = geocodeResult.Latitude;
                     caregiver.Longitude = geocodeResult.Longitude;
+                    
+                    _context.CareGivers.Update(caregiver);
+                    // Note: SaveChangesAsync is called by the caller method
                 }
             }
             else if (userType == "Client")
@@ -422,6 +443,9 @@ namespace Infrastructure.Content.Services
                     client.Address = geocodeResult.FormattedAddress;
                     client.Latitude = geocodeResult.Latitude;
                     client.Longitude = geocodeResult.Longitude;
+                    
+                    _context.Clients.Update(client);
+                    // Note: SaveChangesAsync is called by the caller method
                 }
             }
         }
@@ -458,6 +482,77 @@ namespace Infrastructure.Content.Services
         }
 
         private double ToRadians(double deg) => deg * (Math.PI / 180);
+
+        /// <summary>
+        /// Updates the HomeAddress field on the user entity (Caregiver or Client)
+        /// to keep it in sync with the Location table
+        /// </summary>
+        private async Task UpdateUserEntityHomeAddressAsync(string userId, string userType, string address)
+        {
+            try
+            {
+                _logger.LogInformation($"Attempting to sync HomeAddress for {userType} {userId} with address: {address}");
+
+                if (string.IsNullOrEmpty(address))
+                {
+                    _logger.LogWarning($"Address is null or empty, skipping HomeAddress sync for {userId}");
+                    return;
+                }
+
+                if (userType == "Caregiver")
+                {
+                    if (!ObjectId.TryParse(userId, out var objectId))
+                    {
+                        _logger.LogWarning($"Invalid ObjectId format for caregiver: {userId}");
+                        return;
+                    }
+
+                    var caregiver = await _context.CareGivers.FindAsync(objectId);
+                    if (caregiver != null)
+                    {
+                        _logger.LogInformation($"Found caregiver {userId}. Current HomeAddress: '{caregiver.HomeAddress}'. Updating to: '{address}'");
+                        caregiver.HomeAddress = address;
+                        _context.CareGivers.Update(caregiver);
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation($"Successfully updated HomeAddress for caregiver {userId}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Caregiver {userId} not found in database");
+                    }
+                }
+                else if (userType == "Client")
+                {
+                    if (!ObjectId.TryParse(userId, out var objectId))
+                    {
+                        _logger.LogWarning($"Invalid ObjectId format for client: {userId}");
+                        return;
+                    }
+
+                    var client = await _context.Clients.FindAsync(objectId);
+                    if (client != null)
+                    {
+                        _logger.LogInformation($"Found client {userId}. Current HomeAddress: '{client.HomeAddress}'. Updating to: '{address}'");
+                        client.HomeAddress = address;
+                        _context.Clients.Update(client);
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation($"Successfully updated HomeAddress for client {userId}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Client {userId} not found in database");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning($"Unknown userType: {userType}. Expected 'Caregiver' or 'Client'");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to update HomeAddress for {userType} {userId}. Location update succeeded but HomeAddress sync failed.");
+            }
+        }
 
         #endregion
     }

@@ -31,8 +31,9 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService emailService;
         private readonly IConfiguration configuration;
         private readonly IOriginValidationService originValidationService;
+        private readonly ILocationService locationService;
 
-        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService)
+        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService, ILocationService locationService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
@@ -40,6 +41,7 @@ namespace Infrastructure.Content.Services
             this.emailService = emailService;
             this.configuration = configuration;
             this.originValidationService = originValidationService;
+            this.locationService = locationService;
         }
 
         public async Task<ClientDTO> CreateClientUserAsync(AddClientUserRequest addClientUserRequest, string? origin)
@@ -141,6 +143,28 @@ namespace Infrastructure.Content.Services
             }
 
             #endregion EmailVerificationHandling
+
+            #region CreateDefaultLocation
+
+            // Auto-create default location for new client
+            try
+            {
+                var defaultLocationRequest = new SetLocationRequest
+                {
+                    UserId = clientUser.Id.ToString(),
+                    UserType = "Client",
+                    Address = "Adeola Odeku Street, Victoria Island, Lagos, Nigeria"
+                };
+
+                await locationService.SetUserLocationAsync(defaultLocationRequest);
+            }
+            catch (Exception locationEx)
+            {
+                // Log location creation error but don't fail the registration
+                System.Diagnostics.Debug.WriteLine($"Location creation failed: {locationEx.Message}");
+            }
+
+            #endregion CreateDefaultLocation
 
 
 
@@ -650,6 +674,40 @@ namespace Infrastructure.Content.Services
             {
                 throw new UnauthorizedAccessException("Invalid or expired reset token.");
             }
+        }
+
+        public async Task<LocationDTO> UpdateClientLocationAsync(string clientId, UpdateCaregiverLocationRequest request)
+        {
+            if (!ObjectId.TryParse(clientId, out var objectId))
+            {
+                throw new ArgumentException("Invalid Client ID format.");
+            }
+
+            var existingClient = await careProDbContext.Clients.FindAsync(objectId);
+            if (existingClient == null)
+            {
+                throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Address))
+            {
+                throw new ArgumentException("Address is required for location update.");
+            }
+
+            // Use the location service to update the client's location
+            var updateLocationRequest = new UpdateUserLocationRequest
+            {
+                UserId = clientId,
+                UserType = "Client",
+                Address = request.Address
+            };
+
+            var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
+
+            // The location service automatically updates the client entity's location fields
+            // through its UpdateUserEntityLocation method, so we don't need to manually update here
+
+            return locationResult;
         }
     }
 }

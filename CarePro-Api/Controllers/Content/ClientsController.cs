@@ -359,6 +359,49 @@ namespace CarePro_Api.Controllers.Content
         }
 
 
+        [HttpPut]
+        [Route("UpdateClientLocation/{clientId}")]
+        //[Authorize(Roles = "Client, Admin")]
+        public async Task<IActionResult> UpdateClientLocationAsync(string clientId, [FromBody] UpdateCaregiverLocationRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                logger.LogInformation($"Updating location for client with ID: {clientId}");
+                var result = await clientService.UpdateClientLocationAsync(clientId, request);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Client location updated successfully",
+                    data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                logger.LogWarning(ex, $"Invalid request data for updating client {clientId} location");
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                logger.LogWarning(ex, $"Client {clientId} not found");
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, $"Invalid operation for updating client {clientId} location");
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Error updating location for client {clientId}");
+                return StatusCode(500, new { success = false, message = "An error occurred while updating the client location" });
+            }
+        }
+
 
     }
 }
