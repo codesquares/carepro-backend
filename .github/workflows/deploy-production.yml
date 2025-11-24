@@ -485,30 +485,101 @@ jobs:
         name: production-deployment-${{ github.sha }}
         path: deployment/
 
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Tag and push image to ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: carepro-cnet-backend
+        IMAGE_TAG: production-${{ github.sha }}
+      run: |
+        echo "🏷️  Tagging image for ECR..."
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "⬆️  Pushing to ECR..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        echo "✅ Image pushed to ECR"
+        echo "ECR_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+
+    - name: Update ECS task definition
+      id: task-def
+      run: |
+        echo "📝 Updating ECS task definition with new image..."
+        
+        # Get current task definition
+        TASK_DEFINITION=$(aws ecs describe-task-definition \
+          --task-definition carepro-backend-task \
+          --query 'taskDefinition' \
+          --output json)
+        
+        # Create new task definition with updated image
+        NEW_TASK_DEF=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_IMAGE" \
+          '.containerDefinitions[0].image = $IMAGE | 
+           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+        
+        # Register new task definition
+        NEW_TASK_INFO=$(aws ecs register-task-definition \
+          --cli-input-json "$NEW_TASK_DEF" \
+          --query 'taskDefinition.taskDefinitionArn' \
+          --output text)
+        
+        echo "✅ New task definition registered: $NEW_TASK_INFO"
+        echo "TASK_DEFINITION_ARN=$NEW_TASK_INFO" >> $GITHUB_ENV
+
+    - name: Deploy to ECS
+      run: |
+        echo "🚀 Deploying to ECS..."
+        
+        # Update ECS service with new task definition
+        aws ecs update-service \
+          --cluster carepro-cluster \
+          --service carepro-backend-service \
+          --task-definition $TASK_DEFINITION_ARN \
+          --force-new-deployment \
+          --query 'service.{ServiceName:serviceName,Status:status,DesiredCount:desiredCount}' \
+          --output table
+        
+        echo "✅ ECS service update initiated"
+
+    - name: Wait for deployment to stabilize
+      run: |
+        echo "⏳ Waiting for ECS service to stabilize..."
+        
+        aws ecs wait services-stable \
+          --cluster carepro-cluster \
+          --services carepro-backend-service
+        
+        echo "✅ Deployment stable!"
+
     - name: Production deployment summary
       run: |
-        echo "🎯 Production Deployment Ready"
+        echo "🎯 Production Deployment Complete"
         echo "=================================="
-        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production-latest"
-        echo "Deployment package: production-deployment-${{ github.sha }}"
+        echo "Image: $ECR_IMAGE"
+        echo "Task Definition: $TASK_DEFINITION_ARN"
+        echo "Cluster: carepro-cluster"
+        echo "Service: carepro-backend-service"
         echo "Timestamp: $(date)"
         echo ""
-        echo "📋 Next Steps:"
-        echo "1. Download the deployment package"
-        echo "2. Set required environment variables"
-        echo "3. Run: cd deployment/production && ./deploy.sh"
+        echo "🔍 Verify deployment:"
+        echo "  Health: https://api.oncarepro.com/health"
+        echo "  Swagger: https://api.oncarepro.com/swagger"
         echo ""
-        echo "🔧 Required Environment Variables:"
-        echo "  - JWT_KEY"
-        echo "  - MONGODB_CONNECTION"
-        echo "  - MAIL_FROM_EMAIL, MAIL_SMTP_SERVER, MAIL_APP_PASSWORD"
-        echo "  - GOOGLE_MAPS_API_KEY"
-        echo "  - OPENAI_API_KEY"
-        echo "  - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET"
-        echo "  - FLUTTERWAVE_PUBLIC_KEY, FLUTTERWAVE_SECRET_KEY"
-        echo ""
-        echo "🚨 Emergency Rollback:"
-        echo "  ./rollback.sh <previous-tag>"
+        echo "📊 Monitor CloudWatch Logs:"
+        echo "  aws logs tail /ecs/carepro-backend-task --follow"
 
   post-deployment-tests:
     name: Post-Deployment Verification
