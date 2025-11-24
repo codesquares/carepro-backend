@@ -7,6 +7,7 @@
     <RootNamespace>CarePro_Api</RootNamespace>
     <WarningsAsErrors />
     <WarningsNotAsErrors>NU1605</WarningsNotAsErrors>
+    <NoWarn>CS8618;CS8600;CS8601;CS8602;CS8604</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

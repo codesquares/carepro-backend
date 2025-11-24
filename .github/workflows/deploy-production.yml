@@ -175,10 +175,10 @@ jobs:
         WORKDIR "/src/CarePro-Api"
         
         # Build with optimizations
-        RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build -p:NoWarn="CS8618;CS8600;CS8601;CS8602;CS8604"
+        RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build
         
         FROM build AS publish
-        RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:PublishReadyToRun=true /p:PublishSingleFile=false -p:NoWarn="CS8618;CS8600;CS8601;CS8602;CS8604"
+        RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:PublishReadyToRun=true /p:PublishSingleFile=false
         
         FROM base AS final
         WORKDIR /app
