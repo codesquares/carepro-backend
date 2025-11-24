@@ -501,7 +501,7 @@ jobs:
     - name: Tag and push image to ECR
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: carepro-cnet-backend
+        ECR_REPOSITORY: carepro-backend
         IMAGE_TAG: production-${{ github.sha }}
       run: |
         echo "🏷️  Tagging image for ECR..."
