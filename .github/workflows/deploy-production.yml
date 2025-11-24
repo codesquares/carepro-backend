@@ -205,12 +205,14 @@ jobs:
       with:
         context: .
         file: Dockerfile.production
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
 
     - name: Run Trivy vulnerability scanner on image
       uses: aquasecurity/trivy-action@master

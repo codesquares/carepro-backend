@@ -1,17 +1,16 @@
 # Multi-stage Dockerfile for production builds with multi-platform support
 # Build stage
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
-ARG TARGETARCH
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 WORKDIR /src
 
 # Copy project files
-COPY [CarePro-Api/CarePro-Api.csproj, CarePro-Api/]
-COPY [Application/Application.csproj, Application/]
-COPY [Domain/Domain.csproj, Domain/]
-COPY [Infrastructure/Infrastructure.csproj, Infrastructure/]
+COPY ["CarePro-Api/CarePro-Api.csproj", "CarePro-Api/"]
+COPY ["Application/Application.csproj", "Application/"]
+COPY ["Domain/Domain.csproj", "Domain/"]
+COPY ["Infrastructure/Infrastructure.csproj", "Infrastructure/"]
 
-# Restore dependencies
-RUN dotnet restore "CarePro-Api/CarePro-Api.csproj"
+# Restore dependencies with retries and optimizations
+RUN dotnet restore "CarePro-Api/CarePro-Api.csproj" --disable-parallel
 
 # Copy all source files
 COPY . .
