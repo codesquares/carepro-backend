@@ -305,7 +305,7 @@ namespace CarePro_Api.Controllers.Content
                     var existingVerification = await _verificationService.GetUserVerificationStatusAsync(userId);
 
                     // Determine if we should create new verification record
-                    var shouldCreate = ShouldCreateNewVerification(existingVerification?.VerificationStatus, formattedData.VerificationStatus);
+                    var shouldCreate = ShouldCreateNewVerification(existingVerification?.VerificationStatus, formattedData.VerificationStatus, existingVerification?.IsVerified);
 
                     if (shouldCreate.ShouldCreate)
                     {
@@ -580,11 +580,15 @@ namespace CarePro_Api.Controllers.Content
             return request != null;
         }
 
-        private (bool ShouldCreate, string Reason) ShouldCreateNewVerification(string? existingStatus, string newStatus)
+        private (bool ShouldCreate, string Reason) ShouldCreateNewVerification(string? existingStatus, string newStatus, bool? isVerified = null)
         {
             // If no existing record, always allow creation
             if (string.IsNullOrEmpty(existingStatus))
                 return (true, "First verification attempt");
+
+            // If IsVerified is false but status is success, force update to fix the flag
+            if (isVerified == false && (newStatus?.ToLower() == "success" || newStatus?.ToLower() == "completed" || newStatus?.ToLower() == "verified"))
+                return (true, $"Updating verification: IsVerified is false but status is '{newStatus}'");
 
             // If status is different, allow creation
             if (existingStatus != newStatus)
