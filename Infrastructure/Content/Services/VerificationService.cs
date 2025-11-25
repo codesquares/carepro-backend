@@ -269,7 +269,8 @@ namespace Infrastructure.Content.Services
 
                     // Update verified status based on status
                     existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                                      addVerificationRequest.VerificationStatus?.ToLower() == "verified";
+                                                      addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
+                                                      addVerificationRequest.VerificationStatus?.ToLower() == "success";
 
                     await careProDbContext.SaveChangesAsync();
 
@@ -290,7 +291,8 @@ namespace Infrastructure.Content.Services
                     UserId = addVerificationRequest.UserId,
                     VerificationId = ObjectId.GenerateNewId(),
                     IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                 addVerificationRequest.VerificationStatus?.ToLower() == "verified",
+                                 addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
+                                 addVerificationRequest.VerificationStatus?.ToLower() == "success",
                     VerifiedOn = DateTime.Now,
                 };
 
