@@ -55,11 +55,35 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { Message = ex.Message });
+                return BadRequest(new 
+                { 
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { ex.ParamName ?? "certificateValidation", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new 
+                { 
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { "certificateName", new[] { ex.Message } }
+                    }
+                });
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(new { message = ex.Message });
+                return NotFound(new 
+                { 
+                    success = false,
+                    message = ex.Message 
+                });
             }
             catch (ApplicationException appEx)
             {

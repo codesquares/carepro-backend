@@ -1,7 +1,9 @@
 ﻿using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -21,19 +23,25 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<CertificationService> logger;
         private readonly CloudinaryService cloudinaryService;
         private readonly DojahDocumentVerificationService dojahVerificationService;
+        private readonly INotificationService notificationService;
+        private readonly IEmailService emailService;
 
         public CertificationService(
             CareProDbContext careProDbContext, 
             ICareGiverService careGiverService, 
             ILogger<CertificationService> logger,
             CloudinaryService cloudinaryService,
-            DojahDocumentVerificationService dojahVerificationService)
+            DojahDocumentVerificationService dojahVerificationService,
+            INotificationService notificationService,
+            IEmailService emailService)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
             this.cloudinaryService = cloudinaryService;
             this.dojahVerificationService = dojahVerificationService;
+            this.notificationService = notificationService;
+            this.emailService = emailService;
         }
 
         public async Task<CertificationUploadResponse> CreateCertificateAsync(AddCertificationRequest addCertificationRequest)
@@ -48,6 +56,29 @@ namespace Infrastructure.Content.Services
             if (careGiver == null)
             {
                 throw new KeyNotFoundException("The CaregiverID entered is not a Valid ID");
+            }
+
+            // Validate certificate type
+            if (!CertificateValidationHelper.IsValidCertificateType(addCertificationRequest.CertificateName))
+            {
+                throw new ArgumentException("Invalid certificate type. Only WASSCE, NECO SSCE, NABTEB, and NYSC certificates are accepted.", nameof(addCertificationRequest.CertificateName));
+            }
+
+            // Validate certificate issuer matches the certificate type
+            if (!CertificateValidationHelper.ValidateIssuerMatch(addCertificationRequest.CertificateName, addCertificationRequest.CertificateIssuer))
+            {
+                var expectedIssuer = CertificateValidationHelper.GetExpectedIssuer(addCertificationRequest.CertificateName ?? "");
+                throw new ArgumentException($"Invalid certificate issuer. Expected issuer for this certificate type is: {expectedIssuer}", nameof(addCertificationRequest.CertificateIssuer));
+            }
+
+            // Check for duplicate certificate type
+            var existingCertificate = await careProDbContext.Certifications
+                .FirstOrDefaultAsync(c => c.CaregiverId == addCertificationRequest.CaregiverId 
+                                       && c.CertificateName == addCertificationRequest.CertificateName);
+            
+            if (existingCertificate != null)
+            {
+                throw new InvalidOperationException($"A certificate of type '{addCertificationRequest.CertificateName}' has already been uploaded for this caregiver.");
             }
 
             try
@@ -83,13 +114,109 @@ namespace Infrastructure.Content.Services
                     {
                         var dojahResult = await dojahVerificationService.VerifyDocumentAsync(certificateBytes, fileName);
                         
+                        // Enhanced validation checks for certificate genuineness
+                        var validationMessages = new List<string>();
+                        var finalStatus = dojahResult.Status;
+                        var shouldReject = false;
+
+                        // 1. Confidence threshold validation
+                        var (isConfidentValid, confidenceStatus, confidenceMessage) = 
+                            CertificateValidationHelper.ValidateConfidenceThreshold(dojahResult.Confidence);
+                        
+                        if (!isConfidentValid)
+                        {
+                            validationMessages.Add(confidenceMessage);
+                            finalStatus = confidenceStatus;
+                            
+                            if (confidenceStatus == DocumentVerificationStatus.Invalid)
+                            {
+                                shouldReject = true;
+                            }
+                        }
+
+                        // 2. Name matching validation (only if Dojah extracted names)
+                        if (dojahResult.ExtractedInfo != null && 
+                            !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.FirstName) &&
+                            !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.LastName))
+                        {
+                            var namesMatch = CertificateValidationHelper.ValidateNameMatch(
+                                dojahResult.ExtractedInfo.FirstName,
+                                dojahResult.ExtractedInfo.LastName,
+                                careGiver.FirstName,
+                                careGiver.LastName
+                            );
+
+                            if (!namesMatch)
+                            {
+                                validationMessages.Add(
+                                    $"Name mismatch: Certificate shows '{dojahResult.ExtractedInfo.FirstName} {dojahResult.ExtractedInfo.LastName}' " +
+                                    $"but profile shows '{careGiver.FirstName} {careGiver.LastName}'. Manual review required."
+                                );
+                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
+                            }
+                        }
+
+                        // 3. Country validation
+                        if (dojahResult.DocumentType != null && 
+                            !string.IsNullOrWhiteSpace(dojahResult.DocumentType.CountryCode))
+                        {
+                            var isValidCountry = CertificateValidationHelper.ValidateCountryCode(
+                                dojahResult.DocumentType.CountryCode
+                            );
+
+                            if (!isValidCountry)
+                            {
+                                validationMessages.Add(
+                                    $"Invalid certificate country: Expected Nigeria (NG) but detected '{dojahResult.DocumentType.CountryCode}'. " +
+                                    $"Only Nigerian educational certificates are accepted."
+                                );
+                                finalStatus = DocumentVerificationStatus.Invalid;
+                                shouldReject = true;
+                            }
+                        }
+
+                        // 4. Document type cross-validation
+                        if (dojahResult.DocumentType != null && 
+                            !string.IsNullOrWhiteSpace(dojahResult.DocumentType.DocumentName))
+                        {
+                            var typeMatches = CertificateValidationHelper.ValidateDocumentTypeMatch(
+                                addCertificationRequest.CertificateName,
+                                dojahResult.DocumentType.DocumentName
+                            );
+
+                            if (!typeMatches)
+                            {
+                                validationMessages.Add(
+                                    $"Document type mismatch: You claimed '{addCertificationRequest.CertificateName}' " +
+                                    $"but Dojah detected '{dojahResult.DocumentType.DocumentName}'. This may indicate a forged certificate."
+                                );
+                                finalStatus = DocumentVerificationStatus.Invalid;
+                                shouldReject = true;
+                            }
+                        }
+
+                        // 5. Issue date validation (if extracted)
+                        if (dojahResult.ExtractedInfo?.IssueDate != null)
+                        {
+                            var (isDateValid, dateMessage) = CertificateValidationHelper.ValidateIssueDate(
+                                dojahResult.ExtractedInfo.IssueDate
+                            );
+
+                            if (!isDateValid)
+                            {
+                                validationMessages.Add(dateMessage);
+                                finalStatus = DocumentVerificationStatus.Invalid;
+                                shouldReject = true;
+                            }
+                        }
+
                         // Update certification with verification results
-                        certification.VerificationStatus = dojahResult.Status;
+                        certification.VerificationStatus = finalStatus;
                         certification.VerificationDate = DateTime.UtcNow;
                         certification.VerificationConfidence = dojahResult.Confidence;
                         certification.DojahVerificationResponse = dojahResult.RawResponse;
                         certification.VerificationAttempts = 1;
-                        certification.IsVerified = dojahResult.Status == DocumentVerificationStatus.Verified;
+                        certification.IsVerified = finalStatus == DocumentVerificationStatus.Verified;
                         
                         // Store extracted information as JSON
                         if (dojahResult.ExtractedInfo != null)
@@ -97,17 +224,25 @@ namespace Infrastructure.Content.Services
                             certification.ExtractedCertificateInfo = JsonSerializer.Serialize(dojahResult.ExtractedInfo);
                         }
 
+                        // Combine all validation messages
+                        var errorMessage = validationMessages.Count > 0 
+                            ? string.Join(" | ", validationMessages)
+                            : dojahResult.ErrorMessage;
+
                         verificationResult = new VerificationResultDTO
                         {
-                            Status = dojahResult.Status,
+                            Status = finalStatus,
                             Confidence = dojahResult.Confidence,
                             VerifiedAt = DateTime.UtcNow,
-                            ErrorMessage = dojahResult.ErrorMessage,
+                            ErrorMessage = errorMessage,
                             ExtractedInfo = dojahResult.ExtractedInfo != null ? MapExtractedInfo(dojahResult.ExtractedInfo) : null
                         };
 
-                        LogAuditEvent($"Certificate verification completed. Status: {dojahResult.Status}, Confidence: {dojahResult.Confidence}", 
-                            addCertificationRequest.CaregiverId);
+                        var logMessage = shouldReject 
+                            ? $"Certificate REJECTED. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
+                            : $"Certificate verification completed. Status: {finalStatus}, Confidence: {dojahResult.Confidence}";
+                        
+                        LogAuditEvent(logMessage, addCertificationRequest.CaregiverId);
                     }
                     catch (Exception ex)
                     {
@@ -130,6 +265,12 @@ namespace Infrastructure.Content.Services
                 await careProDbContext.SaveChangesAsync();
 
                 LogAuditEvent($"Certificate uploaded and saved. ID: {certification.Id}", addCertificationRequest.CaregiverId);
+
+                // Send notification and email after verification
+                if (addCertificationRequest.VerifyImmediately && verificationResult != null)
+                {
+                    await SendVerificationNotificationAsync(careGiver, certification, verificationResult.Status);
+                }
 
                 return new CertificationUploadResponse
                 {
@@ -248,13 +389,116 @@ namespace Infrastructure.Content.Services
                 // Perform verification
                 var dojahResult = await dojahVerificationService.VerifyDocumentAsync(imageBytes, $"retry_{certificateId}");
 
+                // Get caregiver details for name validation
+                var caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                if (caregiver == null)
+                {
+                    throw new KeyNotFoundException($"Caregiver with ID '{certificate.CaregiverId}' not found.");
+                }
+
+                // Enhanced validation checks for certificate genuineness
+                var validationMessages = new List<string>();
+                var finalStatus = dojahResult.Status;
+                var shouldReject = false;
+
+                // 1. Confidence threshold validation
+                var (isConfidentValid, confidenceStatus, confidenceMessage) = 
+                    CertificateValidationHelper.ValidateConfidenceThreshold(dojahResult.Confidence);
+                
+                if (!isConfidentValid)
+                {
+                    validationMessages.Add(confidenceMessage);
+                    finalStatus = confidenceStatus;
+                    
+                    if (confidenceStatus == DocumentVerificationStatus.Invalid)
+                    {
+                        shouldReject = true;
+                    }
+                }
+
+                // 2. Name matching validation (only if Dojah extracted names)
+                if (dojahResult.ExtractedInfo != null && 
+                    !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.FirstName) &&
+                    !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.LastName))
+                {
+                    var namesMatch = CertificateValidationHelper.ValidateNameMatch(
+                        dojahResult.ExtractedInfo.FirstName,
+                        dojahResult.ExtractedInfo.LastName,
+                        caregiver.FirstName,
+                        caregiver.LastName
+                    );
+
+                    if (!namesMatch)
+                    {
+                        validationMessages.Add(
+                            $"Name mismatch: Certificate shows '{dojahResult.ExtractedInfo.FirstName} {dojahResult.ExtractedInfo.LastName}' " +
+                            $"but profile shows '{caregiver.FirstName} {caregiver.LastName}'. Manual review required."
+                        );
+                        finalStatus = DocumentVerificationStatus.ManualReviewRequired;
+                    }
+                }
+
+                // 3. Country validation
+                if (dojahResult.DocumentType != null && 
+                    !string.IsNullOrWhiteSpace(dojahResult.DocumentType.CountryCode))
+                {
+                    var isValidCountry = CertificateValidationHelper.ValidateCountryCode(
+                        dojahResult.DocumentType.CountryCode
+                    );
+
+                    if (!isValidCountry)
+                    {
+                        validationMessages.Add(
+                            $"Invalid certificate country: Expected Nigeria (NG) but detected '{dojahResult.DocumentType.CountryCode}'. " +
+                            $"Only Nigerian educational certificates are accepted."
+                        );
+                        finalStatus = DocumentVerificationStatus.Invalid;
+                        shouldReject = true;
+                    }
+                }
+
+                // 4. Document type cross-validation
+                if (dojahResult.DocumentType != null && 
+                    !string.IsNullOrWhiteSpace(dojahResult.DocumentType.DocumentName))
+                {
+                    var typeMatches = CertificateValidationHelper.ValidateDocumentTypeMatch(
+                        certificate.CertificateName,
+                        dojahResult.DocumentType.DocumentName
+                    );
+
+                    if (!typeMatches)
+                    {
+                        validationMessages.Add(
+                            $"Document type mismatch: Certificate claimed as '{certificate.CertificateName}' " +
+                            $"but Dojah detected '{dojahResult.DocumentType.DocumentName}'. This may indicate a forged certificate."
+                        );
+                        finalStatus = DocumentVerificationStatus.Invalid;
+                        shouldReject = true;
+                    }
+                }
+
+                // 5. Issue date validation (if extracted)
+                if (dojahResult.ExtractedInfo?.IssueDate != null)
+                {
+                    var (isDateValid, dateMessage) = CertificateValidationHelper.ValidateIssueDate(
+                        dojahResult.ExtractedInfo.IssueDate
+                    );
+
+                    if (!isDateValid)
+                    {
+                        validationMessages.Add(dateMessage);
+                        finalStatus = DocumentVerificationStatus.Invalid;
+                        shouldReject = true;
+                    }
+                }
+
                 // Update certificate with new verification results
-                certificate.VerificationStatus = dojahResult.Status;
+                certificate.VerificationStatus = finalStatus;
                 certificate.VerificationDate = DateTime.UtcNow;
                 certificate.VerificationConfidence = dojahResult.Confidence;
                 certificate.DojahVerificationResponse = dojahResult.RawResponse;
                 certificate.VerificationAttempts += 1;
-                certificate.IsVerified = dojahResult.Status == DocumentVerificationStatus.Verified;
+                certificate.IsVerified = finalStatus == DocumentVerificationStatus.Verified;
 
                 if (dojahResult.ExtractedInfo != null)
                 {
@@ -263,14 +507,26 @@ namespace Infrastructure.Content.Services
 
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Certificate verification retry completed. Status: {dojahResult.Status}", certificate.CaregiverId);
+                // Combine all validation messages
+                var errorMessage = validationMessages.Count > 0 
+                    ? string.Join(" | ", validationMessages)
+                    : dojahResult.ErrorMessage;
+
+                var logMessage = shouldReject 
+                    ? $"Certificate retry REJECTED. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
+                    : $"Certificate verification retry completed. Status: {finalStatus}, Confidence: {dojahResult.Confidence}";
+                
+                LogAuditEvent(logMessage, certificate.CaregiverId);
+
+                // Send notification after retry verification
+                await SendVerificationNotificationAsync(caregiver, certificate, finalStatus);
 
                 return new VerificationResultDTO
                 {
-                    Status = dojahResult.Status,
+                    Status = finalStatus,
                     Confidence = dojahResult.Confidence,
                     VerifiedAt = DateTime.UtcNow,
-                    ErrorMessage = dojahResult.ErrorMessage,
+                    ErrorMessage = errorMessage,
                     ExtractedInfo = dojahResult.ExtractedInfo != null ? MapExtractedInfo(dojahResult.ExtractedInfo) : null
                 };
             }
@@ -419,6 +675,77 @@ namespace Infrastructure.Content.Services
             {
                 logger.LogError(ex, "Failed to handle legacy documents for caregiver {CaregiverId}", caregiverId);
                 throw;
+            }
+        }
+
+        private async Task SendVerificationNotificationAsync(CaregiverResponse caregiver, Certification certification, DocumentVerificationStatus status)
+        {
+            try
+            {
+                string notificationTitle;
+                string notificationContent;
+                string emailSubject;
+                string emailContent;
+
+                switch (status)
+                {
+                    case DocumentVerificationStatus.Verified:
+                        notificationTitle = "Certificate Verified Successfully";
+                        notificationContent = $"Your {certification.CertificateName} has been successfully verified and approved.";
+                        emailSubject = "Certificate Verification Successful - CarePro";
+                        emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                        break;
+
+                    case DocumentVerificationStatus.Invalid:
+                        notificationTitle = "Certificate Verification Failed";
+                        notificationContent = $"Your {certification.CertificateName} could not be verified. Please upload a clearer image or contact support.";
+                        emailSubject = "Certificate Verification Failed - CarePro";
+                        emailContent = $"Dear {caregiver.FirstName},\\n\\nUnfortunately, we could not verify your {certification.CertificateName}. This may be due to image quality or document authenticity issues.\\n\\nPlease re-upload a clearer image of your certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team";
+                        break;
+
+                    case DocumentVerificationStatus.ManualReviewRequired:
+                        notificationTitle = "Certificate Under Review";
+                        notificationContent = $"Your {certification.CertificateName} is under manual review. We'll notify you once the review is complete.";
+                        emailSubject = "Certificate Under Manual Review - CarePro";
+                        emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team";
+                        break;
+
+                    case DocumentVerificationStatus.VerificationFailed:
+                        notificationTitle = "Certificate Verification Error";
+                        notificationContent = $"There was an error verifying your {certification.CertificateName}. Please try again or contact support.";
+                        emailSubject = "Certificate Verification Error - CarePro";
+                        emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team";
+                        break;
+
+                    default:
+                        return; // Don't send notification for pending status
+                }
+
+                // Send in-app notification
+                await notificationService.CreateNotificationAsync(
+                    recipientId: certification.CaregiverId,
+                    senderId: "System",
+                    type: "CertificateVerification",
+                    content: notificationContent,
+                    Title: notificationTitle,
+                    relatedEntityId: certification.Id.ToString()
+                );
+
+                // Send email notification
+                await emailService.SendGenericNotificationEmailAsync(
+                    toEmail: caregiver.Email,
+                    firstName: caregiver.FirstName,
+                    subject: emailSubject,
+                    content: emailContent
+                );
+
+                logger.LogInformation("Sent verification notification to caregiver {CaregiverId} for certificate {CertificateId} with status {Status}",
+                    certification.CaregiverId, certification.Id, status);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send verification notification to caregiver {CaregiverId}", certification.CaregiverId);
+                // Don't throw - notification failure shouldn't fail the main operation
             }
         }
 
