@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Domain.Entities;
@@ -32,8 +33,9 @@ namespace Infrastructure.Content.Services
         private readonly IConfiguration configuration;
         private readonly IOriginValidationService originValidationService;
         private readonly ILocationService locationService;
+        private readonly IGoogleSheetsService googleSheetsService;
 
-        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService, ILocationService locationService)
+        public ClientService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, IOriginValidationService originValidationService, ILocationService locationService, IGoogleSheetsService googleSheetsService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
@@ -42,6 +44,7 @@ namespace Infrastructure.Content.Services
             this.configuration = configuration;
             this.originValidationService = originValidationService;
             this.locationService = locationService;
+            this.googleSheetsService = googleSheetsService;
         }
 
         public async Task<ClientDTO> CreateClientUserAsync(AddClientUserRequest addClientUserRequest, string? origin)
@@ -97,6 +100,27 @@ namespace Infrastructure.Content.Services
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
             await careProDbContext.SaveChangesAsync();
+
+            #region GoogleSheetsLogging
+            
+            // Log signup to Google Sheets (production only, non-blocking)
+            try
+            {
+                await googleSheetsService.AppendSignupDataAsync(
+                    clientUser.FirstName,
+                    clientUser.LastName,
+                    clientUser.PhoneNo ?? "N/A",
+                    clientUser.Email,
+                    "Client"
+                );
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail signup if Google Sheets logging fails
+                System.Diagnostics.Debug.WriteLine($"Google Sheets logging failed: {ex.Message}");
+            }
+
+            #endregion GoogleSheetsLogging
 
             #region EmailVerificationHandling
 

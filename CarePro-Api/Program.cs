@@ -145,6 +145,9 @@ builder.Services.AddScoped<DojahDocumentVerificationService>();
 builder.Services.AddHttpClient<DojahDocumentVerificationService>();
 builder.Services.AddMemoryCache();
 
+// Google Sheets service (production signup tracking)
+builder.Services.AddScoped<IGoogleSheetsService, GoogleSheetsService>();
+
 builder.Services.AddHostedService<DailyEarningService>();
 // Old background service - now replaced by specialized processors
 // builder.Services.AddHostedService<UnreadNotificationEmailBackgroundService>();

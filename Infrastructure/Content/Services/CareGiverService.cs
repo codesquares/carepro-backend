@@ -43,12 +43,14 @@ namespace Infrastructure.Content.Services
         private readonly IConfiguration configuration;
         private readonly ILocationService locationService;
         private readonly IOriginValidationService originValidationService;
+        private readonly IGoogleSheetsService googleSheetsService;
 
 
-        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService, IOriginValidationService originValidationService)
+        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService, IOriginValidationService originValidationService, IGoogleSheetsService googleSheetsService)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
+            this.googleSheetsService = googleSheetsService;
             this.tokenHandler = tokenHandler;
             this.emailService = emailService;
             this.configuration = configuration;
@@ -158,6 +160,27 @@ namespace Infrastructure.Content.Services
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
             await careProDbContext.SaveChangesAsync();
+
+            #region GoogleSheetsLogging
+            
+            // Log signup to Google Sheets (production only, non-blocking)
+            try
+            {
+                await googleSheetsService.AppendSignupDataAsync(
+                    caregiver.FirstName,
+                    caregiver.LastName,
+                    caregiver.PhoneNo,
+                    caregiver.Email,
+                    "Caregiver"
+                );
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail signup if Google Sheets logging fails
+                System.Diagnostics.Debug.WriteLine($"Google Sheets logging failed: {ex.Message}");
+            }
+
+            #endregion GoogleSheetsLogging
 
             #region EmailVerificationHandling
 
