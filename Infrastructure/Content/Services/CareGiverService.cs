@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.VisualStudio.Web.CodeGenerators.Mvc.Templates.BlazorIdentity.Pages;
 using MongoDB.Bson;
@@ -44,9 +45,10 @@ namespace Infrastructure.Content.Services
         private readonly ILocationService locationService;
         private readonly IOriginValidationService originValidationService;
         private readonly IGoogleSheetsService googleSheetsService;
+        private readonly ILogger<CareGiverService> logger;
 
 
-        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService, IOriginValidationService originValidationService, IGoogleSheetsService googleSheetsService)
+        public CareGiverService(CareProDbContext careProDbContext, CloudinaryService cloudinaryService, ITokenHandler tokenHandler, IEmailService emailService, IConfiguration configuration, ILocationService locationService, IOriginValidationService originValidationService, IGoogleSheetsService googleSheetsService, ILogger<CareGiverService> logger)
         {
             this.careProDbContext = careProDbContext;
             this.cloudinaryService = cloudinaryService;
@@ -56,6 +58,7 @@ namespace Infrastructure.Content.Services
             this.configuration = configuration;
             this.locationService = locationService;
             this.originValidationService = originValidationService;
+            this.logger = logger;
 
         }
 
@@ -177,7 +180,7 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 // Log but don't fail signup if Google Sheets logging fails
-                System.Diagnostics.Debug.WriteLine($"Google Sheets logging failed: {ex.Message}");
+                logger.LogWarning(ex, "Google Sheets logging failed for caregiver signup: {Email}", caregiver.Email);
             }
 
             #endregion GoogleSheetsLogging
@@ -222,9 +225,9 @@ namespace Infrastructure.Content.Services
                 catch (Exception emailEx)
                 {
                     // Log email error but don't fail the registration
+                    logger.LogError(emailEx, "Failed to send signup verification email to {Email}. Registration completed but user will need to use resend confirmation. Origin: {Origin}, User: {UserId}", 
+                        careProAppUser.Email, origin, careProAppUser.AppUserId);
                     // In production, you might want to implement retry logic or queue the email
-                    System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
-                    // Optionally log to your logging system
                 }
             }
 
@@ -247,7 +250,7 @@ namespace Infrastructure.Content.Services
             catch (Exception locationEx)
             {
                 // Log location creation error but don't fail the registration
-                System.Diagnostics.Debug.WriteLine($"Location creation failed: {locationEx.Message}");
+                logger.LogWarning(locationEx, "Default location creation failed for caregiver: {CaregiverId}", caregiver.Id);
             }
 
             #endregion CreateDefaultLocation
@@ -456,7 +459,7 @@ namespace Infrastructure.Content.Services
             catch (Exception emailEx)
             {
                 // Log email error but don't fail completely
-                System.Diagnostics.Debug.WriteLine($"Email sending failed: {emailEx.Message}");
+                logger.LogError(emailEx, "Failed to resend confirmation email to {Email}. Origin: {Origin}", user.Email, origin);
                 return "Failed to send confirmation email. Please try again later.";
             }
 
