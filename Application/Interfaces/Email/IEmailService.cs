@@ -10,6 +10,7 @@ namespace Application.Interfaces.Email
         // Existing methods
         Task SendPasswordResetEmailAsync(string toEmail, string resetLink, string firstName);
         Task SendSignUpVerificationEmailAsync(string toEmail, string verificationToken, string firstName);
+        Task SendCaregiverWelcomeEmailAsync(string toEmail, string firstName);
         Task SendNotificationEmailAsync(string toEmail, string firstName, int messageCount);
 
         // New immediate notification methods

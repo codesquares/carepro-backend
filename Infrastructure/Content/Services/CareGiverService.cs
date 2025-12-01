@@ -319,6 +319,20 @@ namespace Infrastructure.Content.Services
                 user.EmailConfirmed = true;
                 await careProDbContext.SaveChangesAsync();
 
+                // Send welcome email to caregivers only
+                if (user.Role == "Caregiver")
+                {
+                    try
+                    {
+                        await emailService.SendCaregiverWelcomeEmailAsync(user.Email, user.FirstName ?? "Caregiver");
+                    }
+                    catch (Exception emailEx)
+                    {
+                        // Log but don't fail the confirmation if welcome email fails
+                        logger.LogWarning(emailEx, "Failed to send welcome email to caregiver: {Email}", user.Email);
+                    }
+                }
+
                 return $"Account confirmed for {user.Email}. You can now log in.";
             }
             catch (SecurityTokenException)
@@ -403,6 +417,20 @@ namespace Infrastructure.Content.Services
 
             user.EmailConfirmed = true;
             await careProDbContext.SaveChangesAsync();
+
+            // Send welcome email to caregivers only
+            if (user.Role == "Caregiver")
+            {
+                try
+                {
+                    await emailService.SendCaregiverWelcomeEmailAsync(user.Email, user.FirstName ?? "Caregiver");
+                }
+                catch (Exception emailEx)
+                {
+                    // Log but don't fail the confirmation if welcome email fails
+                    logger.LogWarning(emailEx, "Failed to send welcome email to caregiver: {Email}", user.Email);
+                }
+            }
 
             return $"Email confirmed successfully for {user.Email}.";
         }

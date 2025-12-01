@@ -127,6 +127,84 @@ namespace Infrastructure.Services
             await client.DisconnectAsync(true);
         }
 
+        public async Task SendCaregiverWelcomeEmailAsync(string toEmail, string firstName)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Welcome to CarePro - Next Steps to Get Started";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h2 style='color: #2c3e50;'>Welcome to CarePro, {firstName}!</h2>
+                        
+                        <p>Congratulations on successfully verifying your email! We're excited to have you join our community of professional caregivers.</p>
+                        
+                        <h3 style='color: #3498db; margin-top: 30px;'>📋 Next Steps to Start Offering Services:</h3>
+                        
+                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;'>
+                            <h4 style='color: #2c3e50; margin-top: 0;'>1. Verify Your Identity</h4>
+                            <p>Click the <strong>""Verify""</strong> button in your dashboard to complete identity verification.</p>
+                            <p><strong>Required Document (choose one):</strong></p>
+                            <ul>
+                                <li>Bank Verification Number (BVN)</li>
+                                <li>Voter's Card</li>
+                                <li>National Identification Number (NIN) Slip</li>
+                                <li>National ID Card</li>
+                                <li>Driver's License</li>
+                            </ul>
+                        </div>
+                        
+                        <div style='background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0;'>
+                            <h4 style='color: #856404; margin-top: 0;'>2. Take the Assessment</h4>
+                            <p>Complete our professional assessment to demonstrate your caregiving knowledge and skills.</p>
+                            <p><strong>⚠️ Passing Score Required:</strong> 80% or higher</p>
+                            <p style='margin-bottom: 0;'>This ensures our clients receive the highest quality care from qualified professionals.</p>
+                        </div>
+                        
+                        <div style='background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0;'>
+                            <h4 style='color: #0c5460; margin-top: 0;'>3. Upload Educational Documents</h4>
+                            <p><strong>Required (choose one):</strong></p>
+                            <ul style='margin-bottom: 0;'>
+                                <li>NECO Certificate</li>
+                                <li>WAEC Certificate</li>
+                                <li>NABTEB Certificate</li>
+                                <li>NYSC Certificate</li>
+                            </ul>
+                        </div>
+                        
+                        <div style='background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 30px 0; text-align: center;'>
+                            <h4 style='color: #155724; margin-top: 0;'>✅ Once Approved, You Can:</h4>
+                            <ul style='text-align: left; display: inline-block;'>
+                                <li>Create service listings (gigs)</li>
+                                <li>Receive client requests</li>
+                                <li>Start earning as a professional caregiver</li>
+                            </ul>
+                        </div>
+                        
+                        <p style='margin-top: 30px;'>If you have any questions or need assistance, don't hesitate to reach out to our support team.</p>
+                        
+                        <p style='margin-top: 30px;'>Best regards,<br />
+                        <strong>The CarePro Team</strong></p>
+                        
+                        <hr style='border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;' />
+                        <p style='font-size: 12px; color: #6c757d; text-align: center;'>
+                            This email was sent to {toEmail} because you registered as a caregiver on CarePro.
+                        </p>
+                    </div>"
+            };
+
+            message.Body = builder.ToMessageBody();
+
+            using var client = new SmtpClient();
+            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+        }
+
         // New immediate notification methods
         public async Task SendNewGigNotificationEmailAsync(string toEmail, string firstName, string gigDetails)
         {
