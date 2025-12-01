@@ -79,7 +79,14 @@ public class GoogleSheetsService : IGoogleSheetsService
     {
         try
         {
+            // First try to get from GoogleSheets:CredentialsJson (preferred format)
             var credentialsJson = _configuration["GoogleSheets:CredentialsJson"];
+            
+            // Fallback to GoogleSheets:Credentials (environment variable format)
+            if (string.IsNullOrEmpty(credentialsJson))
+            {
+                credentialsJson = _configuration["GoogleSheets:Credentials"];
+            }
             
             if (string.IsNullOrEmpty(credentialsJson))
             {
