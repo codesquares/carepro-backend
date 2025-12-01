@@ -100,12 +100,15 @@ namespace Infrastructure.Content.Services.Authentication
 
         public string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30)
         {
-
+            var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
+            var audience = configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not found");
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
                 claims: new[]
                 {
                 new Claim("userId", userId),
