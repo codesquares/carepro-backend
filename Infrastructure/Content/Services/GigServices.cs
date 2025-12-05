@@ -526,6 +526,7 @@ namespace Infrastructure.Content.Services
                                                 .ToList();
             existingGig.DeliveryTime = updateGigRequest.DeliveryTime;
             existingGig.Price = updateGigRequest.Price;
+            existingGig.Status = updateGigRequest.Status;
             // existingGig.Image1 = imageUri;
             existingGig.UpdatedOn = DateTime.Now;
 
