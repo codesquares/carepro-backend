@@ -332,6 +332,76 @@ namespace Infrastructure.Content.Services
             return clientOrdersDTOs;
         }
 
+        public async Task<IEnumerable<ClientOrderResponse>> GetAllOrdersAsync()
+        {
+            var orders = await careProDbContext.ClientOrders
+               .OrderByDescending(x => x.OrderCreatedAt)
+               .ToListAsync();
+
+            var clientOrdersDTOs = new List<ClientOrderResponse>();
+
+            foreach (var clientOrder in orders)
+            {
+                try
+                {
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning($"Gig with ID {clientOrder.GigId} not found for order {clientOrder.Id}");
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning($"Caregiver with ID {gig.CaregiverId} not found for order {clientOrder.Id}");
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning($"Client with ID {clientOrder.ClientId} not found for order {clientOrder.Id}");
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+                        DeclineReason = clientOrder.DisputeReason,
+                        IsDeclined = clientOrder.HasDispute,
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, $"Error processing order {clientOrder.Id}");
+                    continue;
+                }
+            }
+
+            return clientOrdersDTOs;
+        }
+
         public async Task<IEnumerable<ClientOrderResponse>> GetCaregiverOrdersAsync(string caregiverId)
         {
             var orders = await careProDbContext.ClientOrders

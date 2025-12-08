@@ -749,6 +749,308 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        // Admin Certificate Management Methods
+        public async Task<IEnumerable<AdminCertificationResponse>> GetAllCertificatesAsync()
+        {
+            try
+            {
+                var certificates = await careProDbContext.Certifications
+                    .OrderByDescending(c => c.SubmittedOn)
+                    .ToListAsync();
+
+                var adminCertificateResponses = new List<AdminCertificationResponse>();
+
+                foreach (var certificate in certificates)
+                {
+                    CaregiverResponse? caregiver = null;
+                    try
+                    {
+                        caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, $"Could not fetch caregiver details for certificate {certificate.Id}");
+                    }
+
+                    var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+                    adminCertificateResponses.Add(adminResponse);
+                }
+
+                return adminCertificateResponses;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error fetching all certificates");
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<AdminCertificationResponse>> GetCertificatesByStatusAsync(DocumentVerificationStatus status)
+        {
+            try
+            {
+                var certificates = await careProDbContext.Certifications
+                    .Where(c => c.VerificationStatus == status)
+                    .OrderBy(c => c.SubmittedOn) // Oldest first for review queue
+                    .ToListAsync();
+
+                var adminCertificateResponses = new List<AdminCertificationResponse>();
+
+                foreach (var certificate in certificates)
+                {
+                    CaregiverResponse? caregiver = null;
+                    try
+                    {
+                        caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, $"Could not fetch caregiver details for certificate {certificate.Id}");
+                    }
+
+                    var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+                    adminCertificateResponses.Add(adminResponse);
+                }
+
+                return adminCertificateResponses;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Error fetching certificates with status {status}");
+                throw;
+            }
+        }
+
+        public async Task<AdminCertificationResponse> GetCertificateDetailsAsync(string certificateId)
+        {
+            var certificate = await careProDbContext.Certifications
+                .FirstOrDefaultAsync(x => x.Id.ToString() == certificateId);
+
+            if (certificate == null)
+            {
+                throw new KeyNotFoundException($"Certificate with ID '{certificateId}' not found.");
+            }
+
+            CaregiverResponse? caregiver = null;
+            try
+            {
+                caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, $"Could not fetch caregiver details for certificate {certificateId}");
+            }
+
+            return MapToAdminCertificationResponse(certificate, caregiver);
+        }
+
+        public async Task<CertificateManagementResponse> ManuallyApproveCertificateAsync(string certificateId, string adminId, string? approvalNotes)
+        {
+            try
+            {
+                var certificate = await careProDbContext.Certifications
+                    .FirstOrDefaultAsync(x => x.Id.ToString() == certificateId);
+
+                if (certificate == null)
+                {
+                    throw new KeyNotFoundException($"Certificate with ID '{certificateId}' not found.");
+                }
+
+                // Get caregiver details for notification
+                var caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+
+                // Update certificate status
+                certificate.VerificationStatus = DocumentVerificationStatus.Verified;
+                certificate.IsVerified = true;
+                certificate.VerificationDate = DateTime.UtcNow;
+
+                await careProDbContext.SaveChangesAsync();
+
+                // Log admin action
+                logger.LogInformation($"Admin {adminId} manually approved certificate {certificateId}. Notes: {approvalNotes ?? "None"}");
+
+                // Send notification to caregiver
+                await SendManualApprovalNotificationAsync(caregiver, certificate, approvalNotes);
+
+                var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+
+                return new CertificateManagementResponse
+                {
+                    Success = true,
+                    Message = "Certificate manually approved successfully",
+                    Certificate = adminResponse
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Error manually approving certificate {certificateId}");
+                throw;
+            }
+        }
+
+        public async Task<CertificateManagementResponse> ManuallyRejectCertificateAsync(string certificateId, string adminId, string rejectionReason)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(rejectionReason))
+                {
+                    throw new ArgumentException("Rejection reason is required.");
+                }
+
+                var certificate = await careProDbContext.Certifications
+                    .FirstOrDefaultAsync(x => x.Id.ToString() == certificateId);
+
+                if (certificate == null)
+                {
+                    throw new KeyNotFoundException($"Certificate with ID '{certificateId}' not found.");
+                }
+
+                // Get caregiver details for notification
+                var caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+
+                // Update certificate status
+                certificate.VerificationStatus = DocumentVerificationStatus.Invalid;
+                certificate.IsVerified = false;
+                certificate.VerificationDate = DateTime.UtcNow;
+
+                await careProDbContext.SaveChangesAsync();
+
+                // Log admin action
+                logger.LogInformation($"Admin {adminId} manually rejected certificate {certificateId}. Reason: {rejectionReason}");
+
+                // Send notification to caregiver
+                await SendManualRejectionNotificationAsync(caregiver, certificate, rejectionReason);
+
+                var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+
+                return new CertificateManagementResponse
+                {
+                    Success = true,
+                    Message = "Certificate manually rejected",
+                    Certificate = adminResponse
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Error manually rejecting certificate {certificateId}");
+                throw;
+            }
+        }
+
+        private AdminCertificationResponse MapToAdminCertificationResponse(Certification certificate, CaregiverResponse? caregiver)
+        {
+            return new AdminCertificationResponse
+            {
+                Id = certificate.Id.ToString(),
+                CaregiverId = certificate.CaregiverId,
+                CertificateName = certificate.CertificateName,
+                CertificateIssuer = certificate.CertificateIssuer,
+                CertificateUrl = certificate.CloudinaryUrl ?? string.Empty,
+                YearObtained = certificate.YearObtained,
+                IsVerified = certificate.IsVerified,
+                VerificationStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
+                VerificationDate = certificate.VerificationDate,
+                VerificationConfidence = certificate.VerificationConfidence,
+                SubmittedOn = certificate.SubmittedOn,
+                ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
+                DojahRawResponse = certificate.DojahVerificationResponse,
+                VerificationAttempts = certificate.VerificationAttempts,
+                CaregiverDetails = caregiver != null ? new CaregiverDetailsDTO
+                {
+                    FirstName = caregiver.FirstName,
+                    LastName = caregiver.LastName,
+                    Email = caregiver.Email,
+                    PhoneNumber = caregiver.PhoneNo
+                } : null
+            };
+        }
+
+        private async Task SendManualApprovalNotificationAsync(CaregiverResponse caregiver, Certification certificate, string? approvalNotes)
+        {
+            try
+            {
+                string notificationTitle = "Certificate Approved by Admin";
+                string notificationContent = $"Your {certificate.CertificateName} has been manually reviewed and approved by our team.";
+                
+                string emailSubject = "Certificate Approved - CarePro";
+                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
+                    $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.\n\n";
+                
+                if (!string.IsNullOrWhiteSpace(approvalNotes))
+                {
+                    emailContent += $"Admin Notes: {approvalNotes}\n\n";
+                }
+                
+                emailContent += "You can now proceed with your profile activities.\n\n" +
+                    "Best regards,\nCarePro Team";
+
+                await notificationService.CreateNotificationAsync(
+                    recipientId: caregiver.Id,
+                    senderId: "System",
+                    type: "CertificateManualApproval",
+                    content: notificationContent,
+                    Title: notificationTitle,
+                    relatedEntityId: certificate.Id.ToString()
+                );
+
+                await emailService.SendGenericNotificationEmailAsync(
+                    toEmail: caregiver.Email,
+                    firstName: caregiver.FirstName,
+                    subject: emailSubject,
+                    content: emailContent
+                );
+
+                logger.LogInformation($"Manual approval notification sent to caregiver {caregiver.Id} for certificate {certificate.Id}");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Failed to send manual approval notification for certificate {certificate.Id}");
+            }
+        }
+
+        private async Task SendManualRejectionNotificationAsync(CaregiverResponse caregiver, Certification certificate, string rejectionReason)
+        {
+            try
+            {
+                string notificationTitle = "Certificate Rejected After Review";
+                string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Please upload a corrected certificate.";
+                
+                string emailSubject = "Certificate Rejected - Action Required - CarePro";
+                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
+                    $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.\n\n" +
+                    $"Rejection Reason: {rejectionReason}\n\n" +
+                    "Please upload a corrected certificate to continue with your profile setup. Ensure that:\n" +
+                    "- The certificate image is clear and readable\n" +
+                    "- Your name on the certificate matches your profile name\n" +
+                    "- The certificate is genuine and issued by the stated institution\n" +
+                    "- All information is accurate and up-to-date\n\n" +
+                    "If you have questions or need assistance, please contact our support team.\n\n" +
+                    "Best regards,\nCarePro Team";
+
+                await notificationService.CreateNotificationAsync(
+                    recipientId: caregiver.Id,
+                    senderId: "System",
+                    type: "CertificateManualRejection",
+                    content: notificationContent,
+                    Title: notificationTitle,
+                    relatedEntityId: certificate.Id.ToString()
+                );
+
+                await emailService.SendGenericNotificationEmailAsync(
+                    toEmail: caregiver.Email,
+                    firstName: caregiver.FirstName,
+                    subject: emailSubject,
+                    content: emailContent
+                );
+
+                logger.LogInformation($"Manual rejection notification sent to caregiver {caregiver.Id} for certificate {certificate.Id}");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Failed to send manual rejection notification for certificate {certificate.Id}");
+            }
+        }
+
         private void LogException(Exception ex)
         {
             logger.LogError(ex, "Exception occurred");

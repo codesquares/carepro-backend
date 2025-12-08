@@ -107,4 +107,52 @@ namespace Application.DTOs
         
         public CertificateExtractedInfoDTO? ExtractedInfo { get; set; }
     }
+
+    // Admin Certificate Management DTOs
+    public class AdminCertificationResponse : CertificationResponse
+    {
+        public CaregiverDetailsDTO? CaregiverDetails { get; set; }
+        
+        public string? DojahRawResponse { get; set; }
+        
+        public int? VerificationAttempts { get; set; }
+    }
+
+    public class CaregiverDetailsDTO
+    {
+        public string? FirstName { get; set; }
+        
+        public string? LastName { get; set; }
+        
+        public string? Email { get; set; }
+        
+        public string? PhoneNumber { get; set; }
+    }
+
+    public class ManualApprovalRequest
+    {
+        public string CertificateId { get; set; } = string.Empty;
+        
+        public string AdminId { get; set; } = string.Empty;
+        
+        public string? ApprovalNotes { get; set; }
+    }
+
+    public class ManualRejectionRequest
+    {
+        public string CertificateId { get; set; } = string.Empty;
+        
+        public string AdminId { get; set; } = string.Empty;
+        
+        public string RejectionReason { get; set; } = string.Empty;
+    }
+
+    public class CertificateManagementResponse
+    {
+        public bool Success { get; set; }
+        
+        public string Message { get; set; } = string.Empty;
+        
+        public AdminCertificationResponse? Certificate { get; set; }
+    }
 }

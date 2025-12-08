@@ -257,8 +257,7 @@ namespace CarePro_Api.Controllers.Content
 
         }
 
-        [HttpGet]
-        [Route("gigId")]
+        [HttpGet("{gigId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetGigAsync(string gigId)
         {

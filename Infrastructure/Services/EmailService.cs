@@ -657,6 +657,55 @@ namespace Infrastructure.Services
             await client.DisconnectAsync(true);
         }
 
+        // Admin custom email methods
+        public async Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {firstName},</h3>
+                        <br />
+                        {htmlContent}
+                        <br />
+                        <br />
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendBulkCustomEmailAsync(List<(string Email, string FirstName)> recipients, string subject, string htmlContent)
+        {
+            var tasks = new List<Task>();
+
+            foreach (var recipient in recipients)
+            {
+                tasks.Add(SendCustomEmailToUserAsync(recipient.Email, recipient.FirstName, subject, htmlContent));
+                
+                // Add small delay to avoid overwhelming SMTP server
+                if (tasks.Count % 10 == 0)
+                {
+                    await Task.WhenAll(tasks);
+                    tasks.Clear();
+                    await Task.Delay(1000); // 1 second delay every 10 emails
+                }
+            }
+
+            // Send remaining emails
+            if (tasks.Any())
+            {
+                await Task.WhenAll(tasks);
+            }
+        }
+
 
 
         //public async Task SendSignUpVerificationEmailAsync(string toEmail, string subject, string body)
@@ -690,4 +739,5 @@ namespace Infrastructure.Services
 
     }
 }
+
 

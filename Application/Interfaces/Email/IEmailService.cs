@@ -39,6 +39,10 @@ namespace Application.Interfaces.Email
         // Contract reminder methods
         Task SendContractReminderEmailAsync(string toEmail, string firstName, string subject, string message, 
             ContractDetails? contractDetails, EmailType reminderLevel);
+
+        // Admin custom email methods
+        Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent);
+        Task SendBulkCustomEmailAsync(List<(string Email, string FirstName)> recipients, string subject, string htmlContent);
     }
 
     // Supporting classes for email service
