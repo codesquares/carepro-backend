@@ -41,7 +41,8 @@ namespace Application.Interfaces.Email
             ContractDetails? contractDetails, EmailType reminderLevel);
 
         // Admin custom email methods
-        Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent);
+        Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent, 
+            List<Application.DTOs.Email.EmailAttachmentInfo>? attachments = null);
         Task SendBulkCustomEmailAsync(List<(string Email, string FirstName)> recipients, string subject, string htmlContent);
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace Application.DTOs
 {
@@ -19,6 +20,9 @@ namespace Application.DTOs
 
         [Required]
         public string Message { get; set; } = string.Empty;
+
+        // Optional attachments
+        public List<IFormFile>? Attachments { get; set; }
     }
 
     public class SendBulkEmailRequest

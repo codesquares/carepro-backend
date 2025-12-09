@@ -174,7 +174,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPost]
         [Route("SendEmail")]
         //[Authorize(Roles = "SuperAdmin,Admin")]
-        public async Task<IActionResult> SendCustomEmailAsync([FromBody] SendCustomEmailRequest request)
+        public async Task<IActionResult> SendCustomEmailAsync([FromForm] SendCustomEmailRequest request)
         {
             try
             {
@@ -185,16 +185,62 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Admin sending email to {request.RecipientEmail}");
 
+                // Upload attachments to Cloudinary if any
+                var attachments = new List<Application.DTOs.Email.EmailAttachmentInfo>();
+                
+                if (request.Attachments != null && request.Attachments.Any())
+                {
+                    try
+                    {
+                        // Validate attachment count (max 5)
+                        if (request.Attachments.Count > 5)
+                        {
+                            return BadRequest(new
+                            {
+                                success = false,
+                                message = "Maximum 5 attachments allowed per email"
+                            });
+                        }
+
+                        // Upload attachments using CloudinaryService
+                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                        
+                        // Use recipient email as userId for organization
+                        var userId = request.RecipientEmail.Replace("@", "_").Replace(".", "_");
+                        
+                        attachments = await cloudinaryService.UploadMultipleEmailAttachmentsAsync(
+                            request.Attachments, 
+                            userId, 
+                            expirationDays: 7,
+                            maxTotalSizeMB: 100
+                        );
+
+                        logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for email to {request.RecipientEmail}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error uploading attachments");
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Failed to upload attachments",
+                            error = ex.Message
+                        });
+                    }
+                }
+
                 await emailService.SendCustomEmailToUserAsync(
                     request.RecipientEmail, 
                     request.RecipientName, 
                     request.Subject, 
-                    request.Message);
+                    request.Message,
+                    attachments);
 
                 return Ok(new
                 {
                     success = true,
-                    message = $"Email sent successfully to {request.RecipientEmail}"
+                    message = $"Email sent successfully to {request.RecipientEmail}",
+                    attachmentCount = attachments.Count
                 });
             }
             catch (Exception ex)

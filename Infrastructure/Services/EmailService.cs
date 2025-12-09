@@ -658,12 +658,50 @@ namespace Infrastructure.Services
         }
 
         // Admin custom email methods
-        public async Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent)
+        public async Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent, 
+            List<Application.DTOs.Email.EmailAttachmentInfo>? attachments = null)
         {
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = subject;
+
+            // Build attachment section if attachments exist
+            var attachmentHtml = string.Empty;
+            if (attachments != null && attachments.Any())
+            {
+                var attachmentItems = string.Join("", attachments.Select(a =>
+                {
+                    var icon = GetFileIcon(a.FileType);
+                    var fileSize = FormatFileSize(a.FileSize);
+                    var expiryNotice = $"<small style='color: #666;'>Expires: {a.ExpiresAt:MMM dd, yyyy}</small>";
+                    
+                    return $@"
+                        <tr>
+                            <td style='padding: 10px; border-bottom: 1px solid #eee;'>
+                                <div style='display: flex; align-items: center;'>
+                                    <span style='font-size: 24px; margin-right: 10px;'>{icon}</span>
+                                    <div>
+                                        <a href='{a.Url}' style='color: #007bff; text-decoration: none; font-weight: 500;'>{a.FileName}</a>
+                                        <br />
+                                        <small style='color: #666;'>{fileSize}</small> • {expiryNotice}
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>";
+                }));
+
+                attachmentHtml = $@"
+                    <div style='margin-top: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;'>
+                        <h4 style='margin-top: 0; color: #333;'>📎 Attachments ({attachments.Count})</h4>
+                        <table style='width: 100%; border-collapse: collapse;'>
+                            {attachmentItems}
+                        </table>
+                        <p style='margin-top: 15px; font-size: 12px; color: #666;'>
+                            Click on any attachment to download. Links will expire after 7 days.
+                        </p>
+                    </div>";
+            }
 
             var builder = new BodyBuilder
             {
@@ -672,6 +710,7 @@ namespace Infrastructure.Services
                         <h3>Dear {firstName},</h3>
                         <br />
                         {htmlContent}
+                        {attachmentHtml}
                         <br />
                         <br />
                         <p>Thanks,<br />The CarePro Team</p>
@@ -680,6 +719,32 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
             await SendEmailAsync(message);
+        }
+
+        // Helper method to get file icon based on file type
+        private string GetFileIcon(string fileType)
+        {
+            return fileType.ToLower() switch
+            {
+                var t when t.Contains("pdf") => "📄",
+                var t when t.Contains("image") || t.Contains("jpeg") || t.Contains("jpg") => "🖼️",
+                var t when t.Contains("video") || t.Contains("mp4") => "🎬",
+                _ => "📎"
+            };
+        }
+
+        // Helper method to format file size
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return $"{len:0.##} {sizes[order]}";
         }
 
         public async Task SendBulkCustomEmailAsync(List<(string Email, string FirstName)> recipients, string subject, string htmlContent)

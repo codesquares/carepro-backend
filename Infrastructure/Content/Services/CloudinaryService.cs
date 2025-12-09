@@ -549,5 +549,247 @@ namespace Infrastructure.Content.Services
                 throw new Exception($"Failed to re-upload file as public: {ex.Message}", ex);
             }
         }
+
+        /// <summary>
+        /// Validate email attachment file
+        /// </summary>
+        public Application.DTOs.Email.FileValidationResult ValidateEmailAttachment(Microsoft.AspNetCore.Http.IFormFile file, long maxFileSizeMB = 50)
+        {
+            var result = new Application.DTOs.Email.FileValidationResult { IsValid = true };
+
+            if (file == null || file.Length == 0)
+            {
+                result.IsValid = false;
+                result.ErrorMessage = "File is empty or null";
+                return result;
+            }
+
+            // Check file size (convert MB to bytes)
+            var maxFileSizeBytes = maxFileSizeMB * 1024 * 1024;
+            if (file.Length > maxFileSizeBytes)
+            {
+                result.IsValid = false;
+                result.ErrorMessage = $"File size exceeds maximum allowed size of {maxFileSizeMB}MB";
+                return result;
+            }
+
+            // Get file extension
+            var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".mp4", ".pdf" };
+
+            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
+            {
+                result.IsValid = false;
+                result.ErrorMessage = $"File type '{extension}' is not allowed. Allowed types: JPG, JPEG, MP4, PDF";
+                return result;
+            }
+
+            // Validate MIME type matches extension
+            var allowedMimeTypes = new Dictionary<string, string[]>
+            {
+                { ".jpg", new[] { "image/jpeg", "image/jpg" } },
+                { ".jpeg", new[] { "image/jpeg", "image/jpg" } },
+                { ".mp4", new[] { "video/mp4", "video/mpeg" } },
+                { ".pdf", new[] { "application/pdf" } }
+            };
+
+            if (allowedMimeTypes.TryGetValue(extension, out var validMimeTypes))
+            {
+                if (!validMimeTypes.Contains(file.ContentType?.ToLowerInvariant()))
+                {
+                    result.IsValid = false;
+                    result.ErrorMessage = $"File MIME type '{file.ContentType}' doesn't match extension '{extension}'";
+                    return result;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Upload email attachment with proper validation and organization
+        /// </summary>
+        public async Task<Application.DTOs.Email.EmailAttachmentInfo> UploadEmailAttachmentAsync(
+            Microsoft.AspNetCore.Http.IFormFile file, 
+            string userId, 
+            int expirationDays = 7)
+        {
+            // Validate file
+            var validation = ValidateEmailAttachment(file);
+            if (!validation.IsValid)
+            {
+                throw new ArgumentException(validation.ErrorMessage);
+            }
+
+            var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+            var fileName = Path.GetFileName(file.FileName);
+            
+            // Determine resource type and folder based on file extension
+            string folder;
+            string resourceType;
+            string url;
+            string publicId;
+
+            using var memoryStream = new MemoryStream();
+            await file.CopyToAsync(memoryStream);
+            var fileBytes = memoryStream.ToArray();
+
+            // Upload based on file type
+            if (extension == ".jpg" || extension == ".jpeg")
+            {
+                folder = $"email-attachments/images/{userId}";
+                resourceType = "image";
+                
+                using var stream = new MemoryStream(fileBytes);
+                var uploadParams = new ImageUploadParams
+                {
+                    File = new FileDescription(fileName, stream),
+                    Folder = folder,
+                    AccessMode = "public"
+                };
+                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                
+                if (uploadResult.StatusCode != System.Net.HttpStatusCode.OK)
+                {
+                    throw new Exception($"Image upload failed: {uploadResult.Error?.Message}");
+                }
+                
+                url = uploadResult.SecureUrl.AbsoluteUri;
+                publicId = uploadResult.PublicId;
+            }
+            else if (extension == ".mp4")
+            {
+                folder = $"email-attachments/videos/{userId}";
+                resourceType = "video";
+                
+                using var stream = new MemoryStream(fileBytes);
+                var uploadParams = new VideoUploadParams
+                {
+                    File = new FileDescription(fileName, stream),
+                    Folder = folder
+                };
+                var uploadResult = await _cloudinary.UploadLargeAsync(uploadParams);
+                
+                if (uploadResult.StatusCode != System.Net.HttpStatusCode.OK)
+                {
+                    throw new Exception($"Video upload failed: {uploadResult.Error?.Message}");
+                }
+                
+                url = uploadResult.SecureUrl.AbsoluteUri;
+                publicId = uploadResult.PublicId;
+            }
+            else // PDF
+            {
+                folder = $"email-attachments/documents/{userId}";
+                resourceType = "raw";
+                
+                using var stream = new MemoryStream(fileBytes);
+                var uploadParams = new RawUploadParams
+                {
+                    File = new FileDescription(fileName, stream),
+                    Folder = folder,
+                    AccessMode = "public"
+                };
+                var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                
+                if (uploadResult.StatusCode != System.Net.HttpStatusCode.OK)
+                {
+                    throw new Exception($"PDF upload failed: {uploadResult.Error?.Message}");
+                }
+                
+                url = uploadResult.SecureUrl.AbsoluteUri;
+                publicId = uploadResult.PublicId;
+            }
+
+            // Generate signed URL with expiration
+            var signedUrl = GenerateProperSignedUrl(publicId, resourceType, expirationDays);
+
+            return new Application.DTOs.Email.EmailAttachmentInfo
+            {
+                Url = signedUrl,
+                PublicId = publicId,
+                FileName = fileName,
+                FileSize = file.Length,
+                FileType = file.ContentType ?? "application/octet-stream",
+                ResourceType = resourceType,
+                ExpiresAt = DateTime.UtcNow.AddDays(expirationDays)
+            };
+        }
+
+        /// <summary>
+        /// Upload multiple email attachments
+        /// </summary>
+        public async Task<List<Application.DTOs.Email.EmailAttachmentInfo>> UploadMultipleEmailAttachmentsAsync(
+            List<Microsoft.AspNetCore.Http.IFormFile> files, 
+            string userId, 
+            int expirationDays = 7,
+            long maxTotalSizeMB = 100)
+        {
+            if (files == null || files.Count == 0)
+            {
+                return new List<Application.DTOs.Email.EmailAttachmentInfo>();
+            }
+
+            // Validate total size
+            var totalSize = files.Sum(f => f.Length);
+            var maxTotalSizeBytes = maxTotalSizeMB * 1024 * 1024;
+            
+            if (totalSize > maxTotalSizeBytes)
+            {
+                throw new ArgumentException($"Total file size exceeds maximum allowed size of {maxTotalSizeMB}MB");
+            }
+
+            var results = new List<Application.DTOs.Email.EmailAttachmentInfo>();
+            var errors = new List<string>();
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    var result = await UploadEmailAttachmentAsync(file, userId, expirationDays);
+                    results.Add(result);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{file.FileName}: {ex.Message}");
+                }
+            }
+
+            if (errors.Any() && results.Count == 0)
+            {
+                throw new Exception($"All uploads failed: {string.Join("; ", errors)}");
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Generate properly signed URL with timestamp and signature
+        /// </summary>
+        private string GenerateProperSignedUrl(string publicId, string resourceType, int expirationDays)
+        {
+            try
+            {
+                var expirationTime = DateTimeOffset.UtcNow.AddDays(expirationDays);
+                var timestamp = expirationTime.ToUnixTimeSeconds();
+
+                // Build parameters to sign (alphabetically ordered)
+                var paramsToSign = $"public_id={publicId}&timestamp={timestamp}";
+                var signature = ComputeSha1Hash(paramsToSign + _apiSecret);
+
+                // Build the signed URL with download flag
+                var baseUrl = $"https://res.cloudinary.com/{_cloudName}/{resourceType}/upload";
+                var signedUrl = $"{baseUrl}/fl_attachment/{publicId}?timestamp={timestamp}&signature={signature}&api_key={_apiKey}";
+
+                Console.WriteLine($"Generated proper signed URL with expiration: {expirationTime}");
+                return signedUrl;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error generating proper signed URL: {ex.Message}");
+                // Fallback to basic URL with download flag
+                return $"https://res.cloudinary.com/{_cloudName}/{resourceType}/upload/fl_attachment/{publicId}";
+            }
+        }
     }
 }
