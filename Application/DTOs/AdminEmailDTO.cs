@@ -38,6 +38,9 @@ namespace Application.DTOs
 
         [Required]
         public string Message { get; set; } = string.Empty;
+
+        // Optional attachments (will be uploaded once and shared across all recipients)
+        public List<IFormFile>? Attachments { get; set; }
     }
 
     public class BulkEmailResponse

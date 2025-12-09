@@ -257,11 +257,12 @@ namespace CarePro_Api.Controllers.Content
 
         /// <summary>
         /// Send bulk emails to multiple users (all caregivers, all clients, or specific users)
+        /// Supports attachments - files uploaded once and shared across all recipients
         /// </summary>
         [HttpPost]
         [Route("SendBulkEmail")]
         //[Authorize(Roles = "SuperAdmin,Admin")]
-        public async Task<IActionResult> SendBulkEmailAsync([FromBody] SendBulkEmailRequest request)
+        public async Task<IActionResult> SendBulkEmailAsync([FromForm] SendBulkEmailRequest request)
         {
             try
             {
@@ -355,20 +356,73 @@ namespace CarePro_Api.Controllers.Content
                     });
                 }
 
-                // Send bulk emails
+                // Upload attachments once (if any) to share across all recipients
+                var attachments = new List<Application.DTOs.Email.EmailAttachmentInfo>();
+                
+                if (request.Attachments != null && request.Attachments.Any())
+                {
+                    try
+                    {
+                        // Validate attachment count (max 5)
+                        if (request.Attachments.Count > 5)
+                        {
+                            return BadRequest(new
+                            {
+                                success = false,
+                                message = "Maximum 5 attachments allowed per email"
+                            });
+                        }
+
+                        // Upload attachments using CloudinaryService
+                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                        
+                        // Use "bulk-email" as userId for organization
+                        var userId = $"bulk-email-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+                        
+                        attachments = await cloudinaryService.UploadMultipleEmailAttachmentsAsync(
+                            request.Attachments, 
+                            userId, 
+                            expirationDays: 7,
+                            maxTotalSizeMB: 100
+                        );
+
+                        logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for bulk email to {recipients.Count} recipients");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error uploading bulk email attachments");
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Failed to upload attachments",
+                            error = ex.Message
+                        });
+                    }
+                }
+
+                // Send personalized emails to all recipients with shared attachments
                 var successCount = 0;
                 var failCount = 0;
 
-                try
+                foreach (var recipient in recipients)
                 {
-                    await emailService.SendBulkCustomEmailAsync(recipients, request.Subject, request.Message);
-                    successCount = recipients.Count;
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Error sending bulk emails");
-                    errors.Add($"Bulk email error: {ex.Message}");
-                    failCount = recipients.Count;
+                    try
+                    {
+                        await emailService.SendCustomEmailToUserAsync(
+                            recipient.Email,
+                            recipient.FirstName,
+                            request.Subject,
+                            request.Message,
+                            attachments  // Same attachments for all recipients
+                        );
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, $"Error sending email to {recipient.Email}");
+                        errors.Add($"Failed to send to {recipient.Email}: {ex.Message}");
+                        failCount++;
+                    }
                 }
 
                 return Ok(new BulkEmailResponse
