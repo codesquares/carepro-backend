@@ -38,6 +38,15 @@ namespace Domain.Entities
         public DateTime YearObtained { get; set; }
 
         public DateTime SubmittedOn { get; set; }
+
+        // Admin review fields
+        public string? ReviewedByAdminId { get; set; }
+
+        public DateTime? ReviewedAt { get; set; }
+
+        public string? AdminReviewNotes { get; set; }
+
+        public string? ValidationIssues { get; set; }
     }
 
     public enum DocumentVerificationStatus

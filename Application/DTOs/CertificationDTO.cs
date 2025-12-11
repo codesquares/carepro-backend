@@ -155,4 +155,26 @@ namespace Application.DTOs
         
         public AdminCertificationResponse? Certificate { get; set; }
     }
+
+    public class AdminCertificateReviewRequest
+    {
+        public string CertificateId { get; set; } = string.Empty;
+        
+        public string AdminId { get; set; } = string.Empty;
+        
+        public bool Approved { get; set; }
+        
+        public string? AdminNotes { get; set; }
+    }
+
+    public class AdminCertificateReviewResponse
+    {
+        public bool Success { get; set; }
+        
+        public string Message { get; set; } = string.Empty;
+        
+        public DocumentVerificationStatus NewStatus { get; set; }
+        
+        public string? CertificateId { get; set; }
+    }
 }

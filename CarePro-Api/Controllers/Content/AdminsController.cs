@@ -675,6 +675,54 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        /// <summary>
+        /// Review certificate (unified approve/reject endpoint)
+        /// </summary>
+        [HttpPost("Certificates/Review")]
+        // [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> ReviewCertificateAsync([FromBody] AdminCertificateReviewRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request?.CertificateId))
+                {
+                    return BadRequest(new { success = false, message = "Certificate ID is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.AdminId))
+                {
+                    return BadRequest(new { success = false, message = "Admin ID is required" });
+                }
+
+                if (!request.Approved && string.IsNullOrWhiteSpace(request.AdminNotes))
+                {
+                    return BadRequest(new { success = false, message = "Admin notes are required when rejecting a certificate" });
+                }
+
+                logger.LogInformation("Admin {AdminId} reviewing certificate {CertificateId}. Approved: {Approved}",
+                    request.AdminId, request.CertificateId, request.Approved);
+
+                var result = await certificationService.ReviewCertificateAsync(request);
+                
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during certificate review");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to process certificate review",
+                    error = ex.Message
+                });
+            }
+        }
+
         #endregion
 
     }

@@ -32,5 +32,7 @@ namespace Application.Interfaces.Content
         Task<CertificateManagementResponse> ManuallyApproveCertificateAsync(string certificateId, string adminId, string? approvalNotes);
 
         Task<CertificateManagementResponse> ManuallyRejectCertificateAsync(string certificateId, string adminId, string rejectionReason);
+
+        Task<AdminCertificateReviewResponse> ReviewCertificateAsync(AdminCertificateReviewRequest request);
     }
 }

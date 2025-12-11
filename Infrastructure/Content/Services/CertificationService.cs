@@ -126,12 +126,8 @@ namespace Infrastructure.Content.Services
                         if (!isConfidentValid)
                         {
                             validationMessages.Add(confidenceMessage);
-                            finalStatus = confidenceStatus;
-                            
-                            if (confidenceStatus == DocumentVerificationStatus.Invalid)
-                            {
-                                shouldReject = true;
-                            }
+                            // Route all low confidence to manual review instead of auto-rejection
+                            finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                         }
 
                         // 2. Name matching validation (only if Dojah extracted names)
@@ -170,8 +166,7 @@ namespace Infrastructure.Content.Services
                                     $"Invalid certificate country: Expected Nigeria (NG) but detected '{dojahResult.DocumentType.CountryCode}'. " +
                                     $"Only Nigerian educational certificates are accepted."
                                 );
-                                finalStatus = DocumentVerificationStatus.Invalid;
-                                shouldReject = true;
+                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                             }
                         }
 
@@ -190,8 +185,7 @@ namespace Infrastructure.Content.Services
                                     $"Document type mismatch: You claimed '{addCertificationRequest.CertificateName}' " +
                                     $"but Dojah detected '{dojahResult.DocumentType.DocumentName}'. This may indicate a forged certificate."
                                 );
-                                finalStatus = DocumentVerificationStatus.Invalid;
-                                shouldReject = true;
+                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                             }
                         }
 
@@ -205,8 +199,7 @@ namespace Infrastructure.Content.Services
                             if (!isDateValid)
                             {
                                 validationMessages.Add(dateMessage);
-                                finalStatus = DocumentVerificationStatus.Invalid;
-                                shouldReject = true;
+                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                             }
                         }
 
@@ -217,6 +210,12 @@ namespace Infrastructure.Content.Services
                         certification.DojahVerificationResponse = dojahResult.RawResponse;
                         certification.VerificationAttempts = 1;
                         certification.IsVerified = finalStatus == DocumentVerificationStatus.Verified;
+                        
+                        // Store validation issues for admin review
+                        if (validationMessages.Count > 0)
+                        {
+                            certification.ValidationIssues = string.Join(" | ", validationMessages);
+                        }
                         
                         // Store extracted information as JSON
                         if (dojahResult.ExtractedInfo != null)
@@ -238,8 +237,8 @@ namespace Infrastructure.Content.Services
                             ExtractedInfo = dojahResult.ExtractedInfo != null ? MapExtractedInfo(dojahResult.ExtractedInfo) : null
                         };
 
-                        var logMessage = shouldReject 
-                            ? $"Certificate REJECTED. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
+                        var logMessage = finalStatus == DocumentVerificationStatus.ManualReviewRequired
+                            ? $"Certificate requires MANUAL REVIEW. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
                             : $"Certificate verification completed. Status: {finalStatus}, Confidence: {dojahResult.Confidence}";
                         
                         LogAuditEvent(logMessage, addCertificationRequest.CaregiverId);
@@ -408,12 +407,8 @@ namespace Infrastructure.Content.Services
                 if (!isConfidentValid)
                 {
                     validationMessages.Add(confidenceMessage);
-                    finalStatus = confidenceStatus;
-                    
-                    if (confidenceStatus == DocumentVerificationStatus.Invalid)
-                    {
-                        shouldReject = true;
-                    }
+                    // Route all low confidence to manual review instead of auto-rejection
+                    finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                 }
 
                 // 2. Name matching validation (only if Dojah extracted names)
@@ -452,8 +447,7 @@ namespace Infrastructure.Content.Services
                             $"Invalid certificate country: Expected Nigeria (NG) but detected '{dojahResult.DocumentType.CountryCode}'. " +
                             $"Only Nigerian educational certificates are accepted."
                         );
-                        finalStatus = DocumentVerificationStatus.Invalid;
-                        shouldReject = true;
+                        finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                     }
                 }
 
@@ -472,8 +466,7 @@ namespace Infrastructure.Content.Services
                             $"Document type mismatch: Certificate claimed as '{certificate.CertificateName}' " +
                             $"but Dojah detected '{dojahResult.DocumentType.DocumentName}'. This may indicate a forged certificate."
                         );
-                        finalStatus = DocumentVerificationStatus.Invalid;
-                        shouldReject = true;
+                        finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                     }
                 }
 
@@ -487,8 +480,7 @@ namespace Infrastructure.Content.Services
                     if (!isDateValid)
                     {
                         validationMessages.Add(dateMessage);
-                        finalStatus = DocumentVerificationStatus.Invalid;
-                        shouldReject = true;
+                        finalStatus = DocumentVerificationStatus.ManualReviewRequired;
                     }
                 }
 
@@ -499,6 +491,12 @@ namespace Infrastructure.Content.Services
                 certificate.DojahVerificationResponse = dojahResult.RawResponse;
                 certificate.VerificationAttempts += 1;
                 certificate.IsVerified = finalStatus == DocumentVerificationStatus.Verified;
+                
+                // Store validation issues for admin review
+                if (validationMessages.Count > 0)
+                {
+                    certificate.ValidationIssues = string.Join(" | ", validationMessages);
+                }
 
                 if (dojahResult.ExtractedInfo != null)
                 {
@@ -512,8 +510,8 @@ namespace Infrastructure.Content.Services
                     ? string.Join(" | ", validationMessages)
                     : dojahResult.ErrorMessage;
 
-                var logMessage = shouldReject 
-                    ? $"Certificate retry REJECTED. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
+                var logMessage = finalStatus == DocumentVerificationStatus.ManualReviewRequired
+                    ? $"Certificate retry requires MANUAL REVIEW. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
                     : $"Certificate verification retry completed. Status: {finalStatus}, Confidence: {dojahResult.Confidence}";
                 
                 LogAuditEvent(logMessage, certificate.CaregiverId);
@@ -694,13 +692,6 @@ namespace Infrastructure.Content.Services
                         notificationContent = $"Your {certification.CertificateName} has been successfully verified and approved.";
                         emailSubject = "Certificate Verification Successful - CarePro";
                         emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
-                        break;
-
-                    case DocumentVerificationStatus.Invalid:
-                        notificationTitle = "Certificate Verification Failed";
-                        notificationContent = $"Your {certification.CertificateName} could not be verified. Please upload a clearer image or contact support.";
-                        emailSubject = "Certificate Verification Failed - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nUnfortunately, we could not verify your {certification.CertificateName}. This may be due to image quality or document authenticity issues.\\n\\nPlease re-upload a clearer image of your certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team";
                         break;
 
                     case DocumentVerificationStatus.ManualReviewRequired:
@@ -1059,6 +1050,182 @@ namespace Infrastructure.Content.Services
         private void LogAuditEvent(object message, string? caregiverId)
         {
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
+        }
+
+        public async Task<AdminCertificateReviewResponse> ReviewCertificateAsync(AdminCertificateReviewRequest request)
+        {
+            try
+            {
+                // Validate certificate ID
+                if (!ObjectId.TryParse(request.CertificateId, out var certificateObjectId))
+                {
+                    return new AdminCertificateReviewResponse
+                    {
+                        Success = false,
+                        Message = "Invalid certificate ID format",
+                        NewStatus = DocumentVerificationStatus.ManualReviewRequired
+                    };
+                }
+
+                // Fetch certificate
+                var certificate = await careProDbContext.Certifications
+                    .FirstOrDefaultAsync(c => c.Id == certificateObjectId);
+
+                if (certificate == null)
+                {
+                    return new AdminCertificateReviewResponse
+                    {
+                        Success = false,
+                        Message = $"Certificate with ID '{request.CertificateId}' not found",
+                        NewStatus = DocumentVerificationStatus.ManualReviewRequired
+                    };
+                }
+
+                // Check certificate is in manual review status
+                if (certificate.VerificationStatus != DocumentVerificationStatus.ManualReviewRequired)
+                {
+                    return new AdminCertificateReviewResponse
+                    {
+                        Success = false,
+                        Message = $"Certificate is not pending manual review. Current status: {certificate.VerificationStatus}",
+                        NewStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification
+                    };
+                }
+
+                // Get caregiver details for notification
+                CaregiverResponse? caregiver = null;
+                try
+                {
+                    caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Could not fetch caregiver details for certificate {CertificateId}", certificate.Id);
+                }
+
+                // Process admin decision
+                DocumentVerificationStatus newStatus;
+                string statusMessage;
+
+                if (request.Approved)
+                {
+                    // Admin approved - override all validation failures
+                    newStatus = DocumentVerificationStatus.Verified;
+                    certificate.IsVerified = true;
+                    statusMessage = $"Certificate approved by admin {request.AdminId}";
+                    
+                    logger.LogInformation("Admin {AdminId} APPROVED certificate {CertificateId} (overriding validation issues: {Issues})",
+                        request.AdminId, certificate.Id, certificate.ValidationIssues ?? "None");
+                }
+                else
+                {
+                    // Admin rejected - final rejection
+                    if (string.IsNullOrWhiteSpace(request.AdminNotes))
+                    {
+                        return new AdminCertificateReviewResponse
+                        {
+                            Success = false,
+                            Message = "AdminNotes are required when rejecting a certificate",
+                            NewStatus = DocumentVerificationStatus.ManualReviewRequired
+                        };
+                    }
+
+                    newStatus = DocumentVerificationStatus.Invalid;
+                    certificate.IsVerified = false;
+                    statusMessage = $"Certificate rejected by admin {request.AdminId}: {request.AdminNotes}";
+                    
+                    logger.LogInformation("Admin {AdminId} REJECTED certificate {CertificateId}. Reason: {Reason}",
+                        request.AdminId, certificate.Id, request.AdminNotes);
+                }
+
+                // Update certificate with admin review info
+                certificate.VerificationStatus = newStatus;
+                certificate.ReviewedByAdminId = request.AdminId;
+                certificate.ReviewedAt = DateTime.UtcNow;
+                certificate.AdminReviewNotes = request.AdminNotes;
+
+                await careProDbContext.SaveChangesAsync();
+
+                // Send notification to caregiver
+                if (caregiver != null)
+                {
+                    await SendAdminReviewNotificationAsync(caregiver, certificate, newStatus, request.AdminNotes);
+                }
+
+                LogAuditEvent($"Admin review completed: {statusMessage}", certificate.CaregiverId);
+
+                return new AdminCertificateReviewResponse
+                {
+                    Success = true,
+                    Message = statusMessage,
+                    NewStatus = newStatus,
+                    CertificateId = certificate.Id.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during admin certificate review for certificate {CertificateId}", request.CertificateId);
+                return new AdminCertificateReviewResponse
+                {
+                    Success = false,
+                    Message = $"Failed to process admin review: {ex.Message}",
+                    NewStatus = DocumentVerificationStatus.ManualReviewRequired
+                };
+            }
+        }
+
+        private async Task SendAdminReviewNotificationAsync(CaregiverResponse caregiver, Certification certification, DocumentVerificationStatus status, string? adminNotes)
+        {
+            try
+            {
+                string notificationTitle;
+                string notificationContent;
+                string emailSubject;
+                string emailContent;
+
+                if (status == DocumentVerificationStatus.Verified)
+                {
+                    // Admin approved certificate
+                    notificationTitle = "Certificate Approved";
+                    notificationContent = $"Your {certification.CertificateName} has been reviewed and approved by our admin team.";
+                    emailSubject = "Certificate Approved - CarePro";
+                    emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                }
+                else
+                {
+                    // Admin rejected certificate
+                    notificationTitle = "Certificate Not Approved";
+                    notificationContent = $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate.";
+                    emailSubject = "Certificate Review Decision - CarePro";
+                    emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team";
+                }
+
+                // Send in-app notification
+                await notificationService.CreateNotificationAsync(
+                    recipientId: certification.CaregiverId,
+                    senderId: "System",
+                    type: "CertificateReview",
+                    content: notificationContent,
+                    Title: notificationTitle,
+                    relatedEntityId: certification.Id.ToString()
+                );
+
+                // Send email notification
+                await emailService.SendGenericNotificationEmailAsync(
+                    toEmail: caregiver.Email,
+                    firstName: caregiver.FirstName,
+                    subject: emailSubject,
+                    content: emailContent
+                );
+
+                logger.LogInformation("Sent admin review notification to caregiver {CaregiverId} for certificate {CertificateId} with status {Status}",
+                    certification.CaregiverId, certification.Id, status);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send admin review notification to caregiver {CaregiverId}", certification.CaregiverId);
+                // Don't throw - notification failure shouldn't fail the main operation
+            }
         }
     }
 }
