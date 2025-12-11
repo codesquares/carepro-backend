@@ -108,6 +108,7 @@ builder.Services.AddScoped<IClientOrderService, ClientOrderService>();
 builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
+builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
@@ -139,6 +140,7 @@ builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
 builder.Services.AddScoped<IDojahDataFormattingService, DojahDataFormattingService>();
 builder.Services.AddScoped<IDojahApiService, DojahApiService>();
 builder.Services.AddHttpClient<IDojahApiService, DojahApiService>();
+builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
 
 // Dojah document verification service
 builder.Services.AddScoped<DojahDocumentVerificationService>();

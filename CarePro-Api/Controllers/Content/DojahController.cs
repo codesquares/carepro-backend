@@ -17,6 +17,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly IDojahDataFormattingService _formattingService;
         private readonly IVerificationService _verificationService;
         private readonly IDojahApiService _dojahApiService;
+        private readonly IWebhookLogService _webhookLogService;
         private readonly IConfiguration _config;
         private readonly ILogger<DojahController> _logger;
 
@@ -26,6 +27,7 @@ namespace CarePro_Api.Controllers.Content
             IDojahDataFormattingService formattingService,
             IVerificationService verificationService,
             IDojahApiService dojahApiService,
+            IWebhookLogService webhookLogService,
             IConfiguration config,
             ILogger<DojahController> logger)
         {
@@ -34,6 +36,7 @@ namespace CarePro_Api.Controllers.Content
             _formattingService = formattingService;
             _verificationService = verificationService;
             _dojahApiService = dojahApiService;
+            _webhookLogService = webhookLogService;
             _config = config;
             _logger = logger;
         }
@@ -142,6 +145,13 @@ namespace CarePro_Api.Controllers.Content
 
                 _logger.LogInformation("Raw webhook body received: {BodyLength} characters", rawBody?.Length ?? 0);
 
+                // Extract headers for logging
+                var headers = new Dictionary<string, string>();
+                foreach (var header in Request.Headers)
+                {
+                    headers[header.Key] = header.Value.ToString();
+                }
+
                 // Parse the JSON to our DTO
                 DojahWebhookRequest? request = null;
                 if (!string.IsNullOrEmpty(rawBody))
@@ -161,6 +171,28 @@ namespace CarePro_Api.Controllers.Content
                         _logger.LogError(parseEx, "Failed to parse webhook JSON: {RawBody}", rawBody);
                         return BadRequest(new { error = "Invalid JSON format" });
                     }
+                }
+
+                // Extract userId early for logging
+                var extractedUserId = ExtractUserId(request);
+                
+                // STORE RAW WEBHOOK FIRST (fast, safe, before any processing)
+                string? webhookLogId = null;
+                try
+                {
+                    webhookLogId = await _webhookLogService.StoreRawWebhookAsync(
+                        rawBody,
+                        headers,
+                        clientIp,
+                        extractedUserId ?? "unknown",
+                        "verification"
+                    );
+                    _logger.LogInformation("Stored webhook log with ID: {WebhookLogId}", webhookLogId);
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogError(logEx, "Failed to store webhook log, continuing with processing");
+                    // Continue processing even if logging fails
                 }
 
                 // IP Whitelisting check
@@ -312,13 +344,35 @@ namespace CarePro_Api.Controllers.Content
                         _logger.LogInformation("Creating new verification record: {Reason}", shouldCreate.Reason);
 
                         // Create new verification record
-                        await _verificationService.AddVerificationAsync(formattedData);
+                        var verificationId = await _verificationService.AddVerificationAsync(formattedData);
+
+                        // Update webhook log with verification ID
+                        if (!string.IsNullOrEmpty(webhookLogId) && !string.IsNullOrEmpty(verificationId))
+                        {
+                            await _webhookLogService.UpdateWebhookLogStatusAsync(
+                                webhookLogId,
+                                "processed",
+                                verificationId,
+                                "Verification created successfully"
+                            );
+                        }
 
                         _logger.LogInformation("Verification processed successfully for user: {UserId}", userId);
                     }
                     else
                     {
                         _logger.LogInformation("Skipping verification creation: {Reason}", shouldCreate.Reason);
+                        
+                        // Update webhook log status
+                        if (!string.IsNullOrEmpty(webhookLogId))
+                        {
+                            await _webhookLogService.UpdateWebhookLogStatusAsync(
+                                webhookLogId,
+                                "skipped",
+                                null,
+                                $"Verification not created: {shouldCreate.Reason}"
+                            );
+                        }
                     }
 
                     var processingTime = (DateTime.UtcNow - startTime).TotalMilliseconds;

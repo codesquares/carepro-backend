@@ -117,8 +117,6 @@ namespace Infrastructure.Content.Services
                         // Enhanced validation checks for certificate genuineness
                         var validationMessages = new List<string>();
                         var finalStatus = dojahResult.Status;
-                        var shouldReject = false;
-
                         // 1. Confidence threshold validation
                         var (isConfidentValid, confidenceStatus, confidenceMessage) = 
                             CertificateValidationHelper.ValidateConfidenceThreshold(dojahResult.Confidence);
@@ -398,7 +396,6 @@ namespace Infrastructure.Content.Services
                 // Enhanced validation checks for certificate genuineness
                 var validationMessages = new List<string>();
                 var finalStatus = dojahResult.Status;
-                var shouldReject = false;
 
                 // 1. Confidence threshold validation
                 var (isConfidentValid, confidenceStatus, confidenceMessage) = 

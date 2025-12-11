@@ -74,6 +74,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<RefreshToken>().ToCollection("RefreshTokens");
             modelBuilder.Entity<RefreshToken>().HasKey(rt => rt.Id);
             modelBuilder.Entity<RefreshToken>().Property(rt => rt.Id).HasElementName("_id");
+            modelBuilder.Entity<WebhookLog>().ToCollection("WebhookLogs");
+            modelBuilder.Entity<WebhookLog>().HasKey(wl => wl.Id);
+            modelBuilder.Entity<WebhookLog>().Property(wl => wl.Id).HasElementName("_id");
 
         }
 
@@ -101,5 +104,6 @@ namespace Infrastructure.Content.Data
         public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
         public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
+        public DbSet<WebhookLog> WebhookLogs { get; set; }
     }
 }
