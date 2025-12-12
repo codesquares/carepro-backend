@@ -875,7 +875,7 @@ namespace Infrastructure.Content.Services
             if (user == null)
                 throw new InvalidOperationException("User not found, kindly enter a registered email.");
 
-            var token = tokenHandler.GeneratePasswordResetToken(passwordResetRequestDto.Email);
+            var token = tokenHandler.GeneratePasswordResetToken(user.AppUserId.ToString(), passwordResetRequestDto.Email);
 
             string resetLink;
             resetLink = IsFrontendOrigin(origin)
@@ -959,9 +959,12 @@ namespace Infrastructure.Content.Services
                 }, out _);
 
 
-                var email = claimsPrincipal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                var userId = claimsPrincipal.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(userId))
+                    throw new UnauthorizedAccessException("Invalid token: userId claim missing.");
 
-                var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == email);
+                var objectId = ObjectId.Parse(userId);
+                var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.AppUserId == objectId);
                 if (user == null)
                     throw new InvalidOperationException("User not found.");
 

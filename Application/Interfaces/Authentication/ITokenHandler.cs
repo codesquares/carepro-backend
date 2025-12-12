@@ -14,7 +14,7 @@ namespace Application.Interfaces.Authentication
 
         string GenerateRefreshToken();
 
-        string GeneratePasswordResetToken(string email);
+        string GeneratePasswordResetToken(string userId, string email);
 
 
         //string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30);

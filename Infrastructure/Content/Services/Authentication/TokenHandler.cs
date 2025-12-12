@@ -67,7 +67,7 @@ namespace Infrastructure.Content.Services.Authentication
 
 
 
-        public string GeneratePasswordResetToken(string email)
+        public string GeneratePasswordResetToken(string userId, string email)
         {
             var secretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret not found");
             var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
@@ -81,7 +81,8 @@ namespace Infrastructure.Content.Services.Authentication
             var claims = new[]
             {
             new Claim(JwtRegisteredClaimNames.Sub, email),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim("userId", userId)
         };
 
             var token = new JwtSecurityToken(
