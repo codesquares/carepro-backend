@@ -508,8 +508,30 @@ namespace CarePro_Api.Controllers.Content
         [AllowAnonymous] // Allow unauthenticated access
         public async Task<IActionResult> ResetPassword([FromBody] PasswordResetDto request)
         {
-            await careGiverService.ResetPasswordWithJwtAsync(request);
-            return Ok(new { message = "Password reset successful." });
+            try
+            {
+                await careGiverService.ResetPasswordWithJwtAsync(request);
+                return Ok(new { message = "Password reset successful." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Handle invalid or expired token
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Handle business logic errors (e.g., user not found)
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                // Handle unexpected errors
+                logger.LogError(ex, "Error resetting password");
+                return StatusCode(500, new { 
+                    message = "An error occurred while resetting the password.",
+                    error = ex.Message 
+                });
+            }
         }
 
 
