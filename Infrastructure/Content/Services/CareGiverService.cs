@@ -944,7 +944,10 @@ namespace Infrastructure.Content.Services
 
             try
             {
-                var claimsPrincipal = tokenHandler.ValidateToken(request.Token, new TokenValidationParameters
+                // URL decode the token in case it comes from the frontend still encoded
+                var decodedToken = string.IsNullOrEmpty(request.Token) ? request.Token : HttpUtility.UrlDecode(request.Token);
+
+                var claimsPrincipal = tokenHandler.ValidateToken(decodedToken, new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidateAudience = true,
@@ -969,8 +972,18 @@ namespace Infrastructure.Content.Services
 
                 await careProDbContext.SaveChangesAsync();
             }
-            catch (Exception)
+            catch (SecurityTokenException ex)
             {
+                logger.LogError(ex, "Token validation failed for password reset");
+                throw new UnauthorizedAccessException("Invalid or expired reset token.");
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during password reset");
                 throw new UnauthorizedAccessException("Invalid or expired reset token.");
             }
         }
