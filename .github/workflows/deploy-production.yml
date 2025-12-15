@@ -469,7 +469,7 @@ jobs:
         chmod +x deployment/production/rollback.sh
 
     - name: Upload deployment package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: production-deployment-${{ github.sha }}
         path: deployment/

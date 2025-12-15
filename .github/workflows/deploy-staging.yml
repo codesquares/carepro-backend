@@ -244,7 +244,7 @@ jobs:
         echo "🚀 Deploy with: docker-compose -f deployment/docker-compose.staging.yml up -d"
 
     - name: Upload deployment artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: staging-deployment
         path: deployment/
