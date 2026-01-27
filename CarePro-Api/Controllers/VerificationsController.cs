@@ -2,11 +2,13 @@
 using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CarePro_Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "Caregiver")]
     public class VerificationsController : ControllerBase
     {
         private readonly IVerificationService verificationService;

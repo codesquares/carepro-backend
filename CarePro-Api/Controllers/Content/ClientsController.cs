@@ -1,4 +1,6 @@
 ﻿using Application.DTOs;
+using Application.DTOs.Authentication;
+using Application.Interfaces.Authentication;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -16,12 +18,58 @@ namespace CarePro_Api.Controllers.Content
         private readonly IClientService clientService;
         private readonly ILogger<ClientsController> logger;
         private readonly IHttpContextAccessor httpContextAccessor;
+        private readonly IGoogleAuthService _googleAuthService;
 
-        public ClientsController(IClientService clientService, ILogger<ClientsController> logger, IHttpContextAccessor httpContextAccessor)
+        public ClientsController(
+            IClientService clientService, 
+            ILogger<ClientsController> logger, 
+            IHttpContextAccessor httpContextAccessor,
+            IGoogleAuthService googleAuthService)
         {
             this.clientService = clientService;
             this.logger = logger;
             this.httpContextAccessor = httpContextAccessor;
+            _googleAuthService = googleAuthService;
+        }
+
+        /// <summary>
+        /// Sign up as Client using Google account
+        /// User has selected "Client" on the role selection screen
+        /// </summary>
+        [HttpPost("GoogleSignUp")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GoogleSignUp([FromBody] GoogleSignUpRequest request)
+        {
+            try
+            {
+                HttpContext httpContext = httpContextAccessor.HttpContext!;
+                string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
+                                ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+
+                var (response, conflict) = await _googleAuthService.GoogleSignUpClientAsync(request, origin);
+
+                if (conflict != null)
+                {
+                    // Account already exists - prompt to link
+                    return Conflict(new { 
+                        message = conflict.Message, 
+                        requiresLinking = conflict.CanLinkAccounts,
+                        conflict 
+                    });
+                }
+
+                logger.LogInformation("New Client created via Google OAuth: {Email}", response?.Email);
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during Google sign up for Client");
+                return StatusCode(500, new { ErrorMessage = "An error occurred during Google sign up.", Details = ex.Message });
+            }
         }
 
         /// ENDPOINT TO CREATE  CLIENT USERS TO THE DATABASE

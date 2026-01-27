@@ -31,12 +31,17 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Caregiver>().ToCollection("CareGivers");
             modelBuilder.Entity<Caregiver>().HasKey(c => c.Id);
             modelBuilder.Entity<Caregiver>().Property(c => c.Id).HasElementName("_id");
+            modelBuilder.Entity<Caregiver>().HasIndex(c => c.Email).IsUnique();
+            
             modelBuilder.Entity<AppUser>().ToCollection("AppUsers");
             modelBuilder.Entity<AppUser>().HasKey(a => a.Id);
             modelBuilder.Entity<AppUser>().Property(a => a.Id).HasElementName("_id");
+            modelBuilder.Entity<AppUser>().HasIndex(a => a.Email).IsUnique();
+            
             modelBuilder.Entity<Client>().ToCollection("Clients");
             modelBuilder.Entity<Client>().HasKey(cl => cl.Id);
             modelBuilder.Entity<Client>().Property(cl => cl.Id).HasElementName("_id");
+            modelBuilder.Entity<Client>().HasIndex(cl => cl.Email).IsUnique();
             modelBuilder.Entity<AdminUser>().ToCollection("AdminUsers");
             modelBuilder.Entity<AdminUser>().HasKey(au => au.Id);
             modelBuilder.Entity<AdminUser>().Property(au => au.Id).HasElementName("_id");
@@ -64,6 +69,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
+            modelBuilder.Entity<ContractNegotiationHistory>().ToCollection("ContractNegotiationHistory");
+            modelBuilder.Entity<ContractNegotiationHistory>().HasKey(cnh => cnh.Id);
+            modelBuilder.Entity<ContractNegotiationHistory>().Property(cnh => cnh.Id).HasElementName("_id");
             modelBuilder.Entity<OrderTasks>().ToCollection("OrderTasks");
             modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
             modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
@@ -77,6 +85,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<WebhookLog>().ToCollection("WebhookLogs");
             modelBuilder.Entity<WebhookLog>().HasKey(wl => wl.Id);
             modelBuilder.Entity<WebhookLog>().Property(wl => wl.Id).HasElementName("_id");
+            modelBuilder.Entity<PendingPayment>().ToCollection("PendingPayments");
+            modelBuilder.Entity<PendingPayment>().HasKey(pp => pp.Id);
+            modelBuilder.Entity<PendingPayment>().Property(pp => pp.Id).HasElementName("_id");
 
         }
 
@@ -100,10 +111,12 @@ namespace Infrastructure.Content.Data
         public DbSet<Review> Reviews { get; set; }
         public DbSet<Location> Locations { get; set; }
         public DbSet<Contract> Contracts { get; set; }
+        public DbSet<ContractNegotiationHistory> ContractNegotiationHistory { get; set; }
         public DbSet<OrderTasks> OrderTasks { get; set; }
         public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
         public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<WebhookLog> WebhookLogs { get; set; }
+        public DbSet<PendingPayment> PendingPayments { get; set; }
     }
 }

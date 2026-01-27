@@ -3,11 +3,13 @@ using Application.Interfaces.Content;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ReviewsController : ControllerBase
     {
         private readonly IReviewService reviewService;
@@ -40,6 +42,7 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Reviews
         [HttpGet]
+        [AllowAnonymous]
         public async Task<IActionResult> GetAllGigReviewAsync(string gigId)
         {
             try
@@ -58,6 +61,7 @@ namespace CarePro_Api.Controllers.Content
         // GET: api/Reviews
         [HttpGet]
         [Route("{reviewId}")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetGigReviewAsync(string reviewId)
         {
             try
@@ -76,6 +80,7 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Reviews/count
         [HttpGet("count")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetReviewCount(string gigId)
         {
             try

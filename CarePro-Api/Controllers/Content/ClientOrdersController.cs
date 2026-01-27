@@ -5,11 +5,13 @@ using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ClientOrdersController : ControllerBase
     {
         private readonly CareProDbContext careProDbContext;

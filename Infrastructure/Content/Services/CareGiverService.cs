@@ -109,15 +109,35 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("Please enter a valid email address.");
             }
 
-
-            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addCaregiverRequest.Password);
-
-            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email == addCaregiverRequest.Email);
+            // Check for duplicate email in Caregivers collection (case-insensitive)
+            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
 
             if (caregiverUserExist != null)
             {
+                logger.LogWarning("Duplicate caregiver registration attempt with email: {Email}", addCaregiverRequest.Email);
                 throw new InvalidOperationException("User already exists. Kindly login or use a different email!");
             }
+
+            // Check for duplicate email in Clients collection (case-insensitive)
+            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
+
+            if (clientUserExist != null)
+            {
+                logger.LogWarning("Caregiver registration attempted with existing client email: {Email}", addCaregiverRequest.Email);
+                throw new InvalidOperationException("This email is already registered as a Client. Please use a different email or sign in to your client account.");
+            }
+
+            // Check for duplicate email in AppUsers collection (case-insensitive)
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
+
+            if (appUserExist != null)
+            {
+                logger.LogWarning("Caregiver registration attempted with existing AppUser email: {Email}", addCaregiverRequest.Email);
+                throw new InvalidOperationException("This email is already registered. Please use a different email or sign in.");
+            }
+
+            // Hash password only after all validations pass (performance optimization)
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addCaregiverRequest.Password);
 
             /// CONVERT DTO TO DOMAIN OBJECT            
             var caregiver = new Caregiver
@@ -621,6 +641,106 @@ namespace Infrastructure.Content.Services
             return caregiverDTO;
         }
 
+        /// <summary>
+        /// Get all caregivers with public-safe information only (no email, phone, or address)
+        /// Use this for public-facing endpoints
+        /// </summary>
+        public async Task<IEnumerable<CaregiverPublicResponse>> GetAllCaregiverUserPublicAsync()
+        {
+            var caregivers = await careProDbContext.CareGivers
+                .Where(x => x.Status == true && x.IsDeleted == false)
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync();
+
+            var caregiversDTOs = new List<CaregiverPublicResponse>();
+
+            foreach (var caregiver in caregivers)
+            {
+                var caregiverDTO = new CaregiverPublicResponse()
+                {
+                    Id = caregiver.Id.ToString(),
+                    FirstName = caregiver.FirstName,
+                    MiddleName = caregiver.MiddleName,
+                    LastName = caregiver.LastName,
+                    Role = caregiver.Role,
+                    IsAvailable = caregiver.IsAvailable,
+                    AboutMe = caregiver.AboutMe,
+                    AboutMeIntro = string.IsNullOrWhiteSpace(caregiver.AboutMe)
+                        ? null
+                        : caregiver.AboutMe.Length <= 150
+                            ? caregiver.AboutMe
+                            : caregiver.AboutMe.Substring(0, 150) + "...",
+                    Location = caregiver.Location,
+                    IntroVideo = caregiver.IntroVideo,
+                    ProfileImage = caregiver.ProfileImage,
+                    CreatedAt = caregiver.CreatedAt,
+                };
+
+                caregiversDTOs.Add(caregiverDTO);
+            }
+
+            return caregiversDTOs;
+        }
+
+        /// <summary>
+        /// Get a single caregiver with public-safe information only (no email, phone, or address)
+        /// Use this for public-facing endpoints
+        /// </summary>
+        public async Task<CaregiverPublicResponse> GetCaregiverUserPublicAsync(string caregiverId)
+        {
+            var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == caregiverId);
+
+            if (caregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            var subCategories = await careProDbContext.Gigs
+                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.CaregiverId == caregiverId)
+                .Select(x => x.SubCategory)
+                .ToListAsync();
+
+            var allSubCategories = subCategories
+                .Where(sc => !string.IsNullOrEmpty(sc))
+                .SelectMany(sc => sc.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                .Select(sc => sc.Trim())
+                .Distinct()
+                .ToList();
+
+            var clientOrders = await careProDbContext.ClientOrders
+                .Where(x => x.CaregiverId == caregiverId)
+                .OrderBy(x => x.OrderCreatedAt)
+                .ToListAsync();
+
+            decimal totalEarning = clientOrders.Sum(o => o.Amount);
+            var noOfOrders = clientOrders.Count;
+
+            var caregiverDTO = new CaregiverPublicResponse()
+            {
+                Id = caregiver.Id.ToString(),
+                FirstName = caregiver.FirstName,
+                MiddleName = caregiver.MiddleName,
+                LastName = caregiver.LastName,
+                Role = caregiver.Role,
+                IsAvailable = caregiver.IsAvailable,
+                AboutMe = caregiver.AboutMe,
+                AboutMeIntro = string.IsNullOrWhiteSpace(caregiver.AboutMe)
+                    ? null
+                    : caregiver.AboutMe.Length <= 150
+                        ? caregiver.AboutMe
+                        : caregiver.AboutMe.Substring(0, 150) + "...",
+                Location = caregiver.Location,
+                IntroVideo = caregiver.IntroVideo,
+                Services = allSubCategories,
+                TotalEarning = totalEarning,
+                NoOfOrders = noOfOrders,
+                ProfileImage = caregiver.ProfileImage,
+                CreatedAt = caregiver.CreatedAt,
+            };
+
+            return caregiverDTO;
+        }
+
         public async Task<string> SoftDeleteCaregiverAsync(string caregiverId)
         {
             if (!ObjectId.TryParse(caregiverId, out var objectId))
@@ -638,6 +758,15 @@ namespace Infrastructure.Content.Services
             careGiver.DeletedOn = DateTime.UtcNow;
 
             careProDbContext.CareGivers.Update(careGiver);
+
+            // Also soft delete the associated AppUser record
+            var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.AppUserId == objectId);
+            if (appUser != null)
+            {
+                appUser.IsDeleted = true;
+                careProDbContext.AppUsers.Update(appUser);
+            }
+
             await careProDbContext.SaveChangesAsync();
 
             return $"Caregiver with ID '{caregiverId}' Availability Status Updated successfully.";

@@ -4,6 +4,8 @@ using Domain.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using System.Text.Json;
+using System.Net.Http.Headers;
 
 namespace Infrastructure.Content.Services
 {
@@ -11,17 +13,37 @@ namespace Infrastructure.Content.Services
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<OpenAIContractService> _logger;
+        private readonly HttpClient _httpClient;
         private readonly bool _isLLMAvailable;
+        private readonly string? _apiKey;
+        private readonly string _model;
+        private readonly int _maxTokens;
+        private readonly double _temperature;
 
         public OpenAIContractService(IConfiguration configuration, ILogger<OpenAIContractService> logger)
         {
             _configuration = configuration;
             _logger = logger;
 
-            var apiKey = _configuration["LLMSettings:OpenAI:ApiKey"];
-            _isLLMAvailable = !string.IsNullOrEmpty(apiKey);
+            _apiKey = _configuration["LLMSettings:OpenAI:ApiKey"];
+            _model = _configuration["LLMSettings:OpenAI:Model"] ?? "gpt-3.5-turbo";
+            _maxTokens = int.TryParse(_configuration["LLMSettings:OpenAI:MaxTokens"], out var mt) ? mt : 2000;
+            _temperature = double.TryParse(_configuration["LLMSettings:OpenAI:Temperature"], out var temp) ? temp : 0.7;
+            
+            _isLLMAvailable = !string.IsNullOrEmpty(_apiKey);
 
-            if (!_isLLMAvailable)
+            _httpClient = new HttpClient
+            {
+                BaseAddress = new Uri("https://api.openai.com/v1/")
+            };
+
+            if (_isLLMAvailable)
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+                _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                _logger.LogInformation("OpenAI service initialized with model: {Model}", _model);
+            }
+            else
             {
                 _logger.LogWarning("OpenAI API key not configured. Contract generation will use mock data.");
             }
@@ -39,8 +61,7 @@ namespace Infrastructure.Content.Services
 
                 var prompt = BuildContractGenerationPrompt(gigId, package, tasks);
 
-                // Mock OpenAI response since we don't have the actual package
-                var contractTerms = await GenerateContractWithMockLLMAsync(prompt);
+                var contractTerms = await CallOpenAIAsync(prompt);
 
                 _logger.LogInformation("Successfully generated contract using LLM for gig {GigId}", gigId);
                 return contractTerms;
@@ -63,7 +84,7 @@ namespace Infrastructure.Content.Services
                 }
 
                 var prompt = $"Please provide a brief summary of the following care contract:\n\n{contractContent}";
-                return await GenerateContractWithMockLLMAsync(prompt);
+                return await CallOpenAIAsync(prompt);
             }
             catch (Exception ex)
             {
@@ -82,7 +103,7 @@ namespace Infrastructure.Content.Services
                 }
 
                 var prompt = $"Please revise the following contract based on these notes:\n\nOriginal Contract:\n{originalContract}\n\nRevision Notes:\n{revisionNotes}";
-                return await GenerateContractWithMockLLMAsync(prompt);
+                return await CallOpenAIAsync(prompt);
             }
             catch (Exception ex)
             {
@@ -350,10 +371,51 @@ Contract ID: {gigId}";
             return $"Generate a professional care contract for gig {gigId} with {package.VisitsPerWeek} visits per week for {package.DurationWeeks} weeks.";
         }
 
-        private async Task<string> GenerateContractWithMockLLMAsync(string prompt)
+        private async Task<string> CallOpenAIAsync(string prompt)
         {
-            await Task.Delay(100); // Simulate API call
-            return "Mock contract terms generated based on LLM prompt.";
+            try
+            {
+                var requestBody = new
+                {
+                    model = _model,
+                    messages = new[]
+                    {
+                        new { role = "system", content = "You are a professional legal assistant specializing in care service contracts. Generate clear, comprehensive, and legally sound contract terms." },
+                        new { role = "user", content = prompt }
+                    },
+                    max_tokens = _maxTokens,
+                    temperature = _temperature
+                };
+
+                var jsonContent = JsonSerializer.Serialize(requestBody);
+                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                _logger.LogInformation("Calling OpenAI API with model: {Model}", _model);
+
+                var response = await _httpClient.PostAsync("chat/completions", content);
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("OpenAI API error: {StatusCode} - {Response}", response.StatusCode, responseContent);
+                    throw new HttpRequestException($"OpenAI API returned {response.StatusCode}");
+                }
+
+                using var doc = JsonDocument.Parse(responseContent);
+                var generatedText = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+
+                _logger.LogInformation("Successfully received response from OpenAI");
+                return generatedText ?? "Contract generation failed - empty response";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling OpenAI API");
+                throw;
+            }
         }
 
         private string GenerateMockSummary(string contractContent)
@@ -369,6 +431,350 @@ Contract ID: {gigId}";
         private string GenerateMockRevisionAsync(string originalContract, string revisionNotes)
         {
             return $"REVISED CONTRACT\n\n{originalContract}\n\nREVISIONS APPLIED:\n{revisionNotes}";
+        }
+
+        // ========================================
+        // NEW: Contract Generation with Full Enriched Data
+        // ========================================
+
+        public async Task<string> GenerateContractWithScheduleAsync(ContractGenerationDataDTO data)
+        {
+            try
+            {
+                if (!_isLLMAvailable)
+                {
+                    _logger.LogInformation("Using mock contract generation - OpenAI not configured");
+                    return GenerateMockContractWithEnrichedData(data);
+                }
+
+                var prompt = BuildEnrichedContractPrompt(data);
+                var contractTerms = await CallOpenAIAsync(prompt);
+
+                _logger.LogInformation("Successfully generated enriched contract using LLM for order {OrderId}", data.OrderId);
+                return contractTerms;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating enriched contract for order {OrderId}", data.OrderId);
+                return GenerateMockContractWithEnrichedData(data);
+            }
+        }
+
+        private string BuildEnrichedContractPrompt(ContractGenerationDataDTO data)
+        {
+            var scheduleList = string.Join("\n", data.Schedule.Select(s => 
+                $"   - {s.DayOfWeek}: {s.StartTime} to {s.EndTime}"));
+
+            var tasksList = data.Tasks.Any() 
+                ? string.Join("\n", data.Tasks.Select(t => $"   - {t.Title}: {t.Description}" + 
+                    $" (Priority: {t.Priority})"))
+                : "   - General care services as discussed and agreed upon";
+
+            var specialReqsList = data.Tasks
+                .Where(t => t.SpecialRequirements?.Any() == true)
+                .SelectMany(t => t.SpecialRequirements)
+                .Distinct()
+                .ToList();
+            
+            var specialRequirementsText = specialReqsList.Any()
+                ? string.Join("\n", specialReqsList.Select(r => $"   - {r}"))
+                : "None";
+
+            return $@"Generate a professional, legally-sound care service contract using the EXACT information provided below. Do NOT use placeholders - all data is real and accurate. Focus on care responsibilities and schedule - payment has already been completed.
+
+═══════════════════════════════════════════════════════════════
+CONTRACT INFORMATION
+═══════════════════════════════════════════════════════════════
+
+CONTRACT REFERENCE:
+- Contract ID: {data.ContractId}
+- Order Reference: {data.OrderId}
+- Generated: {data.GeneratedAt:MMMM dd, yyyy 'at' HH:mm} UTC
+
+───────────────────────────────────────────────────────────────
+PARTIES TO THIS AGREEMENT
+───────────────────────────────────────────────────────────────
+
+CLIENT (Care Recipient):
+- Full Name: {data.ClientFullName}
+- Client ID: {data.ClientId}
+{(string.IsNullOrEmpty(data.ClientPhone) ? "" : $"- Contact Phone: {data.ClientPhone}")}
+
+CAREGIVER (Service Provider):
+- Full Name: {data.CaregiverFullName}
+- Caregiver ID: {data.CaregiverId}
+{(string.IsNullOrEmpty(data.CaregiverQualifications) ? "" : $"- Qualifications: {data.CaregiverQualifications}")}
+
+───────────────────────────────────────────────────────────────
+SERVICE DETAILS
+───────────────────────────────────────────────────────────────
+
+SERVICE TYPE: {data.GigTitle}
+{(string.IsNullOrEmpty(data.GigDescription) ? "" : $"Description: {data.GigDescription}")}
+{(string.IsNullOrEmpty(data.GigCategory) ? "" : $"Category: {data.GigCategory}")}
+
+SERVICE PACKAGE:
+- Package Type: {data.Package.PackageType?.Replace("_", " ") ?? "Standard"}
+- Visits Per Week: {data.Package.VisitsPerWeek}
+- Hours Per Visit: 4-6 hours
+- Contract Duration: {data.Package.DurationWeeks} weeks
+
+CONTRACT PERIOD:
+- Start Date: {data.ContractStartDate:dddd, MMMM dd, yyyy}
+- End Date: {data.ContractEndDate:dddd, MMMM dd, yyyy}
+
+───────────────────────────────────────────────────────────────
+AGREED WEEKLY SCHEDULE
+───────────────────────────────────────────────────────────────
+
+{scheduleList}
+
+───────────────────────────────────────────────────────────────
+SERVICE LOCATION
+───────────────────────────────────────────────────────────────
+
+Address: {data.ServiceAddress}
+{(string.IsNullOrEmpty(data.City) ? "" : $"City: {data.City}")}
+{(string.IsNullOrEmpty(data.State) ? "" : $"State: {data.State}")}
+
+{(string.IsNullOrEmpty(data.AccessInstructions) ? "" : $@"ACCESS INSTRUCTIONS:
+{data.AccessInstructions}")}
+
+───────────────────────────────────────────────────────────────
+CARE RESPONSIBILITIES
+───────────────────────────────────────────────────────────────
+
+PRIMARY CARE TASKS:
+{tasksList}
+
+{(string.IsNullOrEmpty(data.SpecialClientRequirements) ? "" : $@"CLIENT'S SPECIAL REQUIREMENTS:
+{data.SpecialClientRequirements}")}
+
+TASK-SPECIFIC REQUIREMENTS:
+{specialRequirementsText}
+
+{(string.IsNullOrEmpty(data.CaregiverNotes) ? "" : $@"CAREGIVER'S NOTES:
+{data.CaregiverNotes}")}
+
+───────────────────────────────────────────────────────────────
+INSTRUCTIONS FOR CONTRACT GENERATION
+───────────────────────────────────────────────────────────────
+
+Generate a comprehensive care service contract that:
+1. Uses ALL the exact names, dates, and details provided above
+2. DOES NOT include payment terms (payment already completed via CarePro)
+3. Focuses on care responsibilities, schedule, and service quality
+4. Includes clear sections for: Parties, Services, Schedule, Location, Responsibilities, Safety, Cancellation/Rescheduling, Confidentiality, Termination
+5. Is professional but warm in tone - this is a care relationship
+6. Mentions that this contract is facilitated through the CarePro platform
+7. Includes the exact contract dates and schedule times
+8. References the specific care tasks listed above
+
+Make the contract thorough but readable, suitable for both parties to understand their commitments.";
+        }
+
+        private string GenerateMockContractWithEnrichedData(ContractGenerationDataDTO data)
+        {
+            var scheduleText = string.Join("\n", data.Schedule.Select(s => 
+                $"      {s.DayOfWeek}: {s.StartTime} - {s.EndTime}"));
+
+            var tasksList = data.Tasks.Any()
+                ? string.Join("\n", data.Tasks.Select(t => $"      • {t.Title}: {t.Description}"))
+                : "      • General care services as discussed and agreed upon";
+
+            return $@"
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                         CARE SERVICE CONTRACT                                  ║
+║                           CarePro Platform                                     ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+Contract Reference: {data.ContractId}
+Order Reference: {data.OrderId}
+Generated: {data.GeneratedAt:MMMM dd, yyyy 'at' HH:mm} UTC
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 1: PARTIES TO THIS AGREEMENT
+════════════════════════════════════════════════════════════════════════════════
+
+This Care Service Contract (""Agreement"") is entered into between:
+
+CLIENT (Care Recipient):
+   Name: {data.ClientFullName}
+   Client ID: {data.ClientId}
+   {(string.IsNullOrEmpty(data.ClientPhone) ? "" : $"Phone: {data.ClientPhone}")}
+
+AND
+
+CAREGIVER (Service Provider):
+   Name: {data.CaregiverFullName}
+   Caregiver ID: {data.CaregiverId}
+   {(string.IsNullOrEmpty(data.CaregiverQualifications) ? "" : $"Qualifications: {data.CaregiverQualifications}")}
+
+This Agreement is facilitated through the CarePro care services platform.
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 2: SERVICE DESCRIPTION
+════════════════════════════════════════════════════════════════════════════════
+
+2.1 SERVICE TYPE
+   {data.GigTitle}
+   {(string.IsNullOrEmpty(data.GigDescription) ? "" : $"   {data.GigDescription}")}
+   {(string.IsNullOrEmpty(data.GigCategory) ? "" : $"   Category: {data.GigCategory}")}
+
+2.2 SERVICE PACKAGE
+   • Package Type: {data.Package.PackageType?.Replace("_", " ") ?? "Standard"}
+   • Visits Per Week: {data.Package.VisitsPerWeek}
+   • Duration Per Visit: 4-6 hours
+   • Contract Duration: {data.Package.DurationWeeks} weeks
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 3: CONTRACT PERIOD
+════════════════════════════════════════════════════════════════════════════════
+
+This Agreement shall be effective from:
+
+   Start Date: {data.ContractStartDate:dddd, MMMM dd, yyyy}
+   End Date:   {data.ContractEndDate:dddd, MMMM dd, yyyy}
+
+The contract may be renewed by mutual agreement of both parties through the 
+CarePro platform.
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 4: AGREED SCHEDULE
+════════════════════════════════════════════════════════════════════════════════
+
+The following weekly schedule has been mutually agreed upon by both parties:
+
+{scheduleText}
+
+4.1 SCHEDULE MODIFICATIONS
+   • Either party may request schedule changes with 48-hour advance notice
+   • Permanent schedule changes require mutual agreement
+   • Emergency schedule changes should be communicated immediately
+   • All schedule changes must be documented through the CarePro platform
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 5: SERVICE LOCATION
+════════════════════════════════════════════════════════════════════════════════
+
+All services will be provided at:
+
+   Address: {data.ServiceAddress}
+   {(string.IsNullOrEmpty(data.City) ? "" : $"City: {data.City}")}
+   {(string.IsNullOrEmpty(data.State) ? "" : $"State: {data.State}")}
+
+{(string.IsNullOrEmpty(data.AccessInstructions) ? "" : $@"ACCESS INSTRUCTIONS:
+   {data.AccessInstructions}")}
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 6: CARE RESPONSIBILITIES
+════════════════════════════════════════════════════════════════════════════════
+
+6.1 PRIMARY CARE TASKS
+   The Caregiver agrees to provide the following services:
+
+{tasksList}
+
+{(string.IsNullOrEmpty(data.SpecialClientRequirements) ? "" : $@"6.2 SPECIAL CLIENT REQUIREMENTS
+   {data.SpecialClientRequirements}")}
+
+{(string.IsNullOrEmpty(data.CaregiverNotes) ? "" : $@"6.3 CAREGIVER NOTES
+   {data.CaregiverNotes}")}
+
+6.4 SERVICE STANDARDS
+   • All services shall be provided with professionalism, compassion, and care
+   • The Caregiver shall follow established care protocols and best practices
+   • Regular communication with the Client and/or family members as appropriate
+   • Maintain accurate records of care provided through the CarePro platform
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 7: CANCELLATION & RESCHEDULING
+════════════════════════════════════════════════════════════════════════════════
+
+7.1 CANCELLATION BY CLIENT
+   • 24-hour notice required for scheduled visit cancellations
+   • Cancellations with less than 24-hour notice may be subject to review
+   • Emergency cancellations will be evaluated on a case-by-case basis
+
+7.2 CANCELLATION BY CAREGIVER
+   • 24-hour notice required for cancellations when possible
+   • CarePro may arrange replacement care for urgent situations
+   • Repeated cancellations may affect caregiver standing on the platform
+
+7.3 NO-SHOW POLICY
+   • Client no-show without notice: Visit considered completed
+   • Caregiver no-show: Replacement service or account credit provided
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 8: SAFETY & CONFIDENTIALITY
+════════════════════════════════════════════════════════════════════════════════
+
+8.1 SAFETY PROTOCOLS
+   • The Caregiver has been verified through CarePro's background check process
+   • Emergency protocols shall be established for medical situations
+   • All incidents must be reported through the CarePro platform
+   • Both parties agree to maintain a safe care environment
+
+8.2 CONFIDENTIALITY
+   • All personal, medical, and financial information shall be kept strictly 
+     confidential
+   • No information shall be shared with third parties without explicit consent
+   • Both parties agree to comply with applicable privacy laws and regulations
+   • Confidentiality obligations survive termination of this Agreement
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 9: TERMINATION
+════════════════════════════════════════════════════════════════════════════════
+
+9.1 TERMINATION BY EITHER PARTY
+   • Either party may terminate this Agreement with 48-hour written notice
+   • Notice must be provided through the CarePro platform
+   • Outstanding obligations shall be settled within 7 days of termination
+
+9.2 IMMEDIATE TERMINATION (FOR CAUSE)
+   Either party may terminate immediately in cases of:
+   • Breach of safety protocols
+   • Unprofessional conduct or harassment
+   • Violation of confidentiality
+   • Failure to provide agreed services
+   • Any conduct that endangers either party
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 10: DISPUTE RESOLUTION
+════════════════════════════════════════════════════════════════════════════════
+
+Any disputes arising from this Agreement shall be:
+   1. First addressed through CarePro's support and mediation services
+   2. Escalated to formal dispute resolution if mediation is unsuccessful
+   3. Subject to the laws of the jurisdiction where services are provided
+
+════════════════════════════════════════════════════════════════════════════════
+SECTION 11: AGREEMENT
+════════════════════════════════════════════════════════════════════════════════
+
+By approving this contract through the CarePro platform, both parties:
+   • Acknowledge reading and understanding all terms and conditions
+   • Agree to fulfill their respective obligations as outlined
+   • Commit to maintaining a professional and respectful care relationship
+   • Authorize CarePro to facilitate this Agreement
+
+────────────────────────────────────────────────────────────────────────────────
+
+CLIENT: {data.ClientFullName}
+Status: Pending Approval
+
+CAREGIVER: {data.CaregiverFullName}
+Status: Contract Submitted
+
+────────────────────────────────────────────────────────────────────────────────
+
+Contract ID: {data.ContractId}
+Platform: CarePro Care Services
+Generated: {data.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                           END OF CONTRACT                                      ║
+╚═══════════════════════════════════════════════════════════════════════════════╝";
         }
     }
 }

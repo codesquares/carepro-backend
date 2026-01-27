@@ -9,6 +9,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "Client,Admin")]
     public class ClientRecommendationsController : ControllerBase
     {
         private readonly IClientRecommendationService clientRecommendationService;

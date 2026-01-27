@@ -11,6 +11,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class GigsController : ControllerBase
     {
         private readonly IGigServices gigServices;
@@ -75,7 +76,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetAllGigsAsync()
         {
             try
@@ -258,7 +259,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("{gigId}")]
-        // [Authorize(Roles = "Caregiver, Admin")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetGigAsync(string gigId)
         {
             try

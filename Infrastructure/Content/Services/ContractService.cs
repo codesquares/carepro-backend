@@ -725,11 +725,552 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        // ========================================
+        // NEW FLOW: Caregiver-Initiated Contract Methods
+        // ========================================
+
+        public async Task<ContractDTO> CaregiverGenerateContractAsync(string caregiverId, CaregiverContractGenerationDTO request)
+        {
+            try
+            {
+                _logger.LogInformation("Caregiver {CaregiverId} generating contract for order {OrderId}", 
+                    caregiverId, request.OrderId);
+
+                // Get the order
+                var order = await _context.ClientOrders
+                    .FirstOrDefaultAsync(o => o.Id.ToString() == request.OrderId);
+
+                if (order == null)
+                    throw new InvalidOperationException($"Order {request.OrderId} not found");
+
+                // Verify caregiver is assigned to this order
+                if (order.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Caregiver not authorized for this order");
+
+                // Check if contract already exists for this order
+                var existingContract = await _context.Contracts
+                    .FirstOrDefaultAsync(c => c.OrderId == request.OrderId);
+
+                if (existingContract != null)
+                    throw new InvalidOperationException($"Contract already exists for order {request.OrderId}");
+
+                // Get OrderTasks for care tasks (if exists)
+                var orderTasks = await _context.OrderTasks
+                    .FirstOrDefaultAsync(ot => ot.ClientOrderId == request.OrderId);
+
+                // Get gig details for package information
+                var gig = await _context.Gigs
+                    .FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
+
+                if (gig == null)
+                    throw new InvalidOperationException($"Gig not found for order {request.OrderId}");
+
+                // Get client details
+                var client = await _context.Clients
+                    .FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+
+                // Get caregiver details
+                var caregiver = await _context.CareGivers
+                    .FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
+
+                // Validate schedule
+                ValidateSchedule(request.Schedule, orderTasks?.PackageSelection?.VisitsPerWeek ?? 1);
+
+                // Build package selection from order/gig
+                var packageSelection = orderTasks?.PackageSelection ?? new PackageSelection
+                {
+                    PackageType = order.PaymentOption ?? "standard",
+                    VisitsPerWeek = request.Schedule.Count,
+                    PricePerVisit = order.Amount / request.Schedule.Count,
+                    TotalWeeklyPrice = order.Amount,
+                    DurationWeeks = 4 // Default
+                };
+
+                // Build tasks from OrderTasks or create empty list
+                var tasks = orderTasks?.CareTasks?.Select(t => new ClientTask
+                {
+                    Id = t.Id,
+                    Title = t.Title,
+                    Description = t.Description,
+                    Category = t.Category,
+                    Priority = t.Priority,
+                    SpecialRequirements = t.SpecialRequirements
+                }).ToList() ?? new List<ClientTask>();
+
+                // Convert schedule DTOs to entities
+                var scheduleEntities = request.Schedule.Select(s => new ScheduledVisit
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    DayOfWeek = Enum.Parse<DayOfWeek>(s.DayOfWeek, true),
+                    StartTime = s.StartTime,
+                    EndTime = s.EndTime
+                }).ToList();
+
+                // Calculate contract dates
+                var startDate = DateTime.UtcNow.AddDays(1);
+                var endDate = startDate.AddDays(packageSelection.DurationWeeks * 7);
+
+                // Generate contract ID first so we can include it in the contract text
+                var contractId = ObjectId.GenerateNewId().ToString();
+
+                // Build enriched data for LLM
+                var enrichedData = new ContractGenerationDataDTO
+                {
+                    // Contract identifiers
+                    ContractId = contractId,
+                    OrderId = request.OrderId,
+                    GeneratedAt = DateTime.UtcNow,
+                    
+                    // Client details
+                    ClientId = order.ClientId,
+                    ClientFullName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Client",
+                    ClientEmail = client?.Email,
+                    ClientPhone = client?.PhoneNo,
+                    
+                    // Caregiver details
+                    CaregiverId = caregiverId,
+                    CaregiverFullName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Caregiver",
+                    CaregiverEmail = caregiver?.Email,
+                    CaregiverPhone = caregiver?.PhoneNo,
+                    CaregiverQualifications = caregiver?.AboutMe,
+                    
+                    // Gig/Service details
+                    GigTitle = gig.Title,
+                    GigDescription = string.Join(", ", gig.PackageDetails ?? new List<string>()),
+                    GigCategory = gig.Category,
+                    
+                    // Package & pricing (already paid)
+                    Package = packageSelection,
+                    TotalAmountPaid = order.Amount,
+                    TransactionReference = order.TransactionId,
+                    
+                    // Schedule
+                    Schedule = scheduleEntities,
+                    
+                    // Location
+                    ServiceAddress = request.ServiceAddress,
+                    City = client?.PreferredCity,
+                    State = client?.PreferredState,
+                    SpecialClientRequirements = request.SpecialClientRequirements,
+                    AccessInstructions = request.AccessInstructions,
+                    CaregiverNotes = request.AdditionalNotes,
+                    
+                    // Care tasks
+                    Tasks = tasks,
+                    
+                    // Contract period
+                    ContractStartDate = startDate,
+                    ContractEndDate = endDate
+                };
+
+                // Generate contract terms using LLM with enriched data
+                var contractTerms = await _llmService.GenerateContractWithScheduleAsync(enrichedData);
+
+                // Create contract entity (use the pre-generated ID so it matches the contract text)
+                var contract = new Contract
+                {
+                    Id = contractId,
+                    OrderId = request.OrderId,
+                    GigId = order.GigId,
+                    ClientId = order.ClientId,
+                    CaregiverId = caregiverId,
+                    PaymentTransactionId = order.TransactionId,
+                    SelectedPackage = packageSelection,
+                    Tasks = tasks,
+                    Schedule = scheduleEntities,
+                    ServiceAddress = request.ServiceAddress,
+                    SpecialClientRequirements = request.SpecialClientRequirements,
+                    AccessInstructions = request.AccessInstructions,
+                    CaregiverAdditionalNotes = request.AdditionalNotes,
+                    GeneratedTerms = contractTerms,
+                    TotalAmount = order.Amount,
+                    Status = ContractStatus.PendingClientApproval,
+                    SubmittedByCaregiverId = caregiverId,
+                    SubmittedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    NegotiationRound = 1,
+                    ContractStartDate = startDate,
+                    ContractEndDate = endDate,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await _context.Contracts.AddAsync(contract);
+
+                // Record negotiation history
+                await RecordNegotiationHistoryAsync(contract, caregiverId, ActorType.Caregiver, 
+                    NegotiationAction.ContractGenerated, "Contract generated by caregiver");
+
+                await _context.SaveChangesAsync();
+
+                // Send notification to client
+                await _notificationService.SendContractNotificationToClientAsync(contract.Id);
+
+                _logger.LogInformation("Contract {ContractId} generated by caregiver {CaregiverId} for order {OrderId}",
+                    contract.Id, caregiverId, request.OrderId);
+
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating contract by caregiver {CaregiverId} for order {OrderId}", 
+                    caregiverId, request.OrderId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.ClientId != clientId)
+                    throw new UnauthorizedAccessException("Client not authorized for this contract");
+
+                if (contract.Status != ContractStatus.PendingClientApproval && 
+                    contract.Status != ContractStatus.Revised)
+                    throw new InvalidOperationException($"Contract cannot be approved. Current status: {contract.Status}");
+
+                // Update contract
+                contract.Status = ContractStatus.Approved;
+                contract.ClientApprovedAt = DateTime.UtcNow;
+                contract.ClientApprovedBy = clientId;
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                // Record negotiation history
+                await RecordNegotiationHistoryAsync(contract, clientId, ActorType.Client, 
+                    NegotiationAction.ClientApproved, "Contract approved by client");
+
+                await _context.SaveChangesAsync();
+
+                // Notify caregiver
+                await _notificationService.NotifyCaregiverOfClientResponseAsync(contractId, "approved");
+
+                _logger.LogInformation("Contract {ContractId} approved by client {ClientId}", contractId, clientId);
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error approving contract {ContractId} by client {ClientId}", contractId, clientId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> ClientRequestReviewAsync(string contractId, string clientId, ClientContractReviewRequestDTO request)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.ClientId != clientId)
+                    throw new UnauthorizedAccessException("Client not authorized for this contract");
+
+                if (contract.Status != ContractStatus.PendingClientApproval)
+                    throw new InvalidOperationException($"Cannot request review. Current status: {contract.Status}");
+
+                // Only allow review request in Round 1
+                if (contract.NegotiationRound > 1)
+                    throw new InvalidOperationException("Review can only be requested in the first round. You must approve or reject the revised contract.");
+
+                // Update contract
+                contract.Status = ContractStatus.ClientReviewRequested;
+                contract.ClientReviewRequestedAt = DateTime.UtcNow;
+                contract.ClientReviewComments = request.Comments;
+                if (!string.IsNullOrEmpty(request.PreferredScheduleNotes))
+                {
+                    contract.Comments.Add($"Client preferred schedule: {request.PreferredScheduleNotes}");
+                }
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                // Record negotiation history
+                await RecordNegotiationHistoryAsync(contract, clientId, ActorType.Client, 
+                    NegotiationAction.ClientRequestedReview, request.Comments);
+
+                await _context.SaveChangesAsync();
+
+                // Notify caregiver
+                await _notificationService.NotifyCaregiverOfClientResponseAsync(contractId, "review_requested");
+
+                _logger.LogInformation("Contract {ContractId} review requested by client {ClientId}", contractId, clientId);
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error requesting review for contract {ContractId} by client {ClientId}", contractId, clientId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> CaregiverReviseContractAsync(string caregiverId, CaregiverContractRevisionDTO revision)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == revision.ContractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Caregiver not authorized for this contract");
+
+                if (contract.Status != ContractStatus.ClientReviewRequested)
+                    throw new InvalidOperationException($"Contract cannot be revised. Current status: {contract.Status}");
+
+                // Validate revised schedule
+                ValidateSchedule(revision.RevisedSchedule, contract.SelectedPackage.VisitsPerWeek);
+
+                // Convert schedule DTOs to entities
+                var scheduleEntities = revision.RevisedSchedule.Select(s => new ScheduledVisit
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    DayOfWeek = Enum.Parse<DayOfWeek>(s.DayOfWeek, true),
+                    StartTime = s.StartTime,
+                    EndTime = s.EndTime
+                }).ToList();
+
+                // Get client and caregiver details for enriched contract generation
+                var client = await _context.Clients
+                    .FirstOrDefaultAsync(c => c.Id.ToString() == contract.ClientId);
+                var caregiver = await _context.CareGivers
+                    .FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
+                var gig = await _context.Gigs
+                    .FirstOrDefaultAsync(g => g.Id.ToString() == contract.GigId);
+
+                // Build enriched data for LLM
+                var enrichedData = new ContractGenerationDataDTO
+                {
+                    ContractId = contract.Id,
+                    OrderId = contract.OrderId ?? "",
+                    GeneratedAt = DateTime.UtcNow,
+                    ClientId = contract.ClientId,
+                    ClientFullName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Client",
+                    ClientEmail = client?.Email,
+                    ClientPhone = client?.PhoneNo,
+                    CaregiverId = caregiverId,
+                    CaregiverFullName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Caregiver",
+                    CaregiverEmail = caregiver?.Email,
+                    CaregiverPhone = caregiver?.PhoneNo,
+                    CaregiverQualifications = caregiver?.AboutMe,
+                    GigTitle = gig?.Title ?? "Care Service",
+                    GigDescription = gig != null ? string.Join(", ", gig.PackageDetails ?? new List<string>()) : null,
+                    GigCategory = gig?.Category,
+                    Package = contract.SelectedPackage,
+                    TotalAmountPaid = contract.TotalAmount,
+                    Schedule = scheduleEntities,
+                    ServiceAddress = revision.ServiceAddress ?? contract.ServiceAddress ?? "",
+                    City = client?.PreferredCity,
+                    State = client?.PreferredState,
+                    SpecialClientRequirements = revision.SpecialClientRequirements ?? contract.SpecialClientRequirements,
+                    AccessInstructions = revision.AccessInstructions ?? contract.AccessInstructions,
+                    CaregiverNotes = revision.AdditionalNotes ?? contract.CaregiverAdditionalNotes,
+                    Tasks = contract.Tasks,
+                    ContractStartDate = contract.ContractStartDate,
+                    ContractEndDate = contract.ContractEndDate
+                };
+
+                // Regenerate contract terms with enriched data
+                var contractTerms = await _llmService.GenerateContractWithScheduleAsync(enrichedData);
+
+                // Update contract
+                contract.Schedule = scheduleEntities;
+                contract.ServiceAddress = revision.ServiceAddress ?? contract.ServiceAddress;
+                contract.SpecialClientRequirements = revision.SpecialClientRequirements ?? contract.SpecialClientRequirements;
+                contract.AccessInstructions = revision.AccessInstructions ?? contract.AccessInstructions;
+                contract.CaregiverAdditionalNotes = revision.AdditionalNotes ?? contract.CaregiverAdditionalNotes;
+                contract.GeneratedTerms = contractTerms;
+                contract.Status = ContractStatus.Revised;
+                contract.NegotiationRound = 2;
+                contract.Comments.Add($"Revision notes: {revision.RevisionNotes}");
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                // Record negotiation history
+                await RecordNegotiationHistoryAsync(contract, caregiverId, ActorType.Caregiver, 
+                    NegotiationAction.CaregiverRevised, revision.RevisionNotes);
+
+                await _context.SaveChangesAsync();
+
+                // Notify client of revision
+                await _notificationService.SendContractNotificationToClientAsync(contract.Id);
+
+                _logger.LogInformation("Contract {ContractId} revised by caregiver {CaregiverId}", revision.ContractId, caregiverId);
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error revising contract {ContractId} by caregiver {CaregiverId}", revision.ContractId, caregiverId);
+                throw;
+            }
+        }
+
+        public async Task<ContractDTO> ClientRejectContractAsync(string contractId, string clientId, ClientContractRejectionDTO? request)
+        {
+            try
+            {
+                var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+                if (contract == null)
+                    throw new InvalidOperationException("Contract not found");
+
+                if (contract.ClientId != clientId)
+                    throw new UnauthorizedAccessException("Client not authorized for this contract");
+
+                // Client can only reject in Round 2 (after revision)
+                if (contract.NegotiationRound < 2)
+                    throw new InvalidOperationException("You can only reject after requesting a review and receiving a revision. Please request review first or approve the contract.");
+
+                if (contract.Status != ContractStatus.Revised)
+                    throw new InvalidOperationException($"Contract cannot be rejected. Current status: {contract.Status}");
+
+                // Update contract
+                contract.Status = ContractStatus.ClientRejected;
+                contract.RejectedAt = DateTime.UtcNow;
+                contract.RejectedBy = clientId;
+                contract.RejectionReason = request?.Reason ?? "Client rejected after revision";
+                contract.UpdatedAt = DateTime.UtcNow;
+
+                // Record negotiation history
+                await RecordNegotiationHistoryAsync(contract, clientId, ActorType.Client, 
+                    NegotiationAction.ClientRejected, request?.Reason);
+
+                await _context.SaveChangesAsync();
+
+                // Notify caregiver
+                await _notificationService.NotifyCaregiverOfClientResponseAsync(contractId, "rejected");
+
+                _logger.LogInformation("Contract {ContractId} rejected by client {ClientId}. Reason: {Reason}", 
+                    contractId, clientId, request?.Reason ?? "No reason provided");
+                
+                return MapToContractDTO(contract);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error rejecting contract {ContractId} by client {ClientId}", contractId, clientId);
+                throw;
+            }
+        }
+
+        public async Task<List<ContractNegotiationHistoryDTO>> GetNegotiationHistoryAsync(string contractId)
+        {
+            try
+            {
+                var history = await _context.ContractNegotiationHistory
+                    .Where(h => h.ContractId == contractId)
+                    .OrderBy(h => h.CreatedAt)
+                    .ToListAsync();
+
+                return history.Select(h => new ContractNegotiationHistoryDTO
+                {
+                    Id = h.Id,
+                    ContractId = h.ContractId,
+                    OrderId = h.OrderId,
+                    ActorId = h.ActorId,
+                    ActorType = h.ActorType.ToString(),
+                    Action = h.Action.ToString(),
+                    Round = h.Round,
+                    ScheduleSnapshot = h.ScheduleSnapshot?.Select(s => new ScheduledVisitDTO
+                    {
+                        DayOfWeek = s.DayOfWeek.ToString(),
+                        StartTime = s.StartTime,
+                        EndTime = s.EndTime
+                    }).ToList() ?? new List<ScheduledVisitDTO>(),
+                    ServiceAddressSnapshot = h.ServiceAddressSnapshot,
+                    SpecialRequirementsSnapshot = h.SpecialRequirementsSnapshot,
+                    Comments = h.Comments,
+                    CreatedAt = h.CreatedAt
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting negotiation history for contract {ContractId}", contractId);
+                throw;
+            }
+        }
+
+        public async Task<List<ContractDTO>> GetPendingContractsForClientAsync(string clientId)
+        {
+            try
+            {
+                var contracts = await _context.Contracts
+                    .Where(c => c.ClientId == clientId && 
+                           (c.Status == ContractStatus.PendingClientApproval || 
+                            c.Status == ContractStatus.Revised))
+                    .OrderByDescending(c => c.CreatedAt)
+                    .ToListAsync();
+
+                return contracts.Select(MapToContractDTO).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting pending contracts for client {ClientId}", clientId);
+                return new List<ContractDTO>();
+            }
+        }
+
+        // ========================================
+        // Helper Methods
+        // ========================================
+
+        private void ValidateSchedule(List<ScheduledVisitDTO> schedule, int expectedVisitsPerWeek)
+        {
+            if (schedule == null || schedule.Count == 0)
+                throw new ArgumentException("Schedule is required");
+
+            if (schedule.Count != expectedVisitsPerWeek)
+                throw new ArgumentException($"Schedule must have exactly {expectedVisitsPerWeek} visits per week as per the order");
+
+            foreach (var visit in schedule)
+            {
+                // Validate day of week
+                if (!Enum.TryParse<DayOfWeek>(visit.DayOfWeek, true, out _))
+                    throw new ArgumentException($"Invalid day of week: {visit.DayOfWeek}");
+
+                // Validate time format
+                if (!TimeSpan.TryParse(visit.StartTime, out var startTime))
+                    throw new ArgumentException($"Invalid start time format: {visit.StartTime}");
+
+                if (!TimeSpan.TryParse(visit.EndTime, out var endTime))
+                    throw new ArgumentException($"Invalid end time format: {visit.EndTime}");
+
+                // Validate duration (4-6 hours)
+                var duration = endTime - startTime;
+                if (duration.TotalHours < 4 || duration.TotalHours > 6)
+                    throw new ArgumentException($"Each visit must be between 4 and 6 hours. Got: {duration.TotalHours:F1} hours");
+            }
+        }
+
+        private async Task RecordNegotiationHistoryAsync(Contract contract, string actorId, ActorType actorType, 
+            NegotiationAction action, string? comments)
+        {
+            var history = new ContractNegotiationHistory
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                ContractId = contract.Id,
+                OrderId = contract.OrderId,
+                ActorId = actorId,
+                ActorType = actorType,
+                Action = action,
+                Round = contract.NegotiationRound,
+                ScheduleSnapshot = contract.Schedule?.ToList() ?? new List<ScheduledVisit>(),
+                ServiceAddressSnapshot = contract.ServiceAddress,
+                SpecialRequirementsSnapshot = contract.SpecialClientRequirements,
+                AccessInstructionsSnapshot = contract.AccessInstructions,
+                AdditionalNotesSnapshot = contract.CaregiverAdditionalNotes,
+                Comments = comments,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.ContractNegotiationHistory.AddAsync(history);
+        }
+
         private ContractDTO MapToContractDTO(Contract contract)
         {
             return new ContractDTO
             {
                 Id = contract.Id,
+                OrderId = contract.OrderId,
                 GigId = contract.GigId,
                 ClientId = contract.ClientId,
                 CaregiverId = contract.CaregiverId,
@@ -756,6 +1297,27 @@ namespace Infrastructure.Content.Services
                 TotalAmount = contract.TotalAmount,
                 Status = contract.Status.ToString(),
                 PaymentTransactionId = contract.PaymentTransactionId,
+                
+                // NEW: Caregiver-initiated fields
+                SubmittedByCaregiverId = contract.SubmittedByCaregiverId,
+                SubmittedAt = contract.SubmittedAt,
+                Schedule = contract.Schedule?.Select(s => new ScheduledVisitDTO
+                {
+                    DayOfWeek = s.DayOfWeek.ToString(),
+                    StartTime = s.StartTime,
+                    EndTime = s.EndTime
+                }).ToList() ?? new List<ScheduledVisitDTO>(),
+                ServiceAddress = contract.ServiceAddress,
+                SpecialClientRequirements = contract.SpecialClientRequirements,
+                AccessInstructions = contract.AccessInstructions,
+                CaregiverAdditionalNotes = contract.CaregiverAdditionalNotes,
+                ClientApprovedAt = contract.ClientApprovedAt,
+                ClientApprovedBy = contract.ClientApprovedBy,
+                NegotiationRound = contract.NegotiationRound,
+                ClientReviewRequestedAt = contract.ClientReviewRequestedAt,
+                ClientReviewComments = contract.ClientReviewComments,
+                
+                // LEGACY fields
                 SentAt = contract.SentAt,
                 RespondedAt = contract.RespondedAt,
                 AcceptedAt = contract.AcceptedAt,

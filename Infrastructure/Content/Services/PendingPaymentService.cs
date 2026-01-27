@@ -1,0 +1,325 @@
+using Application.DTOs;
+using Application.Interfaces;
+using Application.Interfaces.Content;
+using Domain.Entities;
+using Infrastructure.Content.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
+
+namespace Infrastructure.Content.Services
+{
+    public class PendingPaymentService : IPendingPaymentService
+    {
+        private readonly CareProDbContext _dbContext;
+        private readonly IGigServices _gigServices;
+        private readonly IClientOrderService _clientOrderService;
+        private readonly FlutterwaveService _flutterwaveService;
+        private readonly ILogger<PendingPaymentService> _logger;
+        private readonly IConfiguration _configuration;
+
+        // Service charge rate (10%)
+        private const decimal SERVICE_CHARGE_RATE = 0.10m;
+        
+        // Flutterwave local card fee rate (1.4%, capped at 2000 NGN)
+        private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
+        private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
+
+        public PendingPaymentService(
+            CareProDbContext dbContext,
+            IGigServices gigServices,
+            IClientOrderService clientOrderService,
+            FlutterwaveService flutterwaveService,
+            ILogger<PendingPaymentService> logger,
+            IConfiguration configuration)
+        {
+            _dbContext = dbContext;
+            _gigServices = gigServices;
+            _clientOrderService = clientOrderService;
+            _flutterwaveService = flutterwaveService;
+            _logger = logger;
+            _configuration = configuration;
+        }
+
+        public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
+        {
+            var errors = new List<string>();
+
+            // Validate request
+            if (string.IsNullOrEmpty(request.GigId))
+                errors.Add("GigId is required.");
+            
+            if (string.IsNullOrEmpty(request.ServiceType))
+                errors.Add("ServiceType is required.");
+            
+            if (!new[] { "one-time", "weekly", "monthly" }.Contains(request.ServiceType?.ToLower()))
+                errors.Add("ServiceType must be 'one-time', 'weekly', or 'monthly'.");
+            
+            if (request.FrequencyPerWeek < 1 || request.FrequencyPerWeek > 7)
+                errors.Add("FrequencyPerWeek must be between 1 and 7.");
+            
+            if (string.IsNullOrEmpty(request.Email))
+                errors.Add("Email is required.");
+            
+            if (string.IsNullOrEmpty(request.RedirectUrl))
+                errors.Add("RedirectUrl is required.");
+
+            if (errors.Any())
+                return Result<PendingPaymentResponse>.Failure(errors);
+
+            // Fetch gig to get base price
+            var gig = await _gigServices.GetGigAsync(request.GigId);
+            if (gig == null)
+            {
+                return Result<PendingPaymentResponse>.Failure(new List<string> { "Gig not found." });
+            }
+
+            // Validate gig is active
+            if (gig.Status?.ToLower() != "active" && gig.Status?.ToLower() != "published")
+            {
+                return Result<PendingPaymentResponse>.Failure(new List<string> { "This gig is not currently available for purchase." });
+            }
+
+            // Calculate amounts
+            decimal basePrice = gig.Price;
+            decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType.ToLower(), request.FrequencyPerWeek);
+            decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
+            decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);
+            decimal totalAmount = orderFee + serviceCharge + flutterwaveFees;
+
+            // Generate unique transaction reference
+            string transactionReference = $"CAREPRO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
+
+            // Create pending payment record
+            var pendingPayment = new PendingPayment
+            {
+                Id = ObjectId.GenerateNewId(),
+                TransactionReference = transactionReference,
+                GigId = request.GigId,
+                ClientId = clientId,
+                Email = request.Email,
+                ServiceType = request.ServiceType.ToLower(),
+                FrequencyPerWeek = request.FrequencyPerWeek,
+                BasePrice = basePrice,
+                OrderFee = orderFee,
+                ServiceCharge = serviceCharge,
+                FlutterwaveFees = flutterwaveFees,
+                TotalAmount = totalAmount,
+                Currency = "NGN",
+                RedirectUrl = request.RedirectUrl,
+                Status = PendingPaymentStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            // Call Flutterwave to initiate payment
+            try
+            {
+                var flutterwaveResponse = await _flutterwaveService.InitiatePayment(
+                    totalAmount,
+                    request.Email,
+                    "NGN",
+                    transactionReference,
+                    request.RedirectUrl
+                );
+
+                // Parse Flutterwave response to extract payment link
+                var paymentLink = ExtractPaymentLink(flutterwaveResponse);
+                if (string.IsNullOrEmpty(paymentLink))
+                {
+                    _logger.LogError("Failed to get payment link from Flutterwave. Response: {Response}", flutterwaveResponse);
+                    return Result<PendingPaymentResponse>.Failure(new List<string> { "Failed to initialize payment with Flutterwave." });
+                }
+
+                pendingPayment.PaymentLink = paymentLink;
+
+                // Save pending payment to database
+                _dbContext.PendingPayments.Add(pendingPayment);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Payment initiated. TxRef: {TxRef}, GigId: {GigId}, Amount: {Amount}",
+                    transactionReference, request.GigId, totalAmount);
+
+                return Result<PendingPaymentResponse>.Success(new PendingPaymentResponse
+                {
+                    Success = true,
+                    Message = "Payment initiated successfully.",
+                    TransactionReference = transactionReference,
+                    PaymentLink = paymentLink,
+                    Breakdown = new PaymentBreakdown
+                    {
+                        BasePrice = basePrice,
+                        ServiceType = request.ServiceType.ToLower(),
+                        FrequencyPerWeek = request.FrequencyPerWeek,
+                        OrderFee = orderFee,
+                        ServiceCharge = serviceCharge,
+                        FlutterwaveFees = flutterwaveFees,
+                        TotalAmount = totalAmount,
+                        Currency = "NGN"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating Flutterwave payment for GigId: {GigId}", request.GigId);
+                return Result<PendingPaymentResponse>.Failure(new List<string> { "An error occurred while processing payment." });
+            }
+        }
+
+        public async Task<PendingPayment?> GetByTransactionReferenceAsync(string transactionReference)
+        {
+            return await _dbContext.PendingPayments
+                .FirstOrDefaultAsync(p => p.TransactionReference == transactionReference);
+        }
+
+        public async Task<Result<PendingPayment>> CompletePaymentAsync(string transactionReference, string flutterwaveTransactionId, decimal paidAmount)
+        {
+            var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);
+            if (pendingPayment == null)
+            {
+                _logger.LogWarning("Payment completion attempted for unknown TxRef: {TxRef}", transactionReference);
+                return Result<PendingPayment>.Failure(new List<string> { "Payment record not found." });
+            }
+
+            // CRITICAL SECURITY CHECK: Verify the paid amount matches expected amount
+            // Allow small tolerance for rounding (0.01)
+            if (Math.Abs(paidAmount - pendingPayment.TotalAmount) > 0.01m)
+            {
+                _logger.LogCritical(
+                    "AMOUNT MISMATCH DETECTED! TxRef: {TxRef}, Expected: {Expected}, Paid: {Paid}. Possible tampering attempt.",
+                    transactionReference, pendingPayment.TotalAmount, paidAmount);
+                
+                pendingPayment.Status = PendingPaymentStatus.AmountMismatch;
+                pendingPayment.ErrorMessage = $"Amount mismatch. Expected: {pendingPayment.TotalAmount}, Paid: {paidAmount}";
+                await _dbContext.SaveChangesAsync();
+                
+                return Result<PendingPayment>.Failure(new List<string> { "Payment amount does not match. This incident has been logged." });
+            }
+
+            // Create the client order
+            var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
+            {
+                ClientId = pendingPayment.ClientId,
+                GigId = pendingPayment.GigId,
+                PaymentOption = pendingPayment.ServiceType,
+                Amount = (int)pendingPayment.TotalAmount,
+                TransactionId = flutterwaveTransactionId
+            });
+
+            if (!orderResult.IsSuccess)
+            {
+                _logger.LogError("Failed to create client order for TxRef: {TxRef}. Errors: {Errors}",
+                    transactionReference, string.Join(", ", orderResult.Errors));
+                
+                pendingPayment.Status = PendingPaymentStatus.Failed;
+                pendingPayment.ErrorMessage = "Payment received but failed to create order. Please contact support.";
+                await _dbContext.SaveChangesAsync();
+                
+                return Result<PendingPayment>.Failure(new List<string> { "Failed to create order after payment." });
+            }
+
+            // Update pending payment as completed
+            pendingPayment.Status = PendingPaymentStatus.Completed;
+            pendingPayment.FlutterwaveTransactionId = flutterwaveTransactionId;
+            pendingPayment.CompletedAt = DateTime.UtcNow;
+            pendingPayment.ClientOrderId = orderResult.Value?.Id;
+            
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
+                transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
+
+            return Result<PendingPayment>.Success(pendingPayment);
+        }
+
+        public async Task<Result<PendingPayment>> FailPaymentAsync(string transactionReference, string errorMessage)
+        {
+            var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);
+            if (pendingPayment == null)
+            {
+                return Result<PendingPayment>.Failure(new List<string> { "Payment record not found." });
+            }
+
+            pendingPayment.Status = PendingPaymentStatus.Failed;
+            pendingPayment.ErrorMessage = errorMessage;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogWarning("Payment failed. TxRef: {TxRef}, Error: {Error}", transactionReference, errorMessage);
+
+            return Result<PendingPayment>.Success(pendingPayment);
+        }
+
+        public async Task<Result<PaymentStatusResponse>> GetPaymentStatusAsync(string transactionReference)
+        {
+            var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);
+            if (pendingPayment == null)
+            {
+                return Result<PaymentStatusResponse>.Failure(new List<string> { "Payment not found." });
+            }
+
+            return Result<PaymentStatusResponse>.Success(new PaymentStatusResponse
+            {
+                Success = pendingPayment.Status == PendingPaymentStatus.Completed,
+                Status = pendingPayment.Status.ToString().ToLower(),
+                TransactionReference = pendingPayment.TransactionReference,
+                FlutterwaveTransactionId = pendingPayment.FlutterwaveTransactionId,
+                PaymentDate = pendingPayment.CompletedAt,
+                ClientOrderId = pendingPayment.ClientOrderId,
+                Breakdown = new PaymentBreakdown
+                {
+                    BasePrice = pendingPayment.BasePrice,
+                    ServiceType = pendingPayment.ServiceType,
+                    FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
+                    OrderFee = pendingPayment.OrderFee,
+                    ServiceCharge = pendingPayment.ServiceCharge,
+                    FlutterwaveFees = pendingPayment.FlutterwaveFees,
+                    TotalAmount = pendingPayment.TotalAmount,
+                    Currency = pendingPayment.Currency
+                },
+                ErrorMessage = pendingPayment.ErrorMessage
+            });
+        }
+
+        #region Private Methods
+
+        private decimal CalculateOrderFee(decimal basePrice, string serviceType, int frequencyPerWeek)
+        {
+            return serviceType switch
+            {
+                "one-time" => basePrice,
+                "weekly" => basePrice * frequencyPerWeek,
+                "monthly" => basePrice * frequencyPerWeek * 4,
+                _ => basePrice
+            };
+        }
+
+        private decimal CalculateFlutterwaveFees(decimal amount)
+        {
+            // Flutterwave local card fee: 1.4% capped at 2000 NGN
+            decimal fee = amount * FLUTTERWAVE_FEE_RATE;
+            return Math.Min(Math.Round(fee, 2), FLUTTERWAVE_FEE_CAP);
+        }
+
+        private string? ExtractPaymentLink(string flutterwaveResponse)
+        {
+            try
+            {
+                var response = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(flutterwaveResponse);
+                if (response.TryGetProperty("data", out var data) && 
+                    data.TryGetProperty("link", out var link))
+                {
+                    return link.GetString();
+                }
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        #endregion
+    }
+}

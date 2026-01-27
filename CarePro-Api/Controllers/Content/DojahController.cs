@@ -47,13 +47,13 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 _logger.LogInformation("=== WEBHOOK DEBUG START ===");
-                _logger.LogInformation("Raw Dojah webhook payload: {Payload}", rawPayload?.ToString());
+                _logger.LogInformation("Dojah webhook received (payload logged at Debug level only)");
 
                 // Try to deserialize as string first to see raw JSON
                 var json = rawPayload?.ToString();
                 if (!string.IsNullOrEmpty(json))
                 {
-                    _logger.LogInformation("Raw JSON string: {JsonString}", json);
+                    _logger.LogDebug("Raw JSON received: {Length} characters", json.Length);
 
                     // Try to deserialize to our DTO
                     try
@@ -62,7 +62,7 @@ namespace CarePro_Api.Controllers.Content
                         {
                             PropertyNameCaseInsensitive = true
                         });
-                        _logger.LogInformation("Successfully parsed to DojahWebhookRequest: ReferenceId={ReferenceId}, Status={Status}",
+                        _logger.LogInformation("Successfully parsed webhook: ReferenceId={ReferenceId}, Status={Status}",
                             parsedRequest?.ReferenceId, parsedRequest?.VerificationStatus);
                     }
                     catch (Exception parseEx)
@@ -92,9 +92,10 @@ namespace CarePro_Api.Controllers.Content
                 using var reader = new StreamReader(Request.Body);
                 var rawBody = await reader.ReadToEndAsync();
 
-                _logger.LogInformation("Raw webhook body: {RawBody}", rawBody);
-                _logger.LogInformation("Content-Type: {ContentType}", Request.ContentType);
-                _logger.LogInformation("Headers: {Headers}", string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
+                _logger.LogInformation("Raw webhook body received: {Length} characters", rawBody?.Length ?? 0);
+                _logger.LogDebug("Content-Type: {ContentType}", Request.ContentType);
+                // SECURITY: Don't log headers - they may contain authorization tokens
+                _logger.LogInformation("Headers count: {HeaderCount}", Request.Headers.Count);
 
                 // Try to parse the raw JSON
                 if (!string.IsNullOrEmpty(rawBody))
@@ -107,8 +108,8 @@ namespace CarePro_Api.Controllers.Content
                         };
 
                         var parsedRequest = System.Text.Json.JsonSerializer.Deserialize<DojahWebhookRequest>(rawBody, options);
-                        _logger.LogInformation("Parsed webhook - ReferenceId: {ReferenceId}, Status: {Status}, Value: {Value}",
-                            parsedRequest?.ReferenceId, parsedRequest?.VerificationStatus, parsedRequest?.Value);
+                        _logger.LogInformation("Parsed webhook - ReferenceId: {ReferenceId}, Status: {Status}",
+                            parsedRequest?.ReferenceId, parsedRequest?.VerificationStatus);
                     }
                     catch (Exception parseEx)
                     {
@@ -280,24 +281,21 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogInformation("Request.Message: '{Message}'", request.Message);
                 _logger.LogInformation("Request.Metadata?.UserId: '{MetadataUserId}'", request.Metadata?.UserId);
 
-                // Log extracted data from nested structures
+                // SECURITY: Log only non-sensitive verification metadata, not actual PII
                 if (request.Data?.Email?.Data?.Email != null)
                 {
-                    _logger.LogInformation("Email from email verification: '{Email}'", request.Data.Email.Data.Email);
+                    _logger.LogInformation("Email verification data received for user");
                 }
 
                 if (request.Data?.UserData?.Data != null)
                 {
-                    var userData = request.Data.UserData.Data;
-                    _logger.LogInformation("User data - Email: '{Email}', FirstName: '{FirstName}', LastName: '{LastName}', DOB: '{DOB}'",
-                        userData.Email, userData.FirstName, userData.LastName, userData.Dob);
+                    _logger.LogInformation("User data received - verification in progress");
                 }
 
                 if (request.Data?.GovernmentData?.Data?.Bvn?.Entity != null)
                 {
-                    var bvnData = request.Data.GovernmentData.Data.Bvn.Entity;
-                    _logger.LogInformation("BVN data - BVN: '{BVN}', FirstName: '{FirstName}', LastName: '{LastName}', DOB: '{DOB}'",
-                        bvnData?.Bvn ?? "", bvnData?.FirstName ?? "", bvnData?.LastName ?? "", bvnData?.DateOfBirth ?? "");
+                    // SECURITY: Never log BVN or other government IDs
+                    _logger.LogInformation("BVN verification data received for user");
                 }
 
                 // Check if this is a test event

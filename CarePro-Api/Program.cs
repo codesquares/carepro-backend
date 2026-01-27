@@ -20,6 +20,8 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using CarePro_Api.Middleware;
+using CarePro_Api.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -101,6 +103,8 @@ builder.Services.AddSingleton(x =>
 //builder.Services.AddScoped<IAuthResponseService, AuthResponseService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IGoogleAuthService, GoogleAuthService>();
+builder.Services.AddHttpClient<GoogleAuthService>();
 builder.Services.AddScoped<ICareGiverService, CareGiverService>();
 builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IGigServices, GigServices>();
@@ -120,6 +124,12 @@ builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
+
+// Secure payment services
+builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
+
+// Content sanitization (XSS prevention)
+builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
@@ -279,7 +289,8 @@ builder.Services.AddCors(options =>
             "https://api.oncarepro.com", "http://api.oncarepro.com",
             "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173",
             "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com",
-            "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com")
+            "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com",
+            "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:3000")
                .AllowAnyHeader()
                .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                .AllowCredentials();
@@ -292,7 +303,25 @@ builder.Services.AddCors(options =>
 
 /// Add services to the container. (MIDDLEWARES)
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    // Add validation filter for RFC 7807 ProblemDetails with backward compatibility
+    options.Filters.Add<ValidationProblemDetailsFilter>();
+});
+
+// Configure ProblemDetails for consistent error responses
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        // Add trace ID to all ProblemDetails responses
+        context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+        // Backward compatibility: add message field
+        context.ProblemDetails.Extensions["message"] = context.ProblemDetails.Detail;
+        context.ProblemDetails.Extensions["success"] = false;
+    };
+});
+
 builder.Services.AddEndpointsApiExplorer();
 
 /// Add Swagger
@@ -329,13 +358,23 @@ builder.Services.AddSignalR();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+
+// CORS must run FIRST - before any middleware that might return a response
+// This ensures preflight OPTIONS requests get proper CORS headers
+app.UseCors("default");
+
+// Global exception handler - catches all exceptions
+app.UseGlobalExceptionHandler();
+
+// Rate limiting - protect against brute-force attacks
+app.UseRateLimiting();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 
 app.UseRouting();
-app.UseCors("default");
 
 app.UseAuthentication();
 app.UseAuthorization();

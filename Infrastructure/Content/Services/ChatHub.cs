@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces.Common;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -17,11 +18,13 @@ namespace Infrastructure.Content.Services
     {
         private readonly ChatRepository _chatRepository;
         private readonly ILogger<ChatHub> _logger;
+        private readonly IContentSanitizer _contentSanitizer;
 
-        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger)
+        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer)
         {
             _chatRepository = chatRepository;
             _logger = logger;
+            _contentSanitizer = contentSanitizer;
         }
 
 
@@ -136,6 +139,9 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", senderId, receiverId);
 
+            // Sanitize message content to prevent XSS attacks
+            var sanitizedMessage = _contentSanitizer.SanitizeText(message);
+
             // Create message object
             //var messageId = Guid.NewGuid().ToString();
             //var timestamp = DateTime.UtcNow;
@@ -144,7 +150,7 @@ namespace Infrastructure.Content.Services
             {
                 SenderId = senderId,
                 ReceiverId = receiverId,
-                Message = message,
+                Message = sanitizedMessage,
                 MessageId = ObjectId.GenerateNewId(),
                 Timestamp = DateTime.UtcNow
             };

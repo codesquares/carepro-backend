@@ -4,18 +4,23 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using System;
+using Microsoft.AspNetCore.Authorization;
+using Application.Interfaces.Common;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class ChatController : ControllerBase
     {
         private readonly ChatRepository _chatRepository;
+        private readonly IContentSanitizer _contentSanitizer;
 
-        public ChatController(ChatRepository chatRepository)
+        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer)
         {
             _chatRepository = chatRepository;
+            _contentSanitizer = contentSanitizer;
         }
 
         [HttpGet("history")]
@@ -43,6 +48,9 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { error = "SenderId, ReceiverId, and Message are required" });
                 }
 
+                // Sanitize message content to prevent XSS attacks
+                var sanitizedMessage = _contentSanitizer.SanitizeText(request.Message);
+
                 // Create a new chat message
                 var chatMessage = new ChatMessage
                 {
@@ -50,7 +58,7 @@ namespace CarePro_Api.Controllers.Content
                     MessageId = ObjectId.GenerateNewId(),
                     SenderId = request.SenderId,
                     ReceiverId = request.ReceiverId,
-                    Message = request.Message,
+                    Message = sanitizedMessage,
                     Timestamp = request.Timestamp ?? DateTime.UtcNow
                 };
 

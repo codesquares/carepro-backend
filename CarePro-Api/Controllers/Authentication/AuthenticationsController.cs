@@ -14,11 +14,16 @@ namespace CarePro_Api.Controllers.Authentication
     {
         private readonly IAuthService authService;
         private readonly ITokenHandler tokenHandler;
+        private readonly IGoogleAuthService _googleAuthService;
 
-        public AuthenticationsController(IAuthService authService, ITokenHandler tokenHandler)
+        public AuthenticationsController(
+            IAuthService authService, 
+            ITokenHandler tokenHandler,
+            IGoogleAuthService googleAuthService)
         {
             this.authService = authService;
             this.tokenHandler = tokenHandler;
+            _googleAuthService = googleAuthService;
         }
 
 
@@ -162,6 +167,85 @@ namespace CarePro_Api.Controllers.Authentication
             }
         }
 
+        #region Google OAuth Endpoints
+
+        /// <summary>
+        /// Sign in with Google account (for existing users)
+        /// </summary>
+        [HttpPost("GoogleSignIn")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GoogleSignIn([FromBody] GoogleSignInRequest request)
+        {
+            try
+            {
+                var (response, conflict) = await _googleAuthService.GoogleSignInAsync(request);
+
+                if (conflict != null)
+                {
+                    // Account needs linking or doesn't exist
+                    return conflict.CanLinkAccounts 
+                        ? Ok(new { requiresLinking = true, conflict })
+                        : NotFound(new { message = conflict.Message, conflict });
+                }
+
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { ErrorMessage = "An error occurred during Google sign in.", Details = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Link Google account to existing local account
+        /// User must be logged in (have valid session)
+        /// </summary>
+        [HttpPost("LinkGoogleAccount")]
+        [Authorize]
+        public async Task<IActionResult> LinkGoogleAccount([FromBody] LinkGoogleAccountRequest request)
+        {
+            try
+            {
+                var response = await _googleAuthService.LinkGoogleAccountAsync(request);
+                return Ok(new { message = "Google account linked successfully", response });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { ErrorMessage = "An error occurred while linking Google account.", Details = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Check if email exists before Google sign up
+        /// </summary>
+        [HttpGet("CheckEmailExists")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CheckEmailExists([FromQuery] string email)
+        {
+            try
+            {
+                var (exists, role, authProvider) = await _googleAuthService.CheckEmailExistsAsync(email);
+                return Ok(new { exists, role, authProvider });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { ErrorMessage = "An error occurred.", Details = ex.Message });
+            }
+        }
+
+        #endregion Google OAuth Endpoints
 
     }
 }

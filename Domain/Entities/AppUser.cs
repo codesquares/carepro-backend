@@ -30,5 +30,10 @@ namespace Domain.Entities
         public bool EmailConfirmed { get; set; }
         public string? ConnectionId { get; set; }
         public List<string>? DeviceIp { get; set; }
+        
+        // Google OAuth fields
+        public string? GoogleId { get; set; }
+        public string? AuthProvider { get; set; } // "local", "google", or "both" - null defaults to "local"
+        public string? ProfilePicture { get; set; }
     }
 }

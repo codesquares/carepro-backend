@@ -4,11 +4,13 @@ using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "Client")]
     public class ClientPreferencesController : ControllerBase
     {
         private readonly IClientPreferenceService clientPreferenceService;

@@ -11,6 +11,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "Caregiver,Client")]
     public class AssessmentsController : ControllerBase
     {
         private readonly IAssessmentService assessmentService;

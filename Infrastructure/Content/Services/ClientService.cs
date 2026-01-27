@@ -52,16 +52,41 @@ namespace Infrastructure.Content.Services
 
         public async Task<ClientDTO> CreateClientUserAsync(AddClientUserRequest addClientUserRequest, string? origin)
         {
-            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addClientUserRequest.Password);
+            // Validate email is provided
+            if (string.IsNullOrWhiteSpace(addClientUserRequest.Email))
+            {
+                throw new ArgumentException("Email is required", nameof(addClientUserRequest.Email));
+            }
 
-            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email == addClientUserRequest.Email);
-
-            // var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email == addClientUserRequest.Email);
+            // Check for duplicate email in Clients collection (case-insensitive)
+            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
 
             if (clientUserExist != null)
             {
+                logger.LogWarning("Duplicate client registration attempt with email: {Email}", addClientUserRequest.Email);
                 throw new InvalidOperationException("User already exist, Kindly Login or use a different email!");
             }
+
+            // Check for duplicate email in Caregivers collection (case-insensitive)
+            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
+
+            if (caregiverUserExist != null)
+            {
+                logger.LogWarning("Client registration attempted with existing caregiver email: {Email}", addClientUserRequest.Email);
+                throw new InvalidOperationException("This email is already registered as a Caregiver. Please use a different email or sign in to your caregiver account.");
+            }
+
+            // Check for duplicate email in AppUsers collection (case-insensitive)
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
+
+            if (appUserExist != null)
+            {
+                logger.LogWarning("Client registration attempted with existing AppUser email: {Email}", addClientUserRequest.Email);
+                throw new InvalidOperationException("This email is already registered. Please use a different email or sign in.");
+            }
+
+            // Hash password only after all validations pass (performance optimization)
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addClientUserRequest.Password);
 
             /// CONVERT DTO TO DOMAIN OBJECT            
             var clientUser = new Client
@@ -558,6 +583,15 @@ namespace Infrastructure.Content.Services
             client.DeletedOn = DateTime.UtcNow;
 
             careProDbContext.Clients.Update(client);
+
+            // Also soft delete the associated AppUser record
+            var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.AppUserId == objectId);
+            if (appUser != null)
+            {
+                appUser.IsDeleted = true;
+                careProDbContext.AppUsers.Update(appUser);
+            }
+
             await careProDbContext.SaveChangesAsync();
 
             return $"Client with ID '{clientId}' Soft deleted successfully.";

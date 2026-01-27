@@ -7,11 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Authentication;
 using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "SuperAdmin,Admin")]
     public class AdminsController : ControllerBase
     {
         private readonly IAdminUserService adminUserService;

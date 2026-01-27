@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.DTOs.Authentication;
 using Application.Interfaces.Authentication;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
@@ -24,13 +25,60 @@ namespace CarePro_Api.Controllers.Content
         private readonly ICareGiverService careGiverService;
         private readonly ILogger<CareGiversController> logger;
         private readonly IHttpContextAccessor httpContextAccessor;
+        private readonly IGoogleAuthService _googleAuthService;
 
-        public CareGiversController(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<CareGiversController> logger, IHttpContextAccessor httpContextAccessor)
+        public CareGiversController(
+            CareProDbContext careProDbContext, 
+            ICareGiverService careGiverService, 
+            ILogger<CareGiversController> logger, 
+            IHttpContextAccessor httpContextAccessor,
+            IGoogleAuthService googleAuthService)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
             this.httpContextAccessor = httpContextAccessor;
+            _googleAuthService = googleAuthService;
+        }
+
+        /// <summary>
+        /// Sign up as Caregiver using Google account
+        /// User has selected "Caregiver" on the role selection screen
+        /// </summary>
+        [HttpPost("GoogleSignUp")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GoogleSignUp([FromBody] GoogleSignUpRequest request)
+        {
+            try
+            {
+                HttpContext httpContext = httpContextAccessor.HttpContext!;
+                string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
+                                ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+
+                var (response, conflict) = await _googleAuthService.GoogleSignUpCaregiverAsync(request, origin);
+
+                if (conflict != null)
+                {
+                    // Account already exists - prompt to link
+                    return Conflict(new { 
+                        message = conflict.Message, 
+                        requiresLinking = conflict.CanLinkAccounts,
+                        conflict 
+                    });
+                }
+
+                logger.LogInformation("New Caregiver created via Google OAuth: {Email}", response?.Email);
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during Google sign up for Caregiver");
+                return StatusCode(500, new { ErrorMessage = "An error occurred during Google sign up.", Details = ex.Message });
+            }
         }
 
         /// ENDPOINT TO CREATE  CARE GIVER USERS TO THE DATABASE        
@@ -194,15 +242,18 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        /// <summary>
+        /// Get all caregivers - public endpoint returns limited info (no email/phone/address)
+        /// </summary>
         [HttpGet]
         [Route("AllCaregivers")]
-        //[Authorize(Roles = "Client,Admin")]
         public async Task<IActionResult> GetAllCaregiverAsync()
         {
             try
             {
-                logger.LogInformation("Retrieving all Caregivers");
-                var caregivers = await careGiverService.GetAllCaregiverUserAsync();
+                logger.LogInformation("Retrieving all Caregivers (public)");
+                // Use public response to protect PII (no email, phone, address)
+                var caregivers = await careGiverService.GetAllCaregiverUserPublicAsync();
                 return Ok(caregivers);
             }
             catch (InvalidOperationException ex)
@@ -231,15 +282,62 @@ namespace CarePro_Api.Controllers.Content
 
         }
 
+        /// <summary>
+        /// Get all caregivers with full details - Admin only
+        /// </summary>
+        [HttpGet]
+        [Route("AllCaregiversAdmin")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetAllCaregiverAdminAsync()
+        {
+            try
+            {
+                logger.LogInformation("Retrieving all Caregivers (admin - full details)");
+                var caregivers = await careGiverService.GetAllCaregiverUserAsync();
+                return Ok(caregivers);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
+            }
+        }
 
+
+        /// <summary>
+        /// Get single caregiver - public endpoint returns limited info (no email/phone/address)
+        /// </summary>
         [HttpGet]
         [Route("{caregiverId}")]
-        //[Authorize(Roles = "Client,Admin")]
         public async Task<IActionResult> GetCaregiverAsync(string caregiverId)
         {
             try
             {
-                logger.LogInformation("Retrieving all Caregivers");
+                logger.LogInformation("Retrieving Caregiver {CaregiverId} (public)", caregiverId);
+                // Use public response to protect PII
+                var caregiver = await careGiverService.GetCaregiverUserPublicAsync(caregiverId);
+                return Ok(caregiver);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get single caregiver with full details - Admin only
+        /// </summary>
+        [HttpGet]
+        [Route("{caregiverId}/admin")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetCaregiverAdminAsync(string caregiverId)
+        {
+            try
+            {
+                logger.LogInformation("Retrieving Caregiver {CaregiverId} (admin - full details)", caregiverId);
                 var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
                 return Ok(caregiver);
             }
@@ -249,7 +347,7 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = ex.Message });
+                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
             }
         }
 
@@ -554,7 +652,7 @@ namespace CarePro_Api.Controllers.Content
                 return false;
             }
 
-            var user = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email == addCaregiverRequest.Email);
+            var user = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
             if (user != null)
             {
                 ModelState.AddModelError(nameof(addCaregiverRequest.Email),

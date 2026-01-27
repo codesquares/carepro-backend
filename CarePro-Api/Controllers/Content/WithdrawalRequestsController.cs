@@ -12,7 +12,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
-    // [Authorize]
+    [Authorize]
     public class WithdrawalRequestsController : ControllerBase
     {
         private readonly IWithdrawalRequestService _withdrawalRequestService;
