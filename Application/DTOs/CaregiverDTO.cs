@@ -21,7 +21,7 @@ namespace Application.DTOs
 
         public string Email { get; set; } = null!;
 
-        public string PhoneNo { get; set; }
+        public string? PhoneNo { get; set; }
 
         public string Role { get; set; }
 
@@ -70,10 +70,9 @@ namespace Application.DTOs
         [RegularExpression("^(Caregiver)$", ErrorMessage = "Role must be 'Caregiver'")]
         public string Role { get; set; } = null!;
 
-        [Required(ErrorMessage = "Phone number is required")]
         [Phone(ErrorMessage = "Invalid phone number format")]
         [StringLength(20, ErrorMessage = "Phone number cannot exceed 20 characters")]
-        public string PhoneNo { get; set; }
+        public string? PhoneNo { get; set; }
 
         [Required(ErrorMessage = "Password is required")]
         [StringLength(128, MinimumLength = 8, ErrorMessage = "Password must be between 8 and 128 characters")]

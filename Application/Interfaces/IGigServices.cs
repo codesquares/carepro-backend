@@ -29,6 +29,8 @@ namespace Application.Interfaces
 
         Task<string> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest);
 
+        Task<string> SoftDeleteGigAsync(string gigId, string caregiverId);
+
 
     }
 }

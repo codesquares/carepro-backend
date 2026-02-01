@@ -112,7 +112,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-        [Route("caregiver/caregiverId")]
+        [Route("caregiver/{caregiverId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetAllCaregiverGigsAsync(string caregiverId)
         {
@@ -148,7 +148,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-        [Route("service/caregiverId")]
+        [Route("service/{caregiverId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetAllCaregiverGigsServicesAsync(string caregiverId)
         {
@@ -186,7 +186,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-        [Route("caregiverId/paused")]
+        [Route("{caregiverId}/paused")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetAllCaregiverPausedGigsAsync(string caregiverId)
         {
@@ -223,7 +223,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet]
-        [Route("caregiverId/draft")]
+        [Route("{caregiverId}/draft")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<IActionResult> GetAllCaregiverDraftGigsAsync(string caregiverId)
         {
@@ -292,7 +292,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
-        [Route("UpdateGigStatusToPause/gigId")]
+        [Route("UpdateGigStatusToPause/{gigId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<ActionResult<string>> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest)
         {
@@ -328,7 +328,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
-        [Route("UpdateGig/gigId")]
+        [Route("UpdateGig/{gigId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
         public async Task<ActionResult<string>> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
         {
@@ -361,6 +361,45 @@ namespace CarePro_Api.Controllers.Content
 
         }
 
+
+        [HttpDelete]
+        [Route("SoftDeleteGig/{gigId}")]
+        // [Authorize(Roles = "Caregiver, Admin")]
+        public async Task<IActionResult> SoftDeleteGigAsync(string gigId, [FromQuery] string caregiverId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { message = "Caregiver ID is required." });
+                }
+
+                var result = await gigServices.SoftDeleteGigAsync(gigId, caregiverId);
+                logger.LogInformation($"Gig with ID: {gigId} soft deleted by caregiver: {caregiverId}");
+                return Ok(new { message = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during soft delete");
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
 
 
         #region Validation

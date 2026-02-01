@@ -673,12 +673,6 @@ namespace CarePro_Api.Controllers.Content
                     $"{nameof(addCaregiverRequest.LastName)} is required");
             }
 
-            if (string.IsNullOrWhiteSpace(addCaregiverRequest.PhoneNo))
-            {
-                ModelState.AddModelError(nameof(addCaregiverRequest.PhoneNo),
-                    $"{nameof(addCaregiverRequest.PhoneNo)} is required.");
-            }
-
             if (string.IsNullOrWhiteSpace(addCaregiverRequest.Role))
             {
                 ModelState.AddModelError(nameof(addCaregiverRequest.Role),

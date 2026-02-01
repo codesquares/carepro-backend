@@ -28,5 +28,7 @@ namespace Domain.Entities
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedOn { get; set; }
         public bool? IsUpdatedToPause { get; set; }
+        public bool? IsDeleted { get; set; }
+        public DateTime? DeletedOn { get; set; }
     }
 }

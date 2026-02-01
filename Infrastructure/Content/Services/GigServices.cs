@@ -143,7 +143,7 @@ namespace Infrastructure.Content.Services
             var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
 
             var gigs = await careProDbContext.Gigs
-                .Where(x => x.CaregiverId == caregiverId && x.Status == "Draft")
+                .Where(x => x.CaregiverId == caregiverId && x.Status == "Draft" && x.IsDeleted != true)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -194,7 +194,7 @@ namespace Infrastructure.Content.Services
 
 
             var gigs = await careProDbContext.Gigs
-                .Where(x => x.CaregiverId == caregiverId)
+                .Where(x => x.CaregiverId == caregiverId && x.IsDeleted != true)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -244,7 +244,7 @@ namespace Infrastructure.Content.Services
             }
 
             var gigs = await careProDbContext.Gigs
-                .Where(x => x.CaregiverId == caregiverId && x.Status == "Paused")
+                .Where(x => x.CaregiverId == caregiverId && x.Status == "Paused" && x.IsDeleted != true)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -289,7 +289,7 @@ namespace Infrastructure.Content.Services
         public async Task<IEnumerable<GigDTO>> GetAllGigsAsync()
         {
             var gigs = await careProDbContext.Gigs
-                .Where(x => x.Status == "Published" || x.Status == "Active")
+                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.IsDeleted != true)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -340,7 +340,7 @@ namespace Infrastructure.Content.Services
         public async Task<List<string>> GetAllSubCategoriesForCaregiverAsync(string caregiverId)
         {
             var subCategories = await careProDbContext.Gigs
-                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.CaregiverId == caregiverId)
+                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.CaregiverId == caregiverId && x.IsDeleted != true)
                 .Select(x => x.SubCategory)
                 .ToListAsync();
 
@@ -359,7 +359,7 @@ namespace Infrastructure.Content.Services
         {
 
 
-            var gig = await careProDbContext.Gigs.FirstOrDefaultAsync(x => x.Id.ToString() == gigId);
+            var gig = await careProDbContext.Gigs.FirstOrDefaultAsync(x => x.Id.ToString() == gigId && x.IsDeleted != true);
 
             if (gig == null)
             {
@@ -537,6 +537,50 @@ namespace Infrastructure.Content.Services
             LogAuditEvent($"Gig with (ID: {gigId}) successfully updated", updateGigRequest.CaregiverId);
             return $"Gig with ID '{gigId}' updated successfully.";
 
+        }
+
+        public async Task<string> SoftDeleteGigAsync(string gigId, string caregiverId)
+        {
+            try
+            {
+                if (!ObjectId.TryParse(gigId, out var objectId))
+                {
+                    throw new ArgumentException("Invalid Gig ID format.");
+                }
+
+                var gig = await careProDbContext.Gigs.FindAsync(objectId);
+
+                if (gig == null)
+                {
+                    throw new KeyNotFoundException($"Gig with ID '{gigId}' not found.");
+                }
+
+                // Verify that the caregiver owns this gig
+                if (gig.CaregiverId != caregiverId)
+                {
+                    throw new UnauthorizedAccessException($"Caregiver with ID '{caregiverId}' is not authorized to delete this gig.");
+                }
+
+                // Check if already deleted
+                if (gig.IsDeleted == true)
+                {
+                    throw new InvalidOperationException($"Gig with ID '{gigId}' is already deleted.");
+                }
+
+                gig.IsDeleted = true;
+                gig.DeletedOn = DateTime.UtcNow;
+
+                careProDbContext.Gigs.Update(gig);
+                await careProDbContext.SaveChangesAsync();
+
+                LogAuditEvent($"Gig soft deleted (ID: {gigId})", caregiverId);
+                return $"Gig with ID '{gigId}' has been successfully deleted.";
+            }
+            catch (Exception ex)
+            {
+                LogException(ex);
+                throw;
+            }
         }
 
         public string GetImageFormat(byte[] imageData)

@@ -192,7 +192,7 @@ namespace Infrastructure.Content.Services
                 await googleSheetsService.AppendSignupDataAsync(
                     caregiver.FirstName,
                     caregiver.LastName,
-                    caregiver.PhoneNo,
+                    caregiver.PhoneNo ?? "N/A",
                     caregiver.Email,
                     "Caregiver"
                 );
