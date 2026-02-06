@@ -49,6 +49,8 @@ namespace Application.DTOs.Authentication
         public DateTime CreatedAt { get; set; }
 
         public string HomeAddress { get; set; }
+        
+        public bool IsFirstLogin { get; set; }
 
 
     }

@@ -100,6 +100,12 @@ namespace Infrastructure.Content.Services.Authentication
             if (!isValidPassword)
                 throw new UnauthorizedAccessException("Incorrect Password.");
 
+            // ✅ Track first-time login before retrieving related data
+            bool isFirstLogin = (appUser.LoginCount ?? 0) == 0 || appUser.LastLoginAt == null;
+            appUser.LastLoginAt = DateTime.UtcNow;
+            appUser.LoginCount = (appUser.LoginCount ?? 0) + 1;
+            careProDbContext.AppUsers.Update(appUser);
+
             // Retrieve related role data
             var careGiverAppUser = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
             var clientAppUser = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
@@ -148,7 +154,8 @@ namespace Infrastructure.Content.Services.Authentication
                 Email = appUserDetails.Email,
                 Role = appUserDetails.Role,
                 Token = token,
-                RefreshToken = refreshToken
+                RefreshToken = refreshToken,
+                IsFirstLogin = isFirstLogin
             };
         }
 

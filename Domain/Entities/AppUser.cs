@@ -35,5 +35,9 @@ namespace Domain.Entities
         public string? GoogleId { get; set; }
         public string? AuthProvider { get; set; } // "local", "google", or "both" - null defaults to "local"
         public string? ProfilePicture { get; set; }
+        
+        // Login tracking
+        public DateTime? LastLoginAt { get; set; }
+        public int? LoginCount { get; set; }
     }
 }

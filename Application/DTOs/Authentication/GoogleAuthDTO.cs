@@ -84,5 +84,6 @@ namespace Application.DTOs.Authentication
         public string? ProfilePicture { get; set; }
         public string AuthProvider { get; set; } = string.Empty;
         public bool IsNewUser { get; set; }
+        public bool IsFirstLogin { get; set; }
     }
 }

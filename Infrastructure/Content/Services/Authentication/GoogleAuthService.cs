@@ -470,6 +470,12 @@ namespace Infrastructure.Content.Services.Authentication
         private async Task<(GoogleAuthResponse? Response, GoogleAuthConflictResponse? Conflict)> GenerateAuthResponseAsync(
             AppUser appUser, GoogleUserInfo googleUser, bool isNewUser)
         {
+            // ✅ Track first-time login
+            bool isFirstLogin = (appUser.LoginCount ?? 0) == 0 || appUser.LastLoginAt == null;
+            appUser.LastLoginAt = DateTime.UtcNow;
+            appUser.LoginCount = (appUser.LoginCount ?? 0) + 1;
+            _context.AppUsers.Update(appUser);
+
             // Get role-specific data
             var careGiverAppUser = await _context.CareGivers.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
             var clientAppUser = await _context.Clients.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
@@ -524,7 +530,8 @@ namespace Infrastructure.Content.Services.Authentication
                 RefreshToken = refreshToken,
                 ProfilePicture = profilePicture,
                 AuthProvider = appUser.AuthProvider ?? "local",
-                IsNewUser = isNewUser
+                IsNewUser = isNewUser,
+                IsFirstLogin = isFirstLogin
             }, null);
         }
     }
