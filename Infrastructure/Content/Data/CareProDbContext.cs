@@ -88,6 +88,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PendingPayment>().ToCollection("PendingPayments");
             modelBuilder.Entity<PendingPayment>().HasKey(pp => pp.Id);
             modelBuilder.Entity<PendingPayment>().Property(pp => pp.Id).HasElementName("_id");
+            modelBuilder.Entity<CareRequest>().ToCollection("CareRequests");
+            modelBuilder.Entity<CareRequest>().HasKey(cr => cr.Id);
+            modelBuilder.Entity<CareRequest>().Property(cr => cr.Id).HasElementName("_id");
 
         }
 
@@ -118,5 +121,6 @@ namespace Infrastructure.Content.Data
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<WebhookLog> WebhookLogs { get; set; }
         public DbSet<PendingPayment> PendingPayments { get; set; }
+        public DbSet<CareRequest> CareRequests { get; set; }
     }
 }

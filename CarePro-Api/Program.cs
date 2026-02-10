@@ -116,6 +116,7 @@ builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
+builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IEarningsService, EarningsService>();

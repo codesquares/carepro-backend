@@ -43,7 +43,29 @@ namespace Infrastructure.Content.Services
 
             logger.LogInformation($"Client validation successful for ClientId: {addClientPreferenceRequest.ClientId}");
 
-            /// CONVERT DTO TO DOMAIN OBJECT            
+            // Check if preferences already exist for this client (UPSERT logic)
+            var existingPreference = await careProDbContext.ClientPreferences
+                .FirstOrDefaultAsync(x => x.ClientId == addClientPreferenceRequest.ClientId);
+
+            if (existingPreference != null)
+            {
+                // UPDATE existing preference instead of creating a new one
+                logger.LogInformation($"Existing preference found with Id: {existingPreference.Id}, updating instead of creating new");
+                
+                existingPreference.Data = addClientPreferenceRequest.Data ?? new List<string>();
+                existingPreference.UpdatedOn = DateTime.Now;
+
+                logger.LogInformation($"Updated entity data count: {existingPreference.Data.Count}");
+                logger.LogInformation($"Updated entity data: {System.Text.Json.JsonSerializer.Serialize(existingPreference.Data)}");
+
+                careProDbContext.ClientPreferences.Update(existingPreference);
+                await careProDbContext.SaveChangesAsync();
+                logger.LogInformation($"SaveChangesAsync completed successfully for updated entity Id: {existingPreference.Id}");
+
+                return existingPreference.Id.ToString();
+            }
+
+            /// CONVERT DTO TO DOMAIN OBJECT - CREATE NEW (only if no existing preference)          
             var clientPreference = new ClientPreference
             {
                 Data = addClientPreferenceRequest.Data ?? new List<string>(),
@@ -71,8 +93,12 @@ namespace Infrastructure.Content.Services
         {
             logger.LogInformation($"GetClientPreferenceAsync called for ClientId: {clientId}");
 
+            // Get the most recent preference record for this client
+            // OrderByDescending ensures we get the latest if multiple records exist
             var clientPreference = await careProDbContext.ClientPreferences
-                .FirstOrDefaultAsync(x => x.ClientId == clientId);
+                .Where(x => x.ClientId == clientId)
+                .OrderByDescending(x => x.UpdatedOn ?? x.CreatedAt)
+                .FirstOrDefaultAsync();
 
             logger.LogInformation($"Database query completed for ClientId: {clientId}");
 
