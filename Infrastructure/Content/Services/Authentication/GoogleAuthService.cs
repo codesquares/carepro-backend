@@ -264,6 +264,7 @@ namespace Infrastructure.Content.Services.Authentication
                 HomeAddress = request.HomeAddress,
                 ProfileImage = googleUser.ProfilePicture, // Use Google's profile picture
                 GoogleId = googleUser.GoogleId,
+                AuthProvider = "google",
                 Role = Roles.Client.ToString(),
                 Status = true,
                 IsDeleted = false,
@@ -310,6 +311,7 @@ namespace Infrastructure.Content.Services.Authentication
                 HomeAddress = request.HomeAddress,
                 ProfileImage = googleUser.ProfilePicture, // Use Google's profile picture
                 GoogleId = googleUser.GoogleId,
+                AuthProvider = "google",
                 Role = Roles.Caregiver.ToString(),
                 Status = true,
                 IsAvailable = true,

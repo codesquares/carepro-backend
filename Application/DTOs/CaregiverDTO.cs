@@ -134,6 +134,7 @@ namespace Application.DTOs
 
         public string? ProfileImage { get; set; }
 
+        public string? AuthProvider { get; set; }
 
         public DateTime CreatedAt { get; set; }
 

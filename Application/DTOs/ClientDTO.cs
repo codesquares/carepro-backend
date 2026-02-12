@@ -86,6 +86,8 @@ namespace Application.DTOs
 
         public bool Status { get; set; }
 
+        public string? AuthProvider { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 

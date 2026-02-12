@@ -57,6 +57,7 @@ namespace Domain.Entities
         
         // Google OAuth
         public string? GoogleId { get; set; }
+        public string? AuthProvider { get; set; } // "local", "google", "both", or null for existing users
 
 
 

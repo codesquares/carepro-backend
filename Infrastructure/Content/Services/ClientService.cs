@@ -101,6 +101,7 @@ namespace Infrastructure.Content.Services
                 // Assign new ID
                 Id = ObjectId.GenerateNewId(),
                 Role = Roles.Client.ToString(),
+                AuthProvider = "local",
                 Status = true,
                 IsDeleted = false,
                 CreatedAt = DateTime.Now,
@@ -120,6 +121,7 @@ namespace Infrastructure.Content.Services
                 Id = ObjectId.GenerateNewId(),
                 AppUserId = clientUser.Id,
                 Role = Roles.Client.ToString(),
+                AuthProvider = "local",
                 EmailConfirmed = false,
                 IsDeleted = false,
                 CreatedAt = clientUser.CreatedAt,
@@ -440,6 +442,7 @@ namespace Infrastructure.Content.Services
                 Status = client.Status,
                 HomeAddress = client.HomeAddress,
                 ProfileImage = client.ProfileImage,
+                AuthProvider = client.AuthProvider,
 
                 CreatedAt = client.CreatedAt,
             };
@@ -472,6 +475,7 @@ namespace Infrastructure.Content.Services
                     Status = clientUser.Status,
                     HomeAddress = clientUser.HomeAddress,
                     ProfileImage = clientUser.ProfileImage,
+                    AuthProvider = clientUser.AuthProvider,
                     CreatedAt = clientUser.CreatedAt,
                 };
                 clientUsersDTOs.Add(clientUserDTO);

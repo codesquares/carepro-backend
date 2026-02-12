@@ -152,6 +152,7 @@ namespace Infrastructure.Content.Services
                 // Assign new ID
                 Id = ObjectId.GenerateNewId(),
                 Role = addCaregiverRequest.Role,
+                AuthProvider = "local",
                 Status = true,
                 IsDeleted = false,
 
@@ -175,6 +176,7 @@ namespace Infrastructure.Content.Services
                 AppUserId = caregiver.Id,
                 //Role = Roles.Caregiver.ToString(),
                 Role = caregiver.Role,
+                AuthProvider = "local",
                 EmailConfirmed = false,
                 IsDeleted = false,
                 CreatedAt = caregiver.CreatedAt,
@@ -551,6 +553,7 @@ namespace Infrastructure.Content.Services
                     IsAvailable = caregiver.IsAvailable,
                     IntroVideo = caregiver.IntroVideo,
                     ProfileImage = caregiver.ProfileImage,
+                    AuthProvider = caregiver.AuthProvider,
 
 
                     CreatedAt = caregiver.CreatedAt,
@@ -634,6 +637,7 @@ namespace Infrastructure.Content.Services
                 // NoOfHoursSpent = noOfHoursSpent,
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
+                AuthProvider = caregiver.AuthProvider,
 
                 CreatedAt = caregiver.CreatedAt,
             };
