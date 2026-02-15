@@ -407,42 +407,115 @@ namespace Infrastructure.Content.Services
 
         public async Task<string> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest)
         {
+            logger.LogInformation($"Attempting to update gig status. GigId: {gigId}, Requested Status: {updateGigStatusToPauseRequest?.Status}, CaregiverId: {updateGigStatusToPauseRequest?.CaregiverId}");
+
             try
             {
-                if (!ObjectId.TryParse(gigId, out var objectId))
+                // Validate request object
+                if (updateGigStatusToPauseRequest == null)
                 {
-                    throw new ArgumentException("Invalid Gig ID format.");
+                    throw new ArgumentNullException(nameof(updateGigStatusToPauseRequest), "Update request cannot be null.");
                 }
 
+                if (string.IsNullOrWhiteSpace(updateGigStatusToPauseRequest.CaregiverId))
+                {
+                    throw new ArgumentException("CaregiverId is required.");
+                }
+
+                if (string.IsNullOrWhiteSpace(updateGigStatusToPauseRequest.Status))
+                {
+                    throw new ArgumentException("Status is required.");
+                }
+
+                // Validate gigId format
+                if (!ObjectId.TryParse(gigId, out var objectId))
+                {
+                    logger.LogWarning($"Invalid Gig ID format provided: {gigId}");
+                    throw new ArgumentException($"Invalid Gig ID format: '{gigId}'. Expected a valid MongoDB ObjectId.");
+                }
+
+                // Validate and normalize status
+                var normalizedStatus = NormalizeGigStatus(updateGigStatusToPauseRequest.Status);
+                if (string.IsNullOrEmpty(normalizedStatus))
+                {
+                    logger.LogWarning($"Invalid status value provided: {updateGigStatusToPauseRequest.Status}");
+                    throw new ArgumentException($"Invalid status value '{updateGigStatusToPauseRequest.Status}'. Allowed values are: 'published', 'draft', 'paused', 'active' (case-insensitive).");
+                }
+
+                logger.LogDebug($"Status normalized from '{updateGigStatusToPauseRequest.Status}' to '{normalizedStatus}'");
+
+                // Verify caregiver exists
+                var caregiver = await careGiverService.GetCaregiverUserAsync(updateGigStatusToPauseRequest.CaregiverId);
+                if (caregiver == null)
+                {
+                    logger.LogWarning($"Caregiver not found: {updateGigStatusToPauseRequest.CaregiverId}");
+                    throw new KeyNotFoundException($"Caregiver with ID '{updateGigStatusToPauseRequest.CaregiverId}' not found.");
+                }
+
+                // Find the gig
                 var existingGig = await careProDbContext.Gigs.FindAsync(objectId);
 
                 if (existingGig == null)
                 {
+                    logger.LogWarning($"Gig not found: {gigId}");
                     throw new KeyNotFoundException($"Gig with ID '{gigId}' not found.");
                 }
 
-                // Normalize and validate status
-                var normalizedStatus = NormalizeGigStatus(updateGigStatusToPauseRequest.Status);
-                if (string.IsNullOrEmpty(normalizedStatus))
+                // Check if gig is deleted
+                if (existingGig.IsDeleted == true)
                 {
-                    throw new ArgumentException($"Invalid status value. Allowed values are: Published, Draft, Paused, Active");
+                    logger.LogWarning($"Attempted to update deleted gig: {gigId}");
+                    throw new InvalidOperationException($"Cannot update gig with ID '{gigId}' because it has been deleted.");
                 }
 
-                existingGig.Status = normalizedStatus;
-                existingGig.UpdatedOn = DateTime.Now;
-                existingGig.IsUpdatedToPause = normalizedStatus == "Paused" || normalizedStatus == "Draft";
+                // Verify ownership
+                if (existingGig.CaregiverId != updateGigStatusToPauseRequest.CaregiverId)
+                {
+                    logger.LogWarning($"Caregiver {updateGigStatusToPauseRequest.CaregiverId} attempted to update gig {gigId} owned by {existingGig.CaregiverId}");
+                    throw new UnauthorizedAccessException($"You do not have permission to update this gig. This gig belongs to a different caregiver.");
+                }
 
+                // Log the status change
+                var oldStatus = existingGig.Status;
+                logger.LogInformation($"Updating gig {gigId} status from '{oldStatus}' to '{normalizedStatus}'");
+
+                // Update the gig
+                existingGig.Status = normalizedStatus;
+                existingGig.UpdatedOn = DateTime.UtcNow;
+                existingGig.IsUpdatedToPause = normalizedStatus == "Paused" || normalizedStatus == "Draft";
 
                 careProDbContext.Gigs.Update(existingGig);
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Gig Status updated to {normalizedStatus} (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
+                logger.LogInformation($"Successfully updated gig {gigId} status to '{normalizedStatus}'");
+                LogAuditEvent($"Gig Status updated from '{oldStatus}' to '{normalizedStatus}' (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
+                
                 return $"Gig with ID '{gigId}' updated successfully to {normalizedStatus}.";
+            }
+            catch (ArgumentNullException)
+            {
+                throw; // Re-throw null argument exceptions as-is (must come before ArgumentException)
+            }
+            catch (ArgumentException)
+            {
+                throw; // Re-throw validation exceptions as-is
+            }
+            catch (KeyNotFoundException)
+            {
+                throw; // Re-throw not found exceptions as-is
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw; // Re-throw authorization exceptions as-is
+            }
+            catch (InvalidOperationException)
+            {
+                throw; // Re-throw invalid operation exceptions as-is
             }
             catch (Exception ex)
             {
-                LogException(ex);
-                throw new Exception(ex.Message);
+                logger.LogError(ex, $"Unexpected error updating gig status. GigId: {gigId}, Status: {updateGigStatusToPauseRequest?.Status}");
+                throw new Exception($"An unexpected error occurred while updating the gig status: {ex.Message}", ex);
             }
         }
 

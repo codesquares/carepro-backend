@@ -300,27 +300,47 @@ namespace CarePro_Api.Controllers.Content
             {
                 var result = await gigServices.UpdateGigStatusToPauseAsync(gigId, updateGigStatusToPauseRequest);
                 logger.LogInformation($"Gig Status with ID: {gigId} updated.");
-                return Ok(result);
+                return Ok(new { Message = result });
+            }
+            catch (ArgumentNullException ex)
+            {
+                logger.LogWarning(ex, $"Null argument in UpdateGigStatusToPause request for gigId: {gigId}");
+                return BadRequest(new { Message = ex.Message });
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { Message = ex.Message }); // Returns 400 Bad Request
+                logger.LogWarning(ex, $"Invalid argument in UpdateGigStatusToPause request for gigId: {gigId}");
+                return BadRequest(new { Message = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(new { message = ex.Message });
+                logger.LogWarning(ex, $"Resource not found in UpdateGigStatusToPause request for gigId: {gigId}");
+                return NotFound(new { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                logger.LogWarning(ex, $"Unauthorized access attempt in UpdateGigStatusToPause for gigId: {gigId}");
+                return StatusCode(403, new { Message = ex.Message }); // 403 Forbidden
+            }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, $"Invalid operation in UpdateGigStatusToPause for gigId: {gigId}");
+                return BadRequest(new { Message = ex.Message });
             }
             catch (ApplicationException appEx)
             {
-                return BadRequest(new { ErrorMessage = appEx.Message });
+                logger.LogError(appEx, $"Application error in UpdateGigStatusToPause for gigId: {gigId}");
+                return BadRequest(new { Message = appEx.Message });
             }
             catch (HttpRequestException httpEx)
             {
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
+                logger.LogError(httpEx, $"HTTP request error in UpdateGigStatusToPause for gigId: {gigId}");
+                return StatusCode(500, new { Message = httpEx.Message });
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, $"Unexpected error in UpdateGigStatusToPause for gigId: {gigId}"); 
+                return StatusCode(500, new { Message = "An unexpected error occurred on the server. Please try again later." });
             }
 
         }
