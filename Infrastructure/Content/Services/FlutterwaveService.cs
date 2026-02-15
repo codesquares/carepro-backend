@@ -113,6 +113,115 @@ public class FlutterwaveService
     }
 
     /// <summary>
+    /// Charges a card using a saved Flutterwave payment token (for recurring billing).
+    /// Uses Flutterwave v3 tokenized charge endpoint.
+    /// </summary>
+    public async Task<FlutterwaveChargeResult?> ChargeWithToken(
+        string token, decimal amount, string currency, string email, string txRef)
+    {
+        try
+        {
+            var client = new RestClient(_baseUrl);
+            var request = new RestRequest("/v3/tokenized-charges", Method.Post);
+            request.AddHeader("Authorization", $"Bearer {_secretKey}");
+            request.AddHeader("Content-Type", "application/json");
+
+            var body = new
+            {
+                token = token,
+                currency = currency,
+                amount = amount,
+                email = email,
+                tx_ref = txRef,
+                narration = $"CarePro Recurring Service - {txRef}"
+            };
+
+            request.AddJsonBody(body);
+
+            _logger.LogInformation(
+                "Initiating tokenized charge: TxRef={TxRef}, Amount={Amount} {Currency}",
+                txRef, amount, currency);
+
+            var response = await client.ExecuteAsync(request);
+
+            if (string.IsNullOrEmpty(response.Content))
+            {
+                _logger.LogError("Empty response from Flutterwave tokenized charge");
+                return new FlutterwaveChargeResult { Success = false, ErrorMessage = "Empty response from payment provider" };
+            }
+
+            var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response.Content);
+
+            if (result.TryGetProperty("status", out var status) && status.GetString() == "success" &&
+                result.TryGetProperty("data", out var data))
+            {
+                var chargeStatus = data.GetProperty("status").GetString() ?? string.Empty;
+                if (chargeStatus.ToLower() == "successful")
+                {
+                    return new FlutterwaveChargeResult
+                    {
+                        Success = true,
+                        TransactionId = data.GetProperty("id").GetInt64().ToString(),
+                        Status = chargeStatus,
+                        Amount = data.GetProperty("amount").GetDecimal()
+                    };
+                }
+                else
+                {
+                    var processorResponse = data.TryGetProperty("processor_response", out var pr)
+                        ? pr.GetString() : "Charge not successful";
+                    return new FlutterwaveChargeResult
+                    {
+                        Success = false,
+                        Status = chargeStatus,
+                        ErrorMessage = processorResponse
+                    };
+                }
+            }
+
+            var errorMsg = result.TryGetProperty("message", out var msg) ? msg.GetString() : "Unknown error";
+            return new FlutterwaveChargeResult { Success = false, ErrorMessage = errorMsg };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error charging token for TxRef {TxRef}", txRef);
+            return new FlutterwaveChargeResult { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Extracts tokenization data from a successful payment verification.
+    /// Call after initial payment to get the token for recurring charges.
+    /// </summary>
+    public async Task<FlutterwaveVerificationResult?> VerifyAndExtractTokenAsync(string transactionId)
+    {
+        var result = await VerifyTransactionAsync(transactionId);
+        if (result == null || !result.Success) return result;
+
+        // Try to extract card token from the verification response
+        try
+        {
+            var response = await VerifyPayment(transactionId);
+            var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response);
+
+            if (json.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("card", out var card))
+            {
+                result.PaymentToken = card.TryGetProperty("token", out var token) ? token.GetString() : null;
+                result.CardLastFour = card.TryGetProperty("last_4digits", out var last4) ? last4.GetString() : null;
+                result.CardBrand = card.TryGetProperty("type", out var type) ? type.GetString() : null;
+                result.CardExpiry = card.TryGetProperty("expiry", out var expiry) ? expiry.GetString() : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not extract card token from transaction {TransactionId}. Subscription will need manual payment method setup.", transactionId);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Verifies a transaction directly with Flutterwave API
     /// </summary>
     public async Task<FlutterwaveVerificationResult?> VerifyTransactionAsync(string transactionId)
@@ -154,4 +263,22 @@ public class FlutterwaveVerificationResult
     public decimal Amount { get; set; }
     public string Currency { get; set; } = string.Empty;
     public string TransactionId { get; set; } = string.Empty;
+    
+    // Tokenization fields for recurring payments
+    public string? PaymentToken { get; set; }
+    public string? CardLastFour { get; set; }
+    public string? CardBrand { get; set; }
+    public string? CardExpiry { get; set; }
+}
+
+/// <summary>
+/// Result from a tokenized charge attempt
+/// </summary>
+public class FlutterwaveChargeResult
+{
+    public bool Success { get; set; }
+    public string TransactionId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string? ErrorMessage { get; set; }
 }

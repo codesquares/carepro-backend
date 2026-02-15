@@ -23,5 +23,26 @@ namespace Domain.Entities
         public DateTime? OrderUpdatedOn { get; set; }
         public string? DisputeReason { get; set; }
         public bool? HasDispute { get; set; }
+
+        // ── Recurring service tracking ──
+        /// <summary>
+        /// For recurring orders: the subscription ID that generated this order
+        /// </summary>
+        public string? SubscriptionId { get; set; }
+
+        /// <summary>
+        /// Billing cycle number this order belongs to (1 = initial, 2+ = recurring)
+        /// </summary>
+        public int? BillingCycleNumber { get; set; }
+
+        /// <summary>
+        /// Service frequency per week (1-7) — preserved from payment choice
+        /// </summary>
+        public int? FrequencyPerWeek { get; set; }
+
+        /// <summary>
+        /// Service type detail: "one-time", "weekly", "monthly"
+        /// </summary>
+        public string? ServiceType { get; set; }
     }
 }

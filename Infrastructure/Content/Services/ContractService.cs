@@ -678,7 +678,37 @@ namespace Infrastructure.Content.Services
                 if (contract == null) return false;
 
                 contract.Status = ContractStatus.Terminated;
+                contract.UpdatedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Contract {ContractId} terminated. Reason: {Reason}. " +
+                    "Checking for linked subscription...",
+                    contractId, reason);
+
+                // Find and handle any linked subscription
+                var subscription = await _context.Subscriptions
+                    .FirstOrDefaultAsync(s => s.ContractId == contractId &&
+                        s.Status != SubscriptionStatus.Cancelled &&
+                        s.Status != SubscriptionStatus.Terminated);
+
+                if (subscription != null)
+                {
+                    subscription.Status = SubscriptionStatus.Terminated;
+                    subscription.TerminatedAt = DateTime.UtcNow;
+                    subscription.CancellationReason = reason;
+                    subscription.CancelledBy = "system";
+                    subscription.AutoRenew = false;
+                    subscription.NextChargeDate = null;
+                    subscription.RefundAmount = subscription.CalculateProRatedRefund();
+                    subscription.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+
+                    _logger.LogInformation(
+                        "Linked subscription {SubscriptionId} also terminated. Pro-rated refund: {Refund} {Currency}",
+                        subscription.Id, subscription.RefundAmount, subscription.Currency);
+                }
+
                 return true;
             }
             catch (Exception ex)

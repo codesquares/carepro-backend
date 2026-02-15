@@ -91,6 +91,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<CareRequest>().ToCollection("CareRequests");
             modelBuilder.Entity<CareRequest>().HasKey(cr => cr.Id);
             modelBuilder.Entity<CareRequest>().Property(cr => cr.Id).HasElementName("_id");
+            modelBuilder.Entity<Subscription>().ToCollection("Subscriptions");
+            modelBuilder.Entity<Subscription>().HasKey(s => s.Id);
+            modelBuilder.Entity<Subscription>().Property(s => s.Id).HasElementName("_id");
 
         }
 
@@ -122,5 +125,6 @@ namespace Infrastructure.Content.Data
         public DbSet<WebhookLog> WebhookLogs { get; set; }
         public DbSet<PendingPayment> PendingPayments { get; set; }
         public DbSet<CareRequest> CareRequests { get; set; }
+        public DbSet<Subscription> Subscriptions { get; set; }
     }
 }

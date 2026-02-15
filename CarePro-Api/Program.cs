@@ -129,6 +129,10 @@ builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
 
+// Subscription & recurring billing services
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddHostedService<RecurringBillingService>();
+
 // Content sanitization (XSS prevention)
 builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 

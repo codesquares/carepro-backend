@@ -16,6 +16,7 @@ namespace Infrastructure.Content.Services
         private readonly IGigServices _gigServices;
         private readonly IClientOrderService _clientOrderService;
         private readonly FlutterwaveService _flutterwaveService;
+        private readonly ISubscriptionService _subscriptionService;
         private readonly ILogger<PendingPaymentService> _logger;
         private readonly IConfiguration _configuration;
 
@@ -31,6 +32,7 @@ namespace Infrastructure.Content.Services
             IGigServices gigServices,
             IClientOrderService clientOrderService,
             FlutterwaveService flutterwaveService,
+            ISubscriptionService subscriptionService,
             ILogger<PendingPaymentService> logger,
             IConfiguration configuration)
         {
@@ -38,6 +40,7 @@ namespace Infrastructure.Content.Services
             _gigServices = gigServices;
             _clientOrderService = clientOrderService;
             _flutterwaveService = flutterwaveService;
+            _subscriptionService = subscriptionService;
             _logger = logger;
             _configuration = configuration;
         }
@@ -231,6 +234,12 @@ namespace Infrastructure.Content.Services
                 "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
                 transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
 
+            // For recurring service types (weekly/monthly), create a subscription
+            if (pendingPayment.ServiceType != "one-time")
+            {
+                await CreateSubscriptionForRecurringPaymentAsync(pendingPayment, flutterwaveTransactionId, orderResult.Value?.Id);
+            }
+
             return Result<PendingPayment>.Success(pendingPayment);
         }
 
@@ -283,6 +292,80 @@ namespace Infrastructure.Content.Services
         }
 
         #region Private Methods
+
+        /// <summary>
+        /// Creates a subscription after a successful initial payment for a recurring service.
+        /// Attempts to extract the card token from Flutterwave for future charges.
+        /// </summary>
+        private async Task CreateSubscriptionForRecurringPaymentAsync(
+            PendingPayment payment, string flutterwaveTransactionId, string? orderId)
+        {
+            try
+            {
+                // Try to extract card token for recurring charges
+                string? paymentToken = null, cardLastFour = null, cardBrand = null, cardExpiry = null;
+
+                var verification = await _flutterwaveService.VerifyAndExtractTokenAsync(flutterwaveTransactionId);
+                if (verification != null)
+                {
+                    paymentToken = verification.PaymentToken;
+                    cardLastFour = verification.CardLastFour;
+                    cardBrand = verification.CardBrand;
+                    cardExpiry = verification.CardExpiry;
+                }
+
+                // Get caregiver ID from the gig
+                var gig = await _gigServices.GetGigAsync(payment.GigId);
+                var caregiverId = gig?.CaregiverId ?? string.Empty;
+
+                var subscriptionResult = await _subscriptionService.CreateSubscriptionAsync(new Application.DTOs.CreateSubscriptionRequest
+                {
+                    ClientId = payment.ClientId,
+                    CaregiverId = caregiverId,
+                    GigId = payment.GigId,
+                    OrderId = orderId ?? payment.ClientOrderId ?? string.Empty,
+                    Email = payment.Email,
+                    BillingCycle = payment.ServiceType, // "weekly" or "monthly"
+                    FrequencyPerWeek = payment.FrequencyPerWeek,
+                    PricePerVisit = payment.BasePrice,
+                    RecurringAmount = payment.TotalAmount,
+                    PriceBreakdown = new Application.DTOs.SubscriptionPriceBreakdownDTO
+                    {
+                        BasePrice = payment.BasePrice,
+                        FrequencyPerWeek = payment.FrequencyPerWeek,
+                        OrderFee = payment.OrderFee,
+                        ServiceCharge = payment.ServiceCharge,
+                        GatewayFees = payment.FlutterwaveFees,
+                        TotalAmount = payment.TotalAmount
+                    },
+                    Currency = payment.Currency,
+                    FlutterwavePaymentToken = paymentToken,
+                    CardLastFour = cardLastFour,
+                    CardBrand = cardBrand,
+                    CardExpiry = cardExpiry
+                });
+
+                if (subscriptionResult.IsSuccess)
+                {
+                    _logger.LogInformation(
+                        "Subscription {SubscriptionId} created for {ServiceType} payment. Token captured: {HasToken}",
+                        subscriptionResult.Value?.Id, payment.ServiceType, paymentToken != null);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Failed to create subscription for TxRef {TxRef}: {Errors}",
+                        payment.TransactionReference, string.Join(", ", subscriptionResult.Errors));
+                }
+            }
+            catch (Exception ex)
+            {
+                // Subscription creation failure should NOT fail the payment
+                _logger.LogError(ex,
+                    "Error creating subscription for completed payment TxRef {TxRef}. Payment was successful.",
+                    payment.TransactionReference);
+            }
+        }
 
         private decimal CalculateOrderFee(decimal basePrice, string serviceType, int frequencyPerWeek)
         {
