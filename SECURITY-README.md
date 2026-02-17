@@ -12,7 +12,7 @@ The following files are **automatically ignored** by git and should **never be c
 - `appsettings*.json` - Contains API keys, database connections, and secrets
 - `.env` - Environment variables with credentials
 - `CarePro-Api/appsettings.json` - Main configuration file with all secrets
-
+----
 ### AWS Files
 - `iam-policy-*.json` - IAM policies with account-specific information
 - `ecs-*.json` - ECS configurations with account details
