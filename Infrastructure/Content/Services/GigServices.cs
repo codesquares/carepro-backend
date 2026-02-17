@@ -24,19 +24,21 @@ namespace Infrastructure.Content.Services
         private readonly ICareGiverService careGiverService;
         private readonly ILogger<GigServices> logger;
         private readonly CloudinaryService cloudinaryService;
+        private readonly IEligibilityService eligibilityService;
 
-        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService)
+        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService, IEligibilityService eligibilityService)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
             this.cloudinaryService = cloudinaryService;
+            this.eligibilityService = eligibilityService;
         }
 
         public async Task<GigDTO> CreateGigAsync(AddGigRequest addGigRequest)
         {
             var gigExist = await careProDbContext.Gigs.FirstOrDefaultAsync(x => x.CaregiverId == addGigRequest.CaregiverId && x.Title == addGigRequest.Title && x.Category == addGigRequest.Category);
-            string imageURL = null;
+            string? imageURL = null;
 
             if (gigExist != null)
             {
@@ -53,6 +55,46 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrWhiteSpace(addGigRequest.Category) || addGigRequest.SubCategory == null || !addGigRequest.SubCategory.Any(s => !string.IsNullOrWhiteSpace(s)))
             {
                 throw new ArgumentException("At least A Service and Sub-Category must be selected before you create a new Gig");
+            }
+
+            // Normalize category: if it matches a known ServiceRequirement (case-insensitive),
+            // use the canonical name to prevent typo bypass of eligibility checks
+            string? eligibilityWarning = null;
+            var allRequirements = await careProDbContext.ServiceRequirements
+                .Where(sr => sr.Active)
+                .ToListAsync();
+            var matchedRequirement = allRequirements
+                .FirstOrDefault(sr => string.Equals(sr.ServiceCategory, addGigRequest.Category, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedRequirement != null)
+            {
+                // Normalize to canonical form so "medicalSupport" → "MedicalSupport"
+                addGigRequest.Category = matchedRequirement.ServiceCategory;
+            }
+
+            // Server-side eligibility check for specialized categories
+            if (addGigRequest.Status == "Published" || addGigRequest.Status == "Active")
+            {
+                var eligibilityError = await eligibilityService.ValidateGigEligibilityAsync(
+                    addGigRequest.CaregiverId, addGigRequest.Category);
+
+                if (eligibilityError != null)
+                {
+                    throw new UnauthorizedAccessException(
+                        System.Text.Json.JsonSerializer.Serialize(eligibilityError));
+                }
+            }
+            else if (addGigRequest.Status == "Draft" && matchedRequirement != null)
+            {
+                // For drafts in specialized categories, check eligibility and warn (don't block)
+                var draftEligibility = await eligibilityService.ValidateGigEligibilityAsync(
+                    addGigRequest.CaregiverId, addGigRequest.Category);
+
+                if (draftEligibility != null)
+                {
+                    eligibilityWarning = draftEligibility.Message +
+                        " You will need to meet these requirements before publishing.";
+                }
             }
 
 
@@ -133,6 +175,7 @@ namespace Infrastructure.Content.Services
                 Status = gig.Status,
                 CaregiverId = gig.CaregiverId,
                 CreatedAt = gig.CreatedAt,
+                EligibilityWarning = eligibilityWarning,
             };
 
             return gigDTO;
@@ -564,6 +607,30 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrWhiteSpace(updateGigRequest.Category) || updateGigRequest.SubCategory == null || !updateGigRequest.SubCategory.Any(s => !string.IsNullOrWhiteSpace(s)))
             {
                 throw new ArgumentException("At least A Service and Sub-Category must be selected before you update this Gig");
+            }
+
+            // Normalize category against known ServiceRequirements
+            var allReqs = await careProDbContext.ServiceRequirements
+                .Where(sr => sr.Active)
+                .ToListAsync();
+            var matchedReq = allReqs
+                .FirstOrDefault(sr => string.Equals(sr.ServiceCategory, updateGigRequest.Category, StringComparison.OrdinalIgnoreCase));
+            if (matchedReq != null)
+            {
+                updateGigRequest.Category = matchedReq.ServiceCategory;
+            }
+
+            // Server-side eligibility check for specialized categories on publish/active
+            if (updateGigRequest.Status == "Published" || updateGigRequest.Status == "Active")
+            {
+                var eligibilityError = await eligibilityService.ValidateGigEligibilityAsync(
+                    existingGig.CaregiverId, updateGigRequest.Category);
+
+                if (eligibilityError != null)
+                {
+                    throw new UnauthorizedAccessException(
+                        System.Text.Json.JsonSerializer.Serialize(eligibilityError));
+                }
             }
 
 

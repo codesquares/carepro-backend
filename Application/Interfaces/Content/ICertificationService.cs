@@ -22,6 +22,11 @@ namespace Application.Interfaces.Content
 
         Task DeleteAllCaregiverCertificatesAsync(string caregiverId);
 
+        /// <summary>
+        /// Returns all certificates for a caregiver with verification status, grouped info, etc.
+        /// </summary>
+        Task<IEnumerable<CertificationDTO>> GetCertificateStatusAsync(string caregiverId);
+
         // Admin Certificate Management
         Task<IEnumerable<AdminCertificationResponse>> GetAllCertificatesAsync();
 

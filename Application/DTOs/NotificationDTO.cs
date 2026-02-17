@@ -53,11 +53,13 @@ namespace Application.DTOs
         public string Id { get; set; }
         public string UserId { get; set; }
         public string UserFullName { get; set; }
+        public string? SenderId { get; set; }
         public string Type { get; set; }
         public string Content { get; set; }
         public string Title { get; set; }
         public bool IsRead { get; set; }
         public string? RelatedEntityId { get; set; }
+        public string? OrderId { get; set; }
         public string? RelatedEntityType { get; set; }
         public DateTime CreatedAt { get; set; }
     }
@@ -68,5 +70,27 @@ namespace Application.DTOs
         public const string SystemAlert = "SystemAlert";
         public const string OrderNotification = "OrderNotification";
         public const string MessageNotification = "MessageNotification";
+
+        // Contract lifecycle
+        public const string ContractSent = "contract_pending_approval";
+        public const string ContractApproved = "contract_client_approved";
+        public const string ContractRejected = "contract_client_rejected";
+        public const string ContractRevisionRequested = "contract_review_requested";
+        public const string ContractRevised = "contract_revised";
+        public const string ContractReceived = "contract_received";
+        public const string ContractAccepted = "contract_accepted";
+        public const string ContractExpired = "contract_expired";
+        public const string ContractReminder = "contract_reminder";
+        public const string ContractPending = "contract_pending";
+        public const string ContractClientReminder = "contract_client_reminder";
+
+        // Order lifecycle
+        public const string OrderReceived = "OrderReceived";
+        public const string OrderCompleted = "OrderCompleted";
+        public const string OrderDisputed = "OrderDisputed";
+        public const string BookingConfirmed = "BookingConfirmed";
+
+        // Review
+        public const string NewReview = "NewReview";
     }
 }

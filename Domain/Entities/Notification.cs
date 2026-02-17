@@ -17,6 +17,7 @@ namespace Domain.Entities
         public string? Title { get; set; } // Notification title        
         public bool IsRead { get; set; } = false;
         public string RelatedEntityId { get; set; } // ID of message/payment/gig
+        public string? OrderId { get; set; } // Associated order ID for contract notifications
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
@@ -29,7 +30,14 @@ namespace Domain.Entities
         WithdrawalRequest,
         WithdrawalVerified,
         WithdrawalCompleted,
-        WithdrawalRejected
-        // Add more types as needed
+        WithdrawalRejected,
+        ContractSent,
+        ContractApproved,
+        ContractRejected,
+        ContractRevisionRequested,
+        OrderCompleted,
+        OrderDisputed,
+        NewReview,
+        BookingConfirmed
     }
 }

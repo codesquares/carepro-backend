@@ -31,7 +31,10 @@ namespace Infrastructure.Content.Services
                 {
                     Id = ObjectId.GenerateNewId(),
                     Category = addQuestionRequest.Category,
+                    ServiceCategory = addQuestionRequest.ServiceCategory,
                     UserType = addQuestionRequest.UserType,
+                    QuestionType = addQuestionRequest.QuestionType ?? "MultipleChoice",
+                    DifficultyLevel = addQuestionRequest.DifficultyLevel ?? "Medium",
                     Question = addQuestionRequest.Question,
                     Options = addQuestionRequest.Options,
                     CorrectAnswer = addQuestionRequest.CorrectAnswer,
@@ -65,7 +68,10 @@ namespace Infrastructure.Content.Services
                     {
                         Id = ObjectId.GenerateNewId(),
                         Category = questionRequest.Category,
+                        ServiceCategory = questionRequest.ServiceCategory,
                         UserType = questionRequest.UserType,
+                        QuestionType = questionRequest.QuestionType ?? "MultipleChoice",
+                        DifficultyLevel = questionRequest.DifficultyLevel ?? "Medium",
                         Question = questionRequest.Question,
                         Options = questionRequest.Options,
                         CorrectAnswer = questionRequest.CorrectAnswer,
@@ -177,8 +183,17 @@ namespace Infrastructure.Content.Services
                 if (!string.IsNullOrEmpty(updateQuestionRequest.Category))
                     question.Category = updateQuestionRequest.Category;
 
+                if (updateQuestionRequest.ServiceCategory != null)
+                    question.ServiceCategory = updateQuestionRequest.ServiceCategory;
+
                 if (!string.IsNullOrEmpty(updateQuestionRequest.UserType))
                     question.UserType = updateQuestionRequest.UserType;
+
+                if (!string.IsNullOrEmpty(updateQuestionRequest.QuestionType))
+                    question.QuestionType = updateQuestionRequest.QuestionType;
+
+                if (!string.IsNullOrEmpty(updateQuestionRequest.DifficultyLevel))
+                    question.DifficultyLevel = updateQuestionRequest.DifficultyLevel;
 
                 if (!string.IsNullOrEmpty(updateQuestionRequest.Question))
                     question.Question = updateQuestionRequest.Question;
@@ -347,7 +362,10 @@ namespace Infrastructure.Content.Services
             {
                 Id = question.Id.ToString(),
                 Category = question.Category,
+                ServiceCategory = question.ServiceCategory,
                 UserType = question.UserType,
+                QuestionType = question.QuestionType ?? "MultipleChoice",
+                DifficultyLevel = question.DifficultyLevel ?? "Medium",
                 Question = question.Question,
                 Options = question.Options,
                 CorrectAnswer = question.CorrectAnswer,
@@ -356,6 +374,93 @@ namespace Infrastructure.Content.Services
                 UpdatedAt = question.UpdatedAt,
                 Active = question.Active
             };
+        }
+
+        private AssessmentQuestionBankDTO MapToAssessmentDTO(QuestionBank question)
+        {
+            return new AssessmentQuestionBankDTO
+            {
+                Id = question.Id.ToString(),
+                Category = question.Category,
+                ServiceCategory = question.ServiceCategory,
+                QuestionType = question.QuestionType ?? "MultipleChoice",
+                DifficultyLevel = question.DifficultyLevel ?? "Medium",
+                Question = question.Question,
+                Options = question.Options
+                // CorrectAnswer intentionally omitted
+            };
+        }
+
+        public async Task<List<QuestionBankDTO>> GetQuestionsByServiceCategoryAsync(string serviceCategory)
+        {
+            try
+            {
+                // Load all active questions with a service category, then filter in memory (case-insensitive)
+                var allSpecialized = await careProDbContext.QuestionBank
+                    .Where(q => q.ServiceCategory != null && q.Active)
+                    .ToListAsync();
+
+                var questions = allSpecialized
+                    .Where(q => string.Equals(q.ServiceCategory, serviceCategory, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                return questions.Select(MapToDTO).ToList();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting questions by service category: {ServiceCategory}", serviceCategory);
+                throw;
+            }
+        }
+
+        public async Task<List<AssessmentQuestionBankDTO>> GetRandomSpecializedQuestionsAsync(string serviceCategory, int count)
+        {
+            try
+            {
+                // Load all active questions with a service category, then filter in memory (case-insensitive)
+                var allSpecialized = await careProDbContext.QuestionBank
+                    .Where(q => q.ServiceCategory != null && q.Active)
+                    .ToListAsync();
+
+                var questions = allSpecialized
+                    .Where(q => string.Equals(q.ServiceCategory, serviceCategory, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (questions.Count < count)
+                {
+                    throw new InvalidOperationException(
+                        $"Not enough active questions for {serviceCategory} assessment. Required: {count}, Available: {questions.Count}");
+                }
+
+                // Group by category for proportional distribution
+                var questionsByCategory = questions.GroupBy(q => q.Category).ToDictionary(g => g.Key, g => g.ToList());
+                var selected = new List<QuestionBank>();
+                var remainingCount = count;
+                var remainingCategories = questionsByCategory.Count;
+
+                foreach (var category in questionsByCategory.Keys)
+                {
+                    var categoryCount = Math.Max(1, Math.Min(remainingCount / Math.Max(1, remainingCategories), questionsByCategory[category].Count));
+                    var random = new Random();
+                    selected.AddRange(questionsByCategory[category].OrderBy(_ => random.Next()).Take(categoryCount));
+                    remainingCount -= categoryCount;
+                    remainingCategories--;
+                }
+
+                // Fill remaining from largest categories
+                if (selected.Count < count)
+                {
+                    var remaining = questions.Except(selected).OrderBy(_ => new Random().Next()).Take(count - selected.Count);
+                    selected.AddRange(remaining);
+                }
+
+                return selected.Take(count).Select(MapToAssessmentDTO).ToList();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting random specialized questions for {ServiceCategory}", serviceCategory);
+                throw;
+            }
         }
     }
 }

@@ -483,7 +483,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Get certificates requiring manual review
+        /// Get certificates requiring admin review (pending verification, manual review required, or verification failed)
         /// </summary>
         [HttpGet("Certificates/PendingReview")]
         // [Authorize(Roles = "Admin,SuperAdmin")]
@@ -491,14 +491,23 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                var certificates = await certificationService.GetCertificatesByStatusAsync(DocumentVerificationStatus.ManualReviewRequired);
-                
+                // Fetch all certificates in reviewable statuses
+                var manualReview = await certificationService.GetCertificatesByStatusAsync(DocumentVerificationStatus.ManualReviewRequired);
+                var pendingVerification = await certificationService.GetCertificatesByStatusAsync(DocumentVerificationStatus.PendingVerification);
+                var verificationFailed = await certificationService.GetCertificatesByStatusAsync(DocumentVerificationStatus.VerificationFailed);
+
+                var allPending = manualReview
+                    .Concat(pendingVerification)
+                    .Concat(verificationFailed)
+                    .OrderBy(c => c.SubmittedOn) // Oldest first
+                    .ToList();
+
                 return Ok(new
                 {
                     success = true,
                     message = "Certificates pending review retrieved successfully",
-                    count = certificates.Count(),
-                    data = certificates
+                    count = allPending.Count,
+                    data = allPending
                 });
             }
             catch (Exception ex)

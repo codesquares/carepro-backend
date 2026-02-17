@@ -21,5 +21,10 @@ namespace Application.Interfaces.Content
         Task<AssessmentDTO> GetAssessmentByIdAsync(string assessmentId);
         Task<List<AssessmentDTO>> GetAssessmentsByUserIdAsync(string userId);
         Task<AssessmentDTO> CalculateAssessmentScoreAsync(string assessmentId);
+
+        // Specialized assessment methods (session-bound)
+        Task<SpecializedQuestionsResponse> GetSpecializedQuestionsAsync(string serviceCategory, string caregiverId);
+        Task<AssessmentSubmitResponse> SubmitSpecializedAssessmentAsync(AddAssessmentRequest assessmentRequest);
+        Task<PaginatedResponse<AssessmentHistoryDTO>> GetAssessmentHistoryAsync(string caregiverId, string? serviceCategory = null, int page = 1, int pageSize = 20);
     }
 }

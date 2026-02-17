@@ -10,7 +10,7 @@ namespace Application.Interfaces.Content
 {
     public interface INotificationService
     {
-        Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string Title, string relatedEntityId);
+        Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string? Title, string relatedEntityId, string? orderId = null);
         // Task<string> CCreateNotificationAsync(AddNotificationRequest addNotificationRequest );
 
 

@@ -13,10 +13,18 @@ namespace Domain.Entities
         public string UserId { get; set; }
         public string CaregiverId { get; set; }
         public string UserType { get; set; } // "Cleaner" or "Caregiver"
+
+        /// <summary>
+        /// Null or empty for general assessments.
+        /// For specialized: "MedicalSupport", "PostSurgeryCare", "SpecialNeedsCare", "Palliative", "TherapyAndWellness"
+        /// </summary>
+        public string? ServiceCategory { get; set; }
+
         public DateTime StartTimestamp { get; set; }
         public DateTime EndTimestamp { get; set; }
         public int Score { get; set; } // Percentage score (0-100)
         public bool Passed { get; set; } // Based on 70% threshold
+        public int PassingThreshold { get; set; } = 70; // Threshold used for this attempt
         public List<AssessmentQuestion> Questions { get; set; }
         public string Status { get; set; }
         public DateTime AssessedDate { get; set; }

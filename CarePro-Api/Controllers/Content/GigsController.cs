@@ -49,6 +49,19 @@ namespace CarePro_Api.Controllers.Content
             {
                 return BadRequest(new { Message = ex.Message });
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Eligibility check failed — return 403 with structured error
+                try
+                {
+                    var eligibilityError = System.Text.Json.JsonSerializer.Deserialize<Application.DTOs.GigEligibilityError>(ex.Message);
+                    return StatusCode(403, eligibilityError);
+                }
+                catch
+                {
+                    return StatusCode(403, new { Message = ex.Message });
+                }
+            }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
@@ -361,6 +374,19 @@ namespace CarePro_Api.Controllers.Content
             catch (ArgumentException ex)
             {
                 return BadRequest(new { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Eligibility check failed — return 403 with structured error
+                try
+                {
+                    var eligibilityError = System.Text.Json.JsonSerializer.Deserialize<Application.DTOs.GigEligibilityError>(ex.Message);
+                    return StatusCode(403, eligibilityError);
+                }
+                catch
+                {
+                    return StatusCode(403, new { Message = ex.Message });
+                }
             }
             catch (KeyNotFoundException ex)
             {

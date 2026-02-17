@@ -22,7 +22,7 @@ namespace Application.DTOs
         public List<string> PackageDetails { get; set; }
         public string DeliveryTime { get; set; }
         public int Price { get; set; }
-        public string Image1 { get; set; }
+        public string? Image1 { get; set; }
 
         public string? VideoURL { get; set; }
         public string Status { get; set; }
@@ -33,6 +33,12 @@ namespace Application.DTOs
         public DateTime? UpdatedOn { get; set; }
         public bool? IsUpdatedToPause { get; set; }
 
+        /// <summary>
+        /// When creating a Draft gig in a specialized category, this warns
+        /// if the caregiver is NOT yet eligible (missing assessment/certs).
+        /// Null means no warning (eligible or general category).
+        /// </summary>
+        public string? EligibilityWarning { get; set; }
 
     }
 

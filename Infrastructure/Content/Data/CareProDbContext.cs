@@ -95,6 +95,14 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Subscription>().HasKey(s => s.Id);
             modelBuilder.Entity<Subscription>().Property(s => s.Id).HasElementName("_id");
 
+            modelBuilder.Entity<ServiceRequirement>().ToCollection("ServiceRequirements");
+            modelBuilder.Entity<ServiceRequirement>().HasKey(sr => sr.Id);
+            modelBuilder.Entity<ServiceRequirement>().Property(sr => sr.Id).HasElementName("_id");
+
+            modelBuilder.Entity<AssessmentSession>().ToCollection("AssessmentSessions");
+            modelBuilder.Entity<AssessmentSession>().HasKey(s => s.Id);
+            modelBuilder.Entity<AssessmentSession>().Property(s => s.Id).HasElementName("_id");
+
         }
 
 
@@ -126,5 +134,7 @@ namespace Infrastructure.Content.Data
         public DbSet<PendingPayment> PendingPayments { get; set; }
         public DbSet<CareRequest> CareRequests { get; set; }
         public DbSet<Subscription> Subscriptions { get; set; }
+        public DbSet<ServiceRequirement> ServiceRequirements { get; set; }
+        public DbSet<AssessmentSession> AssessmentSessions { get; set; }
     }
 }

@@ -17,6 +17,23 @@ namespace Domain.Entities
 
         public string CertificateIssuer { get; set; } = string.Empty;
 
+        /// <summary>
+        /// "educational", "professional", "medical", "specialized"
+        /// </summary>
+        public string? CertificateCategory { get; set; }
+
+        /// <summary>
+        /// Which service categories this certificate satisfies.
+        /// e.g. ["MedicalSupport", "PostSurgeryCare"]
+        /// </summary>
+        public List<string>? ServiceCategories { get; set; }
+
+        /// <summary>
+        /// Expiry date for certificates that expire (nursing license, CPR, etc.)
+        /// Null for certificates that don't expire.
+        /// </summary>
+        public DateTime? ExpiryDate { get; set; }
+
         public string? CloudinaryUrl { get; set; } = string.Empty;
 
         public string? CloudinaryPublicId { get; set; } = string.Empty;

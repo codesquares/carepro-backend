@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace CarePro_Api.Controllers.Content
@@ -18,6 +19,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly ICareGiverService careGiverService;
         private readonly ITrainingMaterialService trainingMaterialService;
         private readonly Infrastructure.Content.Services.CloudinaryService cloudinaryService;
+        private readonly IEligibilityService eligibilityService;
         private readonly ILogger<AssessmentsController> logger;
 
         public AssessmentsController(
@@ -25,12 +27,14 @@ namespace CarePro_Api.Controllers.Content
             ICareGiverService careGiverService,
             ITrainingMaterialService trainingMaterialService,
             Infrastructure.Content.Services.CloudinaryService cloudinaryService,
+            IEligibilityService eligibilityService,
             ILogger<AssessmentsController> logger)
         {
             this.assessmentService = assessmentService;
             this.careGiverService = careGiverService;
             this.trainingMaterialService = trainingMaterialService;
             this.cloudinaryService = cloudinaryService;
+            this.eligibilityService = eligibilityService;
             this.logger = logger;
         }
 
@@ -184,6 +188,164 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { ErrorMessage = ex.Message });
             }
         }
+
+        #region Specialized Assessment Endpoints
+
+        /// <summary>
+        /// Get assessment questions filtered by service category.
+        /// Creates a session that binds the questions to this caregiver.
+        /// Returns a sessionId that must be included when submitting answers.
+        /// </summary>
+        [HttpGet("questions")]
+        public async Task<IActionResult> GetSpecializedQuestionsAsync(
+            [FromQuery] string? serviceCategory = null,
+            [FromQuery] string? caregiverId = null)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(serviceCategory))
+                {
+                    // Fall back to general caregiver questions
+                    var generalQuestions = await assessmentService.GetQuestionsForAssessmentAsync("Caregiver");
+                    return Ok(generalQuestions);
+                }
+
+                // Resolve caregiverId: prefer JWT claim, fall back to query param
+                var tokenCaregiverId = GetCaregiverIdFromToken();
+                var resolvedCaregiverId = tokenCaregiverId ?? caregiverId;
+
+                if (string.IsNullOrEmpty(resolvedCaregiverId))
+                    return BadRequest(new { Message = "caregiverId is required (via token or query parameter)" });
+
+                // Ownership check: if token has a caregiverId, it must match the query param
+                if (!string.IsNullOrEmpty(tokenCaregiverId) && !string.IsNullOrEmpty(caregiverId)
+                    && tokenCaregiverId != caregiverId && !IsAdminOrSuperAdmin())
+                {
+                    return Forbid();
+                }
+
+                var result = await assessmentService.GetSpecializedQuestionsAsync(serviceCategory, resolvedCaregiverId);
+                return Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting specialized questions for category: {Category}", serviceCategory);
+                return StatusCode(500, new { ErrorMessage = "An error occurred retrieving assessment questions." });
+            }
+        }
+
+        /// <summary>
+        /// Submit a specialized assessment. Scores server-side, enforces cooldown.
+        /// Must include the sessionId returned from GET /questions.
+        /// </summary>
+        [HttpPost("submit")]
+        public async Task<IActionResult> SubmitSpecializedAssessmentAsync([FromBody] AddAssessmentRequest assessmentRequest)
+        {
+            try
+            {
+                // Ownership check: the logged-in caregiver must match the request
+                var tokenCaregiverId = GetCaregiverIdFromToken();
+                if (!string.IsNullOrEmpty(tokenCaregiverId)
+                    && tokenCaregiverId != assessmentRequest.CaregiverId
+                    && !IsAdminOrSuperAdmin())
+                {
+                    return Forbid();
+                }
+
+                var result = await assessmentService.SubmitSpecializedAssessmentAsync(assessmentRequest);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Cooldown violation or session expired
+                return StatusCode(429, new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error submitting specialized assessment");
+                return StatusCode(500, new { ErrorMessage = "An error occurred submitting the assessment." });
+            }
+        }
+
+        /// <summary>
+        /// Get assessment history for a caregiver. Optionally filter by service category.
+        /// Supports pagination with page and pageSize query params.
+        /// </summary>
+        [HttpGet("history")]
+        public async Task<IActionResult> GetAssessmentHistoryAsync(
+            [FromQuery] string caregiverId,
+            [FromQuery] string? serviceCategory = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(caregiverId))
+                    return BadRequest(new { Message = "caregiverId is required" });
+
+                // Ownership check
+                var tokenCaregiverId = GetCaregiverIdFromToken();
+                if (!string.IsNullOrEmpty(tokenCaregiverId)
+                    && tokenCaregiverId != caregiverId
+                    && !IsAdminOrSuperAdmin())
+                {
+                    return Forbid();
+                }
+
+                // Clamp pagination values
+                if (page < 1) page = 1;
+                if (pageSize < 1) pageSize = 1;
+                if (pageSize > 100) pageSize = 100;
+
+                var history = await assessmentService.GetAssessmentHistoryAsync(caregiverId, serviceCategory, page, pageSize);
+                return Ok(history);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting assessment history for caregiver: {CaregiverId}", caregiverId);
+                return StatusCode(500, new { ErrorMessage = "An error occurred retrieving assessment history." });
+            }
+        }
+
+        /// <summary>
+        /// Get caregiver eligibility map — which categories they are cleared for.
+        /// </summary>
+        [HttpGet("eligibility")]
+        public async Task<IActionResult> GetEligibilityAsync([FromQuery] string caregiverId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(caregiverId))
+                    return BadRequest(new { Message = "caregiverId is required" });
+
+                // Ownership check
+                var tokenCaregiverId = GetCaregiverIdFromToken();
+                if (!string.IsNullOrEmpty(tokenCaregiverId)
+                    && tokenCaregiverId != caregiverId
+                    && !IsAdminOrSuperAdmin())
+                {
+                    return Forbid();
+                }
+
+                var eligibility = await eligibilityService.GetEligibilityAsync(caregiverId);
+                return Ok(eligibility);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting eligibility for caregiver: {CaregiverId}", caregiverId);
+                return StatusCode(500, new { ErrorMessage = "An error occurred retrieving eligibility." });
+            }
+        }
+
+        #endregion
 
         #region Training Materials Endpoints
 
@@ -555,6 +717,27 @@ namespace CarePro_Api.Controllers.Content
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 return StatusCode(500, new { error = "An error occurred while downloading the file", details = ex.Message });
             }
+        }
+
+        #endregion
+
+        #region JWT Helpers
+
+        /// <summary>
+        /// Extracts the CaregiverId from the JWT token claims.
+        /// </summary>
+        private string? GetCaregiverIdFromToken()
+        {
+            return User.FindFirst("CareGiverId")?.Value;
+        }
+
+        /// <summary>
+        /// Checks if the current user has Admin or SuperAdmin role.
+        /// </summary>
+        private bool IsAdminOrSuperAdmin()
+        {
+            var role = User.FindFirst(ClaimTypes.Role)?.Value;
+            return role == "Admin" || role == "SuperAdmin";
         }
 
         #endregion

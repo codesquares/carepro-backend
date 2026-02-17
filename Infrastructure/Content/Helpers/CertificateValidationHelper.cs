@@ -7,26 +7,109 @@ namespace Infrastructure.Content.Helpers
 {
     public static class ApprovedCertificates
     {
+        // Educational certificates
         public const string WASSCE = "West African Senior School Certificate Examination (WASSCE)";
         public const string NECO = "National Examination Council (NECO) Senior School Certificate Examination (SSCE)";
         public const string NABTEB = "National Business and Technical Examinations Board (NABTEB)";
         public const string NYSC = "National Youth Service Corps (NYSC) Certificate";
 
+        // Professional / Medical / Specialized certificates
+        public const string NURSING_LICENSE = "Nursing License (RN/LPN/CNA)";
+        public const string CPR_CERTIFICATION = "CPR Certification";
+        public const string FIRST_AID = "First Aid Training Certificate";
+        public const string SPECIAL_NEEDS_TRAINING = "Special Needs Training Certificate";
+        public const string DEMENTIA_CARE = "Dementia Care Certificate";
+        public const string MEDICATION_ADMIN = "Medication Administration License";
+        public const string PALLIATIVE_CARE_TRAINING = "Palliative Care Training Certificate";
+        public const string PHYSICAL_THERAPY_ASSISTANT = "Physical Therapy Assistant Certificate";
+        public const string HOME_HEALTH_AIDE = "Home Health Aide (HHA) Certificate";
+
         public static readonly Dictionary<string, string> CertificateIssuerMapping = new()
         {
+            // Educational
             { WASSCE, "West African Examinations Council (WAEC)" },
             { NECO, "National Examination Council (NECO)" },
             { NABTEB, "National Business and Technical Examinations Board (NABTEB)" },
-            { NYSC, "National Youth Service Corps (NYSC)" }
+            { NYSC, "National Youth Service Corps (NYSC)" },
+
+            // Professional / Medical / Specialized — accept broad issuers
+            { NURSING_LICENSE, "Nursing and Midwifery Council of Nigeria (NMCN)" },
+            { CPR_CERTIFICATION, "Accredited CPR Training Provider" },
+            { FIRST_AID, "Accredited First Aid Training Provider" },
+            { SPECIAL_NEEDS_TRAINING, "Accredited Special Needs Training Institution" },
+            { DEMENTIA_CARE, "Accredited Dementia Care Training Institution" },
+            { MEDICATION_ADMIN, "Relevant Health Authority" },
+            { PALLIATIVE_CARE_TRAINING, "Accredited Palliative Care Training Institution" },
+            { PHYSICAL_THERAPY_ASSISTANT, "Accredited Physical Therapy Training Institution" },
+            { HOME_HEALTH_AIDE, "Accredited Home Health Aide Training Provider" }
         };
 
         public static readonly List<string> ValidCertificateNames = new()
         {
-            WASSCE,
-            NECO,
-            NABTEB,
-            NYSC
+            WASSCE, NECO, NABTEB, NYSC,
+            NURSING_LICENSE, CPR_CERTIFICATION, FIRST_AID,
+            SPECIAL_NEEDS_TRAINING, DEMENTIA_CARE, MEDICATION_ADMIN,
+            PALLIATIVE_CARE_TRAINING, PHYSICAL_THERAPY_ASSISTANT, HOME_HEALTH_AIDE
         };
+
+        /// <summary>
+        /// Maps certificate names to their category: "educational", "professional", "medical", "specialized"
+        /// </summary>
+        public static readonly Dictionary<string, string> CertificateCategoryMapping = new()
+        {
+            { WASSCE, "educational" },
+            { NECO, "educational" },
+            { NABTEB, "educational" },
+            { NYSC, "educational" },
+            { NURSING_LICENSE, "medical" },
+            { CPR_CERTIFICATION, "medical" },
+            { FIRST_AID, "medical" },
+            { MEDICATION_ADMIN, "medical" },
+            { SPECIAL_NEEDS_TRAINING, "specialized" },
+            { DEMENTIA_CARE, "specialized" },
+            { PALLIATIVE_CARE_TRAINING, "specialized" },
+            { PHYSICAL_THERAPY_ASSISTANT, "professional" },
+            { HOME_HEALTH_AIDE, "professional" }
+        };
+
+        /// <summary>
+        /// Maps certificate names to the service categories they help satisfy.
+        /// </summary>
+        public static readonly Dictionary<string, List<string>> CertificateServiceCategoryMapping = new()
+        {
+            { NURSING_LICENSE, new() { "MedicalSupport", "PostSurgeryCare", "PalliativeCare" } },
+            { CPR_CERTIFICATION, new() { "MedicalSupport", "PostSurgeryCare", "TherapyAndWellness" } },
+            { FIRST_AID, new() { "MedicalSupport", "PostSurgeryCare" } },
+            { SPECIAL_NEEDS_TRAINING, new() { "SpecialNeedsCare" } },
+            { DEMENTIA_CARE, new() { "SpecialNeedsCare", "PalliativeCare" } },
+            { MEDICATION_ADMIN, new() { "MedicalSupport", "PostSurgeryCare", "PalliativeCare" } },
+            { PALLIATIVE_CARE_TRAINING, new() { "PalliativeCare" } },
+            { PHYSICAL_THERAPY_ASSISTANT, new() { "TherapyAndWellness" } },
+            { HOME_HEALTH_AIDE, new() { "MedicalSupport", "PostSurgeryCare" } }
+        };
+
+        /// <summary>
+        /// Professional/medical/specialized certificates may accept flexible issuers.
+        /// Educational certificates require exact issuer matching.
+        /// </summary>
+        public static readonly HashSet<string> FlexibleIssuerCertificates = new()
+        {
+            NURSING_LICENSE, CPR_CERTIFICATION, FIRST_AID,
+            SPECIAL_NEEDS_TRAINING, DEMENTIA_CARE, MEDICATION_ADMIN,
+            PALLIATIVE_CARE_TRAINING, PHYSICAL_THERAPY_ASSISTANT, HOME_HEALTH_AIDE
+        };
+
+        public static string? GetCertificateCategory(string? certificateName)
+        {
+            if (string.IsNullOrWhiteSpace(certificateName)) return null;
+            return CertificateCategoryMapping.TryGetValue(certificateName.Trim(), out var category) ? category : null;
+        }
+
+        public static List<string>? GetServiceCategories(string? certificateName)
+        {
+            if (string.IsNullOrWhiteSpace(certificateName)) return null;
+            return CertificateServiceCategoryMapping.TryGetValue(certificateName.Trim(), out var categories) ? categories : null;
+        }
     }
 
     public static class CertificateValidationHelper
@@ -53,7 +136,12 @@ namespace Infrastructure.Content.Helpers
         {
             if (string.IsNullOrWhiteSpace(certificateName) || string.IsNullOrWhiteSpace(certificateIssuer))
                 return false;
-                
+
+            // Professional/medical/specialized certificates accept any non-empty issuer
+            if (ApprovedCertificates.FlexibleIssuerCertificates.Contains(certificateName.Trim()))
+                return true;
+
+            // Educational certificates require exact issuer match
             var expectedIssuer = GetExpectedIssuer(certificateName);
             
             if (expectedIssuer == null)
@@ -66,7 +154,8 @@ namespace Infrastructure.Content.Helpers
         {
             if (!IsValidCertificateType(certificateName))
             {
-                return "Invalid certificate type. Only WASSCE, NECO SSCE, NABTEB, and NYSC certificates are accepted.";
+                return "Invalid certificate type. Accepted certificates include: " +
+                    string.Join(", ", ApprovedCertificates.ValidCertificateNames.Select(n => $"'{n}'"));
             }
 
             if (!ValidateIssuerMatch(certificateName, certificateIssuer ?? ""))

@@ -19,6 +19,18 @@ namespace Application.DTOs
 
         public string? CertificateIssuer { get; set; }
 
+        /// <summary>
+        /// "educational", "professional", "medical", "specialized"
+        /// </summary>
+        public string? CertificateCategory { get; set; }
+
+        /// <summary>
+        /// Which service categories this certificate satisfies.
+        /// </summary>
+        public List<string>? ServiceCategories { get; set; }
+
+        public DateTime? ExpiryDate { get; set; }
+
         public string? CertificateUrl { get; set; }
 
         public bool IsVerified { get; set; }
@@ -43,6 +55,12 @@ namespace Application.DTOs
         public string? CertificateName { get; set; }
 
         public string? CertificateIssuer { get; set; }
+
+        public string? CertificateCategory { get; set; }
+
+        public List<string>? ServiceCategories { get; set; }
+
+        public DateTime? ExpiryDate { get; set; }
 
         public string? CertificateUrl { get; set; }
 
@@ -77,9 +95,16 @@ namespace Application.DTOs
 
         public string? CertificateIssuer { get; set; }
 
+        /// <summary>
+        /// "educational", "professional", "medical", "specialized"
+        /// </summary>
+        public string? CertificateCategory { get; set; }
+
         public string? Certificate { get; set; }
 
         public DateTime YearObtained { get; set; }
+
+        public DateTime? ExpiryDate { get; set; }
 
         public bool VerifyImmediately { get; set; } = true;
     }

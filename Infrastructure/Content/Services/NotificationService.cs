@@ -30,7 +30,7 @@ namespace Infrastructure.Content.Services
             _logger = logger;
         }
 
-        public async Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string? Title, string relatedEntityId)
+        public async Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string? Title, string relatedEntityId, string? orderId = null)
         {
             try
             {
@@ -44,7 +44,8 @@ namespace Infrastructure.Content.Services
                     Title = Title,
                     CreatedAt = DateTime.UtcNow,
                     IsRead = false,
-                    RelatedEntityId = relatedEntityId
+                    RelatedEntityId = relatedEntityId,
+                    OrderId = orderId
                 };
 
                 await _dbContext.Notifications.AddAsync(notification);
@@ -83,12 +84,13 @@ namespace Infrastructure.Content.Services
                     {
                         Id = notification.Id.ToString(),
                         UserId = notification.RecipientId,
+                        SenderId = notification.SenderId,
                         Type = notification.Type,
                         Content = notification.Content,
                         Title = notification.Title,
                         IsRead = notification.IsRead,
                         RelatedEntityId = notification.RelatedEntityId,
-
+                        OrderId = notification.OrderId,
                         CreatedAt = notification.CreatedAt,
                     };
 
@@ -213,7 +215,8 @@ namespace Infrastructure.Content.Services
                             createdAt = notification.CreatedAt,
                             isRead = notification.IsRead,
                             senderId = notification.SenderId,
-                            relatedEntityId = notification.RelatedEntityId
+                            relatedEntityId = notification.RelatedEntityId,
+                            orderId = notification.OrderId
                         });
 
                     return true;

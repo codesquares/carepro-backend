@@ -16,5 +16,9 @@ namespace Application.Interfaces.Content
         Task<bool> UpdateQuestionAsync(UpdateQuestionBankRequest updateQuestionRequest);
         Task<bool> DeleteQuestionAsync(string id);
         Task<List<QuestionBankDTO>> GetRandomQuestionsForAssessmentAsync(string userType, int count);
+
+        // Specialized assessment question methods
+        Task<List<QuestionBankDTO>> GetQuestionsByServiceCategoryAsync(string serviceCategory);
+        Task<List<AssessmentQuestionBankDTO>> GetRandomSpecializedQuestionsAsync(string serviceCategory, int count);
     }
 }

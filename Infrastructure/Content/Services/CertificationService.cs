@@ -61,7 +61,10 @@ namespace Infrastructure.Content.Services
             // Validate certificate type
             if (!CertificateValidationHelper.IsValidCertificateType(addCertificationRequest.CertificateName))
             {
-                throw new ArgumentException("Invalid certificate type. Only WASSCE, NECO SSCE, NABTEB, and NYSC certificates are accepted.", nameof(addCertificationRequest.CertificateName));
+                throw new ArgumentException(
+                    CertificateValidationHelper.GetValidationErrorMessage(
+                        addCertificationRequest.CertificateName ?? "", addCertificationRequest.CertificateIssuer),
+                    nameof(addCertificationRequest.CertificateName));
             }
 
             // Validate certificate issuer matches the certificate type
@@ -81,6 +84,14 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException($"A certificate of type '{addCertificationRequest.CertificateName}' has already been uploaded for this caregiver.");
             }
 
+            // Reject expired certificates at upload time
+            if (addCertificationRequest.ExpiryDate.HasValue && addCertificationRequest.ExpiryDate.Value < DateTime.UtcNow)
+            {
+                throw new ArgumentException(
+                    $"Cannot upload an expired certificate. The expiry date ({addCertificationRequest.ExpiryDate.Value:yyyy-MM-dd}) is in the past.",
+                    nameof(addCertificationRequest.ExpiryDate));
+            }
+
             try
             {
                 // Convert base64 to byte array
@@ -95,167 +106,39 @@ namespace Infrastructure.Content.Services
                 {
                     CertificateName = addCertificationRequest.CertificateName ?? "",
                     CertificateIssuer = addCertificationRequest.CertificateIssuer ?? "",
+                    CertificateCategory = addCertificationRequest.CertificateCategory
+                        ?? ApprovedCertificates.GetCertificateCategory(addCertificationRequest.CertificateName),
+                    ServiceCategories = ApprovedCertificates.GetServiceCategories(addCertificationRequest.CertificateName),
+                    ExpiryDate = addCertificationRequest.ExpiryDate,
                     CloudinaryUrl = cloudinaryUrl,
                     CloudinaryPublicId = publicId,
                     YearObtained = addCertificationRequest.YearObtained,
                     CaregiverId = addCertificationRequest.CaregiverId,
                     Id = ObjectId.GenerateNewId(),
                     IsVerified = false,
-                    VerificationStatus = DocumentVerificationStatus.PendingVerification,
+                    VerificationStatus = DocumentVerificationStatus.ManualReviewRequired,
                     SubmittedOn = DateTime.UtcNow,
                     VerificationAttempts = 0
                 };
 
-                // Perform document verification if requested
-                VerificationResultDTO? verificationResult = null;
-                if (addCertificationRequest.VerifyImmediately)
+                // Certificate verification is handled by admin review.
+                // Dojah is not reliable for professional certificates — it's designed for KYC/identity docs.
+                // All certificates are routed to the admin review queue where admins can:
+                //   - View the uploaded document via Cloudinary URL
+                //   - Cross-reference with issuing body registries
+                //   - Approve or reject with notes
+                // Admin review endpoints: GET /api/Admins/Certificates/PendingReview, POST /api/Admins/Certificates/Review
+
+                var verificationResult = new VerificationResultDTO
                 {
-                    try
-                    {
-                        var dojahResult = await dojahVerificationService.VerifyDocumentAsync(certificateBytes, fileName);
-                        
-                        // Enhanced validation checks for certificate genuineness
-                        var validationMessages = new List<string>();
-                        var finalStatus = dojahResult.Status;
-                        // 1. Confidence threshold validation
-                        var (isConfidentValid, confidenceStatus, confidenceMessage) = 
-                            CertificateValidationHelper.ValidateConfidenceThreshold(dojahResult.Confidence);
-                        
-                        if (!isConfidentValid)
-                        {
-                            validationMessages.Add(confidenceMessage);
-                            // Route all low confidence to manual review instead of auto-rejection
-                            finalStatus = DocumentVerificationStatus.ManualReviewRequired;
-                        }
+                    Status = DocumentVerificationStatus.ManualReviewRequired,
+                    Confidence = 0,
+                    VerifiedAt = null,
+                    ErrorMessage = "Certificate has been uploaded and queued for admin review. " +
+                                   "You will be notified once an admin has reviewed your certificate."
+                };
 
-                        // 2. Name matching validation (only if Dojah extracted names)
-                        if (dojahResult.ExtractedInfo != null && 
-                            !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.FirstName) &&
-                            !string.IsNullOrWhiteSpace(dojahResult.ExtractedInfo.LastName))
-                        {
-                            var namesMatch = CertificateValidationHelper.ValidateNameMatch(
-                                dojahResult.ExtractedInfo.FirstName,
-                                dojahResult.ExtractedInfo.LastName,
-                                careGiver.FirstName,
-                                careGiver.LastName
-                            );
-
-                            if (!namesMatch)
-                            {
-                                validationMessages.Add(
-                                    $"Name mismatch: Certificate shows '{dojahResult.ExtractedInfo.FirstName} {dojahResult.ExtractedInfo.LastName}' " +
-                                    $"but profile shows '{careGiver.FirstName} {careGiver.LastName}'. Manual review required."
-                                );
-                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
-                            }
-                        }
-
-                        // 3. Country validation
-                        if (dojahResult.DocumentType != null && 
-                            !string.IsNullOrWhiteSpace(dojahResult.DocumentType.CountryCode))
-                        {
-                            var isValidCountry = CertificateValidationHelper.ValidateCountryCode(
-                                dojahResult.DocumentType.CountryCode
-                            );
-
-                            if (!isValidCountry)
-                            {
-                                validationMessages.Add(
-                                    $"Invalid certificate country: Expected Nigeria (NG) but detected '{dojahResult.DocumentType.CountryCode}'. " +
-                                    $"Only Nigerian educational certificates are accepted."
-                                );
-                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
-                            }
-                        }
-
-                        // 4. Document type cross-validation
-                        if (dojahResult.DocumentType != null && 
-                            !string.IsNullOrWhiteSpace(dojahResult.DocumentType.DocumentName))
-                        {
-                            var typeMatches = CertificateValidationHelper.ValidateDocumentTypeMatch(
-                                addCertificationRequest.CertificateName,
-                                dojahResult.DocumentType.DocumentName
-                            );
-
-                            if (!typeMatches)
-                            {
-                                validationMessages.Add(
-                                    $"Document type mismatch: You claimed '{addCertificationRequest.CertificateName}' " +
-                                    $"but Dojah detected '{dojahResult.DocumentType.DocumentName}'. This may indicate a forged certificate."
-                                );
-                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
-                            }
-                        }
-
-                        // 5. Issue date validation (if extracted)
-                        if (dojahResult.ExtractedInfo?.IssueDate != null)
-                        {
-                            var (isDateValid, dateMessage) = CertificateValidationHelper.ValidateIssueDate(
-                                dojahResult.ExtractedInfo.IssueDate
-                            );
-
-                            if (!isDateValid)
-                            {
-                                validationMessages.Add(dateMessage);
-                                finalStatus = DocumentVerificationStatus.ManualReviewRequired;
-                            }
-                        }
-
-                        // Update certification with verification results
-                        certification.VerificationStatus = finalStatus;
-                        certification.VerificationDate = DateTime.UtcNow;
-                        certification.VerificationConfidence = dojahResult.Confidence;
-                        certification.DojahVerificationResponse = dojahResult.RawResponse;
-                        certification.VerificationAttempts = 1;
-                        certification.IsVerified = finalStatus == DocumentVerificationStatus.Verified;
-                        
-                        // Store validation issues for admin review
-                        if (validationMessages.Count > 0)
-                        {
-                            certification.ValidationIssues = string.Join(" | ", validationMessages);
-                        }
-                        
-                        // Store extracted information as JSON
-                        if (dojahResult.ExtractedInfo != null)
-                        {
-                            certification.ExtractedCertificateInfo = JsonSerializer.Serialize(dojahResult.ExtractedInfo);
-                        }
-
-                        // Combine all validation messages
-                        var errorMessage = validationMessages.Count > 0 
-                            ? string.Join(" | ", validationMessages)
-                            : dojahResult.ErrorMessage;
-
-                        verificationResult = new VerificationResultDTO
-                        {
-                            Status = finalStatus,
-                            Confidence = dojahResult.Confidence,
-                            VerifiedAt = DateTime.UtcNow,
-                            ErrorMessage = errorMessage,
-                            ExtractedInfo = dojahResult.ExtractedInfo != null ? MapExtractedInfo(dojahResult.ExtractedInfo) : null
-                        };
-
-                        var logMessage = finalStatus == DocumentVerificationStatus.ManualReviewRequired
-                            ? $"Certificate requires MANUAL REVIEW. Status: {finalStatus}, Confidence: {dojahResult.Confidence}, Reasons: {errorMessage}"
-                            : $"Certificate verification completed. Status: {finalStatus}, Confidence: {dojahResult.Confidence}";
-                        
-                        LogAuditEvent(logMessage, addCertificationRequest.CaregiverId);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Certificate verification failed for caregiver {CaregiverId}", addCertificationRequest.CaregiverId);
-                        
-                        certification.VerificationStatus = DocumentVerificationStatus.VerificationFailed;
-                        certification.VerificationAttempts = 1;
-                        
-                        verificationResult = new VerificationResultDTO
-                        {
-                            Status = DocumentVerificationStatus.VerificationFailed,
-                            Confidence = 0,
-                            ErrorMessage = "Verification service unavailable"
-                        };
-                    }
-                }
+                LogAuditEvent($"Certificate uploaded and queued for admin review. Type: {certification.CertificateName}, Issuer: {certification.CertificateIssuer}", addCertificationRequest.CaregiverId);
 
                 // Save to database
                 await careProDbContext.Certifications.AddAsync(certification);
@@ -263,10 +146,21 @@ namespace Infrastructure.Content.Services
 
                 LogAuditEvent($"Certificate uploaded and saved. ID: {certification.Id}", addCertificationRequest.CaregiverId);
 
-                // Send notification and email after verification
-                if (addCertificationRequest.VerifyImmediately && verificationResult != null)
+                // Send notification to caregiver that cert is pending review
+                try
                 {
-                    await SendVerificationNotificationAsync(careGiver, certification, verificationResult.Status);
+                    await notificationService.CreateNotificationAsync(
+                        recipientId: addCertificationRequest.CaregiverId,
+                        senderId: "System",
+                        type: "CertificateUploaded",
+                        content: $"Your {certification.CertificateName} has been uploaded successfully and is pending admin review. You will be notified once it has been reviewed.",
+                        Title: "Certificate Uploaded - Pending Review",
+                        relatedEntityId: certification.Id.ToString()
+                    );
+                }
+                catch (Exception notifEx)
+                {
+                    logger.LogWarning(notifEx, "Failed to send upload notification for certificate {CertificateId}", certification.Id);
                 }
 
                 return new CertificationUploadResponse
@@ -1078,13 +972,19 @@ namespace Infrastructure.Content.Services
                     };
                 }
 
-                // Check certificate is in manual review status
-                if (certificate.VerificationStatus != DocumentVerificationStatus.ManualReviewRequired)
+                // Check certificate is in a reviewable status
+                var reviewableStatuses = new[]
+                {
+                    DocumentVerificationStatus.ManualReviewRequired,
+                    DocumentVerificationStatus.PendingVerification,
+                    DocumentVerificationStatus.VerificationFailed
+                };
+                if (!reviewableStatuses.Contains(certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification))
                 {
                     return new AdminCertificateReviewResponse
                     {
                         Success = false,
-                        Message = $"Certificate is not pending manual review. Current status: {certificate.VerificationStatus}",
+                        Message = $"Certificate is not pending review. Current status: {certificate.VerificationStatus}",
                         NewStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification
                     };
                 }
@@ -1222,6 +1122,40 @@ namespace Infrastructure.Content.Services
             {
                 logger.LogError(ex, "Failed to send admin review notification to caregiver {CaregiverId}", certification.CaregiverId);
                 // Don't throw - notification failure shouldn't fail the main operation
+            }
+        }
+
+        public async Task<IEnumerable<CertificationDTO>> GetCertificateStatusAsync(string caregiverId)
+        {
+            try
+            {
+                var certifications = await careProDbContext.Certifications
+                    .Where(c => c.CaregiverId == caregiverId)
+                    .OrderByDescending(c => c.SubmittedOn)
+                    .ToListAsync();
+
+                return certifications.Select(c => new CertificationDTO
+                {
+                    Id = c.Id.ToString(),
+                    CaregiverId = c.CaregiverId,
+                    CertificateName = c.CertificateName,
+                    CertificateIssuer = c.CertificateIssuer,
+                    CertificateCategory = c.CertificateCategory,
+                    ServiceCategories = c.ServiceCategories,
+                    ExpiryDate = c.ExpiryDate,
+                    CertificateUrl = c.CloudinaryUrl,
+                    IsVerified = c.IsVerified,
+                    VerificationStatus = c.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
+                    VerificationDate = c.VerificationDate,
+                    VerificationConfidence = c.VerificationConfidence,
+                    YearObtained = c.YearObtained,
+                    SubmittedOn = c.SubmittedOn
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting certificate status for caregiver: {CaregiverId}", caregiverId);
+                throw;
             }
         }
     }
