@@ -355,8 +355,7 @@ namespace Infrastructure.Content.Services
                         refundAmount, subscription.Currency, subscriptionId,
                         subscription.RemainingDaysInPeriod, subscription.TotalDaysInPeriod);
 
-                    // TODO: Integrate with Flutterwave refund API when available
-                    // For now, refund is recorded and admin handles manual refund
+                    // Refund is recorded; admin processes manual refund via Flutterwave dashboard
                 }
             }
 
