@@ -234,8 +234,10 @@ jobs:
           Dojah__SignatureVerificationEnabled=false
           Dojah__IpWhitelistEnabled=false
           Dojah__Environment=Staging
-          FrontendUrl=http://44.212.198.137
-          AllowedFrontendOrigins__0=44.212.198.137
+          FrontendUrl=http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com
+          AllowedFrontendOrigins__0=staging.oncarepro.com
+          AllowedFrontendOrigins__1=staging-admin.oncarepro.com
+          AllowedFrontendOrigins__2=carepro-frontend-staging.s3-website-us-east-1.amazonaws.com
           ENVEOF
 
           # Write docker-compose file
@@ -265,8 +267,10 @@ jobs:
               container_name: carepro-staging-nginx
               ports:
                 - "80:80"
+                - "443:443"
               volumes:
                 - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+                - /etc/letsencrypt:/etc/letsencrypt:ro
               depends_on:
                 - carepro-api
               restart: unless-stopped
@@ -281,7 +285,7 @@ jobs:
           # Replace the image placeholder with the actual image reference
           sed -i "s|PLACEHOLDER_IMAGE|$IMAGE_FULL|g" ~/carepro/docker-compose.staging.yml
 
-          # Write nginx config
+          # Write nginx config with HTTPS
           cat > ~/carepro/nginx.conf << 'NGINXEOF'
           upstream carepro_api {
               server carepro-staging-api:5005;
@@ -289,6 +293,18 @@ jobs:
 
           server {
               listen 80;
+              server_name staging.api.oncarepro.com;
+              return 301 https://$host$request_uri;
+          }
+
+          server {
+              listen 443 ssl;
+              server_name staging.api.oncarepro.com;
+
+              ssl_certificate /etc/letsencrypt/live/staging.api.oncarepro.com/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/staging.api.oncarepro.com/privkey.pem;
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_prefer_server_ciphers on;
 
               client_max_body_size 50M;
 
@@ -332,8 +348,8 @@ jobs:
     - name: Health check
       run: |
         echo "Running health check on staging..."
-        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_STAGING_HOST }}/health || echo "000")
-        echo "Health endpoint returned: $STATUS"
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://staging.api.oncarepro.com/swagger/index.html || echo "000")
+        echo "Swagger endpoint returned: $STATUS"
         if [ "$STATUS" = "200" ]; then
           echo "Health check passed."
         else
@@ -351,7 +367,7 @@ jobs:
       run: |
         if [ "${{ needs.deploy-to-staging.result }}" == "success" ]; then
           echo "Staging deployment successful!"
-          echo "EC2 staging is live at http://${{ secrets.EC2_STAGING_HOST }}"
+          echo "Staging is live at https://staging.api.oncarepro.com"
         else
           echo "Staging deployment failed. Check the workflow logs for details."
         fi
