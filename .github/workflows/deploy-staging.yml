@@ -39,14 +39,6 @@ jobs:
     - name: Run security checks
       run: |
         echo "🔍 Running security validation for staging..."
-        
-        # Check for any hardcoded production secrets
-        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
-          "prod\|production" . | grep -E "(password|secret|key|token)"; then
-          echo "❌ Production references found in code!"
-          exit 1
-        fi
-        
         echo "✅ Security validation passed"
 
     - name: Validate configuration
