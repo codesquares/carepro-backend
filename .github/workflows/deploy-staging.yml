@@ -192,7 +192,7 @@ jobs:
       DOJAH_API_KEY: ${{ secrets.DOJAH_API_KEY }}
       GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GHCR_ACTOR: ${{ github.actor }}
-      IMAGE_FULL: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+      IMAGE_FULL: ghcr.io/${{ github.repository }}/carepro-cnet-backend:staging-latest
 
     steps:
     - name: Write config files and deploy on EC2
