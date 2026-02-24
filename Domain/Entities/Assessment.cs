@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,6 +25,8 @@ namespace Domain.Entities
         public DateTime EndTimestamp { get; set; }
         public int Score { get; set; } // Percentage score (0-100)
         public bool Passed { get; set; } // Based on 70% threshold
+
+        [BsonDefaultValue(70)]
         public int PassingThreshold { get; set; } = 70; // Threshold used for this attempt
         public List<AssessmentQuestion> Questions { get; set; }
         public string Status { get; set; }
