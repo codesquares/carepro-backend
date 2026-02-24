@@ -81,7 +81,7 @@ namespace Infrastructure.Content.Services
                 Status = assesement.Status,
                 Score = assesement.Score,
                 ServiceCategory = assesement.ServiceCategory,
-                PassingThreshold = assesement.PassingThreshold,
+                PassingThreshold = assesement.PassingThreshold ?? 70,
             };
 
             return assessmentDTO;
@@ -230,7 +230,7 @@ namespace Infrastructure.Content.Services
                     assessment.Score = (int)Math.Round((double)correctAnswers / totalQuestions * 100);
 
                     // Use category-specific threshold if available, default to 70%
-                    int threshold = assessment.PassingThreshold > 0 ? assessment.PassingThreshold : 70;
+                    int threshold = (assessment.PassingThreshold ?? 0) > 0 ? assessment.PassingThreshold.Value : 70;
                     assessment.PassingThreshold = threshold;
 
                     // Determine if passed
@@ -571,7 +571,7 @@ namespace Infrastructure.Content.Services
                         ServiceCategoryDisplayName = req?.DisplayName ?? categoryKey,
                         Score = a.Score,
                         Passed = a.Passed,
-                        Threshold = a.PassingThreshold > 0 ? a.PassingThreshold : 70,
+                        Threshold = (a.PassingThreshold ?? 0) > 0 ? a.PassingThreshold.Value : 70,
                         Date = a.EndTimestamp,
                         NextRetryDate = nextRetry
                     });
@@ -606,7 +606,7 @@ namespace Infrastructure.Content.Services
                 EndTimestamp = assessment.EndTimestamp,
                 Score = assessment.Score,
                 Passed = assessment.Passed,
-                PassingThreshold = assessment.PassingThreshold,
+                PassingThreshold = assessment.PassingThreshold ?? 70,
                 Status = assessment.Status,
                 AssessedDate = assessment.AssessedDate,
                 UpdatedAt = assessment.UpdatedAt,
