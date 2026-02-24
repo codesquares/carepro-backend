@@ -2,7 +2,7 @@ name: Deploy to Staging
 
 on:
   push:
-    branches: [ staging ]
+    branches: [ staging_area ]
   workflow_dispatch:
     inputs:
       force_deploy:
@@ -169,119 +169,197 @@ jobs:
         cache-to: type=gha,mode=max
 
   deploy-to-staging:
-    name: Deploy to Staging Environment
+    name: Deploy to EC2 Staging
     runs-on: ubuntu-latest
     needs: build-staging-image
     environment: staging
-    
+
+    env:
+      MONGODB_CONN: ${{ secrets.MONGODB_STAGING_CONNECTION }}
+      JWT_KEY: ${{ secrets.JWT_SECRET_STAGING }}
+      JWTSETTINGS_SECRET: ${{ secrets.JWTSETTINGS_SECRET_STAGING }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      FLUTTERWAVE_PUBLIC_KEY: ${{ secrets.FLUTTERWAVE_PUBLIC_KEY }}
+      FLUTTERWAVE_SECRET_KEY: ${{ secrets.FLUTTERWAVE_SECRET_KEY }}
+      FLUTTERWAVE_ENCRYPTION_KEY: ${{ secrets.FLUTTERWAVE_ENCRYPTION_KEY }}
+      MAIL_APP_PASSWORD: ${{ secrets.MAIL_APP_PASSWORD }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+      DOJAH_API_KEY: ${{ secrets.DOJAH_API_KEY }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GHCR_ACTOR: ${{ github.actor }}
+      IMAGE_FULL: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Create deployment manifest
-      run: |
-        mkdir -p deployment
-        
-        cat > deployment/docker-compose.staging.yml << 'EOF'
-        version: '3.8'
-        
-        services:
-          carepro-backend:
-            image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest
-            container_name: carepro-backend-staging
-            environment:
-              - ASPNETCORE_ENVIRONMENT=Staging
-              - ASPNETCORE_URLS=http://+:5005
-              - JWT__Key=${JWT_KEY}
-              - ConnectionStrings__MongoDbConnection=${MONGODB_CONNECTION}
-              - MailSettings__FromEmail=${MAIL_FROM_EMAIL}
-              - MailSettings__SmtpServer=${MAIL_SMTP_SERVER}
-              - MailSettings__AppPassword=${MAIL_APP_PASSWORD}
-              - GoogleMaps__ApiKey=${GOOGLE_MAPS_API_KEY}
-              - LLMSettings__OpenAI__ApiKey=${OPENAI_API_KEY}
-              - CloudinarySettings__CloudName=${CLOUDINARY_CLOUD_NAME}
-              - CloudinarySettings__ApiKey=${CLOUDINARY_API_KEY}
-              - CloudinarySettings__ApiSecret=${CLOUDINARY_API_SECRET}
-              - Flutterwave__PublicKey=${FLUTTERWAVE_PUBLIC_KEY}
-              - Flutterwave__SecretKey=${FLUTTERWAVE_SECRET_KEY}
-            ports:
-              - "5005:5005"
-            restart: unless-stopped
-            networks:
-              - carepro-network
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
-              interval: 30s
-              timeout: 10s
-              retries: 3
-              start_period: 40s
-              
-        networks:
-          carepro-network:
-            driver: bridge
-        EOF
-
-    - name: Create health check endpoint info
-      run: |
-        echo "📋 Staging deployment ready!"
-        echo "Environment: staging"
-        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-latest"
-        echo ""
-        echo "🔧 Required environment variables for deployment:"
-        echo "  - JWT_KEY"
-        echo "  - MONGODB_CONNECTION" 
-        echo "  - MAIL_FROM_EMAIL"
-        echo "  - MAIL_SMTP_SERVER"
-        echo "  - MAIL_APP_PASSWORD"
-        echo "  - GOOGLE_MAPS_API_KEY"
-        echo "  - OPENAI_API_KEY"
-        echo "  - CLOUDINARY_CLOUD_NAME"
-        echo "  - CLOUDINARY_API_KEY"
-        echo "  - CLOUDINARY_API_SECRET"
-        echo "  - FLUTTERWAVE_PUBLIC_KEY"
-        echo "  - FLUTTERWAVE_SECRET_KEY"
-        echo ""
-        echo "🚀 Deploy with: docker-compose -f deployment/docker-compose.staging.yml up -d"
-
-    - name: Upload deployment artifacts
-      uses: actions/upload-artifact@v4
+    - name: Write config files and deploy on EC2
+      uses: appleboy/ssh-action@v1.0.0
       with:
-        name: staging-deployment
-        path: deployment/
-        retention-days: 30
+        host: ${{ secrets.EC2_STAGING_HOST }}
+        username: ${{ secrets.EC2_STAGING_USER }}
+        key: ${{ secrets.EC2_STAGING_SSH_KEY }}
+        envs: MONGODB_CONN,JWT_KEY,JWTSETTINGS_SECRET,CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET,FLUTTERWAVE_PUBLIC_KEY,FLUTTERWAVE_SECRET_KEY,FLUTTERWAVE_ENCRYPTION_KEY,MAIL_APP_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,OPENAI_API_KEY,GOOGLE_MAPS_API_KEY,DOJAH_API_KEY,GHCR_TOKEN,GHCR_ACTOR,IMAGE_FULL
+        script: |
+          set -e
+          mkdir -p ~/carepro
+
+          # Write .env file with all secrets
+          cat > ~/carepro/.env << ENVEOF
+          ASPNETCORE_ENVIRONMENT=Staging
+          ASPNETCORE_URLS=http://+:5005
+          ConnectionStrings__MongoDbConnection=$MONGODB_CONN
+          Jwt__Key=$JWT_KEY
+          Jwt__Issuer=SecureApi
+          Jwt__Audience=SecureApiUser
+          Jwt__DurationInHours=5
+          JwtSettings__Secret=$JWTSETTINGS_SECRET
+          JwtSettings__Issuer=CareProAPI
+          JwtSettings__Audience=CareProUsers
+          JwtSettings__ExpiresInMinutes=30
+          CloudinarySettings__CloudName=$CLOUDINARY_CLOUD_NAME
+          CloudinarySettings__ApiKey=$CLOUDINARY_API_KEY
+          CloudinarySettings__ApiSecret=$CLOUDINARY_API_SECRET
+          Flutterwave__PublicKey=$FLUTTERWAVE_PUBLIC_KEY
+          Flutterwave__SecretKey=$FLUTTERWAVE_SECRET_KEY
+          Flutterwave__EncryptionKey=$FLUTTERWAVE_ENCRYPTION_KEY
+          MailSettings__FromEmail=staging@carepro.com
+          MailSettings__FromName=CarePro Staging
+          MailSettings__SmtpServer=smtp.gmail.com
+          MailSettings__Port=587
+          MailSettings__AppPassword=$MAIL_APP_PASSWORD
+          MailSettings__EnableSsl=true
+          Google__ClientId=$GOOGLE_CLIENT_ID
+          Google__ClientSecret=$GOOGLE_CLIENT_SECRET
+          LLMSettings__OpenAI__ApiKey=$OPENAI_API_KEY
+          LLMSettings__OpenAI__Model=gpt-3.5-turbo
+          LLMSettings__OpenAI__MaxTokens=2000
+          LLMSettings__OpenAI__Temperature=0.7
+          GoogleMaps__ApiKey=$GOOGLE_MAPS_API_KEY
+          Dojah__ApiKey=$DOJAH_API_KEY
+          Dojah__SignatureVerificationEnabled=false
+          Dojah__IpWhitelistEnabled=false
+          Dojah__Environment=Staging
+          FrontendUrl=http://44.212.198.137
+          AllowedFrontendOrigins__0=44.212.198.137
+          ENVEOF
+
+          # Write docker-compose file
+          cat > ~/carepro/docker-compose.staging.yml << 'COMPOSEEOF'
+          version: '3.8'
+
+          services:
+            carepro-api:
+              image: PLACEHOLDER_IMAGE
+              container_name: carepro-staging-api
+              env_file:
+                - .env
+              ports:
+                - "5005:5005"
+              restart: unless-stopped
+              networks:
+                - carepro-staging
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 60s
+
+            nginx:
+              image: nginx:alpine
+              container_name: carepro-staging-nginx
+              ports:
+                - "80:80"
+              volumes:
+                - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+              depends_on:
+                - carepro-api
+              restart: unless-stopped
+              networks:
+                - carepro-staging
+
+          networks:
+            carepro-staging:
+              driver: bridge
+          COMPOSEEOF
+
+          # Replace the image placeholder with the actual image reference
+          sed -i "s|PLACEHOLDER_IMAGE|$IMAGE_FULL|g" ~/carepro/docker-compose.staging.yml
+
+          # Write nginx config
+          cat > ~/carepro/nginx.conf << 'NGINXEOF'
+          upstream carepro_api {
+              server carepro-staging-api:5005;
+          }
+
+          server {
+              listen 80;
+
+              client_max_body_size 50M;
+
+              location / {
+                  proxy_pass http://carepro_api;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_read_timeout 120s;
+                  proxy_connect_timeout 10s;
+              }
+          }
+          NGINXEOF
+
+          # Login to GHCR and pull latest image
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+
+          cd ~/carepro
+          docker compose -f docker-compose.staging.yml pull
+          docker compose -f docker-compose.staging.yml up -d
+
+          # Remove dangling images to free disk space
+          docker image prune -f
+
+          echo "Staging deployment complete."
 
   staging-smoke-tests:
     name: Staging Smoke Tests
     runs-on: ubuntu-latest
     needs: deploy-to-staging
     if: success()
-    
+
     steps:
-    - name: Wait for staging deployment
+    - name: Wait for app to be ready
+      run: sleep 30
+
+    - name: Health check
       run: |
-        echo "⏳ Waiting for staging environment to be ready..."
-        echo "This would normally include:"
-        echo "  - Health check verification"
-        echo "  - Basic API endpoint tests"
-        echo "  - Database connectivity tests"
-        echo "  - Third-party service integration tests"
-        echo ""
-        echo "✅ Smoke tests placeholder completed"
-        echo "💡 Implement actual health checks once staging environment is configured"
+        echo "Running health check on staging..."
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_STAGING_HOST }}/health || echo "000")
+        echo "Health endpoint returned: $STATUS"
+        if [ "$STATUS" = "200" ]; then
+          echo "Health check passed."
+        else
+          echo "Health check returned $STATUS - app may still be starting up. Check EC2 logs."
+        fi
 
   notify-deployment:
     name: Notify Deployment Status
     runs-on: ubuntu-latest
     needs: [deploy-to-staging, staging-smoke-tests]
     if: always()
-    
+
     steps:
     - name: Deployment notification
       run: |
-        if [ "${{ needs.deploy-to-staging.result }}" == "success" ] && [ "${{ needs.staging-smoke-tests.result }}" == "success" ]; then
-          echo "✅ Staging deployment successful!"
-          echo "🌐 Staging environment is ready for testing"
+        if [ "${{ needs.deploy-to-staging.result }}" == "success" ]; then
+          echo "Staging deployment successful!"
+          echo "EC2 staging is live at http://${{ secrets.EC2_STAGING_HOST }}"
         else
-          echo "❌ Staging deployment failed"
-          echo "Check the workflow logs for details"
+          echo "Staging deployment failed. Check the workflow logs for details."
         fi
