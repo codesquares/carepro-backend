@@ -11,7 +11,7 @@ namespace Application.DTOs
 {
     public class CaregiverDTO
     {
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         public string FirstName { get; set; } = null!;
 
@@ -23,9 +23,10 @@ namespace Application.DTOs
 
         public string? PhoneNo { get; set; }
 
-        public string Role { get; set; }
+        public string Role { get; set; } = string.Empty;
 
-        public string Password { get; set; } = null!;
+        // SECURITY: Password hash must NEVER be returned in API responses
+        // public string Password { get; set; }
 
         public bool IsDeleted { get; set; }
 
@@ -85,7 +86,7 @@ namespace Application.DTOs
 
     public class CaregiverResponse
     {
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         public string FirstName { get; set; } = null!;
 
@@ -98,7 +99,7 @@ namespace Application.DTOs
         public string? PhoneNo { get; set; } = null!;
 
 
-        public string Role { get; set; }
+        public string Role { get; set; } = string.Empty;
 
         // public string Password { get; set; } = null!;
 
@@ -130,7 +131,7 @@ namespace Application.DTOs
         public int NoOfOrders { get; set; }
         public int NoOfHoursSpent { get; set; }
 
-        public List<string> Services { get; set; }
+        public List<string> Services { get; set; } = new();
 
         public string? ProfileImage { get; set; }
 

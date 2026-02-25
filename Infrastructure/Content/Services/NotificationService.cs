@@ -193,6 +193,38 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<NotificationResponse?> GetNotificationByIdAsync(string notificationId)
+        {
+            try
+            {
+                if (!ObjectId.TryParse(notificationId, out var objectId))
+                    return null;
+
+                var notification = await _dbContext.Notifications.FindAsync(objectId);
+                if (notification == null)
+                    return null;
+
+                return new NotificationResponse
+                {
+                    Id = notification.Id.ToString(),
+                    UserId = notification.RecipientId,
+                    SenderId = notification.SenderId,
+                    Type = notification.Type,
+                    Content = notification.Content,
+                    Title = notification.Title,
+                    IsRead = notification.IsRead,
+                    RelatedEntityId = notification.RelatedEntityId,
+                    OrderId = notification.OrderId,
+                    CreatedAt = notification.CreatedAt,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving notification {NotificationId}", notificationId);
+                throw;
+            }
+        }
+
 
         public async Task<bool> SendRealTimeNotificationAsync(string userId, Notification notification)
         {

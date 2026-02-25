@@ -27,6 +27,15 @@ namespace Infrastructure.Content.Services
             _contentSanitizer = contentSanitizer;
         }
 
+        /// <summary>
+        /// Gets the current authenticated user's ID from JWT claims.
+        /// </summary>
+        private string GetCurrentUserId()
+        {
+            return Context.User?.FindFirst("userId")?.Value
+                ?? throw new HubException("Authentication required");
+        }
+
 
         /// Connection Management
         public override async Task OnConnectedAsync()
@@ -102,53 +111,37 @@ namespace Infrastructure.Content.Services
 
 
         /// Message Operations
-        //public async Task SendMessage(string senderId, string receiverId, string message)
-        //{
-        //    try
-        //    {
-        //        var chatMessage = new ChatMessage
-        //        {
-        //            SenderId = senderId,
-        //            ReceiverId = receiverId,
-        //            Message = message,
-        //            Timestamp = DateTime.UtcNow
-        //        };
-
-        //        await _chatRepository.SaveMessageAsync(chatMessage);
-
-        //        await Clients.User(receiverId).SendAsync("ReceiveMessage", senderId, message);
-
-        //    }
-        //    catch (Exception)
-        //    {
-
-        //        await Clients.Caller.SendAsync("Error", "Message failed to send.");
-        //    }
-
-        //}
-
-
         public async Task<string> SendMessage(string senderId, string receiverId, string message)
         {
+            // SECURITY: Override senderId with authenticated user's identity — prevent spoofing
+            var currentUserId = GetCurrentUserId();
+
             // Validate input
-            if (string.IsNullOrEmpty(senderId) || string.IsNullOrEmpty(receiverId) || string.IsNullOrEmpty(message))
+            if (string.IsNullOrEmpty(receiverId) || string.IsNullOrEmpty(message))
             {
-                _logger.LogWarning("SendMessage called with invalid parameters. SenderId: {SenderId}, ReceiverId: {ReceiverId}", senderId ?? "null", receiverId ?? "null");
                 throw new HubException("Invalid message parameters");
             }
 
-            _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", senderId, receiverId);
+            // Prevent self-messaging
+            if (currentUserId == receiverId)
+            {
+                throw new HubException("Cannot send messages to yourself");
+            }
+
+            _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", currentUserId, receiverId);
 
             // Sanitize message content to prevent XSS attacks
             var sanitizedMessage = _contentSanitizer.SanitizeText(message);
 
-            // Create message object
-            //var messageId = Guid.NewGuid().ToString();
-            //var timestamp = DateTime.UtcNow;
+            // Enforce message length limit
+            if (sanitizedMessage.Length > 5000)
+            {
+                throw new HubException("Message exceeds maximum length");
+            }
 
             var chatMessage = new ChatMessage
             {
-                SenderId = senderId,
+                SenderId = currentUserId, // SECURITY: Always use JWT identity
                 ReceiverId = receiverId,
                 Message = sanitizedMessage,
                 MessageId = ObjectId.GenerateNewId(),
@@ -158,10 +151,10 @@ namespace Infrastructure.Content.Services
             // Save message to database
             await _chatRepository.SaveMessageAsync(chatMessage);
 
-            // Send to recipient if online (their connection ID is in their user group)
-            await Clients.Group(receiverId).SendAsync("ReceiveMessage", senderId, message, chatMessage.MessageId.ToString(), "sent");
+            // SECURITY: Send SANITIZED message over SignalR (not raw input)
+            await Clients.Group(receiverId).SendAsync("ReceiveMessage", currentUserId, sanitizedMessage, chatMessage.MessageId.ToString(), "sent");
 
-            _logger.LogInformation("Message {MessageId} sent successfully from {SenderId} to {ReceiverId}", chatMessage.MessageId.ToString(), senderId, receiverId);
+            _logger.LogInformation("Message {MessageId} sent successfully from {SenderId} to {ReceiverId}", chatMessage.MessageId.ToString(), currentUserId, receiverId);
 
             // Return message ID to sender for tracking
             return chatMessage.MessageId.ToString();
@@ -170,7 +163,17 @@ namespace Infrastructure.Content.Services
 
         public async Task<List<MessageDTO>> GetMessageHistory(string user1Id, string user2Id, int skip = 0, int take = 50)
         {
-            // Get message history between two users
+            var currentUserId = GetCurrentUserId();
+
+            // IDOR: User must be one of the participants
+            if (currentUserId != user1Id && currentUserId != user2Id)
+            {
+                throw new HubException("Access denied");
+            }
+
+            // Cap take to prevent bulk extraction
+            take = Math.Min(take, 100);
+
             var messages = await _chatRepository.GetMessageHistory(user1Id, user2Id, skip, take);
             return messages;
         }
@@ -193,27 +196,37 @@ namespace Infrastructure.Content.Services
         /// Message Status Update
         public async Task MessageReceived(string messageId)
         {
-            // Update message status to "delivered"
-            var message = await _chatRepository.UpdateMessageStatus(messageId, "delivered");
+            var currentUserId = GetCurrentUserId();
+
+            // IDOR: Verify the user is the recipient of this message
+            var message = await _chatRepository.GetMessageByIdAsync(messageId);
+            if (message == null || message.ReceiverId != currentUserId)
+            {
+                throw new HubException("Access denied");
+            }
+
+            await _chatRepository.UpdateMessageStatus(messageId, "delivered");
 
             // Notify sender that message was delivered
-            if (message != null)
-            {
-                await Clients.Group(message.SenderId).SendAsync("MessageStatusChanged", messageId, "delivered");
-            }
+            await Clients.Group(message.SenderId).SendAsync("MessageStatusChanged", messageId, "delivered");
         }
 
 
         public async Task MessageRead(string messageId)
         {
-            // Update message status to "read"
-            var message = await _chatRepository.UpdateMessageStatus(messageId, "read");
+            var currentUserId = GetCurrentUserId();
+
+            // IDOR: Verify the user is the recipient of this message
+            var message = await _chatRepository.GetMessageByIdAsync(messageId);
+            if (message == null || message.ReceiverId != currentUserId)
+            {
+                throw new HubException("Access denied");
+            }
+
+            await _chatRepository.UpdateMessageStatus(messageId, "read");
 
             // Notify sender that message was read
-            if (message != null)
-            {
-                await Clients.Group(message.SenderId).SendAsync("MessageStatusChanged", messageId, "read");
-            }
+            await Clients.Group(message.SenderId).SendAsync("MessageStatusChanged", messageId, "read");
         }
 
 
@@ -224,39 +237,41 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Get the message first to verify ownership
+                // SECURITY: Override userId with JWT identity
+                var currentUserId = GetCurrentUserId();
+
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
 
-                // Check if message exists
                 if (message == null)
                 {
                     throw new HubException("Message not found");
                 }
 
-                // Verify the user is authorized to delete this message
-                if (message.SenderId != userId)
+                // IDOR: Must be the sender to delete
+                if (message.SenderId != currentUserId)
                 {
                     throw new HubException("You can only delete your own messages");
                 }
 
-                // Delete the message
                 bool deleted = await _chatRepository.DeleteMessageAsync(messageId);
 
                 if (deleted)
                 {
-                    // Notify both the sender and receiver that the message was deleted
                     await Clients.Group(message.SenderId).SendAsync("MessageDeleted", messageId);
                     await Clients.Group(message.ReceiverId).SendAsync("MessageDeleted", messageId);
-
                     return true;
                 }
 
                 return false;
             }
+            catch (HubException)
+            {
+                throw; // Re-throw HubExceptions as-is (they have safe messages)
+            }
             catch (Exception ex)
             {
-                // Log error properly in production
-                throw new HubException($"Failed to delete message: {ex.Message}");
+                _logger.LogError(ex, "Error deleting message {MessageId}", messageId);
+                throw new HubException("Failed to delete message");
             }
         }
 
@@ -267,38 +282,40 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Get the message to verify the recipient
+                // SECURITY: Override userId with JWT identity
+                var currentUserId = GetCurrentUserId();
+
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
 
-                // Check if message exists
                 if (message == null)
                 {
                     throw new HubException("Message not found");
                 }
 
-                // Verify the user is the recipient
-                if (message.ReceiverId != userId)
+                // IDOR: Must be the recipient
+                if (message.ReceiverId != currentUserId)
                 {
                     throw new HubException("You can only mark messages sent to you as read");
                 }
 
-                // Mark as read
-                bool success = await _chatRepository.MarkMessageAsReadAsync(messageId, userId);
+                bool success = await _chatRepository.MarkMessageAsReadAsync(messageId, currentUserId);
 
                 if (success)
                 {
-                    // Notify the sender that the message was read
                     await Clients.Group(message.SenderId).SendAsync("MessageRead", messageId, DateTime.UtcNow);
-
                     return true;
                 }
 
                 return false;
             }
+            catch (HubException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                // Log error properly in production
-                throw new HubException($"Failed to mark message as read: {ex.Message}");
+                _logger.LogError(ex, "Error marking message as read {MessageId}", messageId);
+                throw new HubException("Failed to mark message as read");
             }
         }
 
@@ -309,14 +326,14 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Mark all messages as read
-                bool success = await _chatRepository.MarkAllMessagesAsReadAsync(receiverId, senderId);
+                // SECURITY: Override receiverId with JWT identity — can only mark own messages as read
+                var currentUserId = GetCurrentUserId();
+
+                bool success = await _chatRepository.MarkAllMessagesAsReadAsync(currentUserId, senderId);
 
                 if (success)
                 {
-                    // Notify the sender that all messages were read
-                    await Clients.Group(senderId).SendAsync("AllMessagesRead", receiverId, DateTime.UtcNow);
-
+                    await Clients.Group(senderId).SendAsync("AllMessagesRead", currentUserId, DateTime.UtcNow);
                     return true;
                 }
 
@@ -324,8 +341,8 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                // Log error properly in production
-                throw new HubException($"Failed to mark all messages as read: {ex.Message}");
+                _logger.LogError(ex, "Error marking all messages as read");
+                throw new HubException("Failed to mark all messages as read");
             }
         }
 
@@ -336,38 +353,40 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Get the message to verify the recipient
+                // SECURITY: Override userId with JWT identity
+                var currentUserId = GetCurrentUserId();
+
                 var message = await _chatRepository.GetMessageByIdAsync(messageId);
 
-                // Check if message exists
                 if (message == null)
                 {
                     throw new HubException("Message not found");
                 }
 
-                // Verify the user is the recipient
-                if (message.ReceiverId != userId)
+                // IDOR: Must be the recipient
+                if (message.ReceiverId != currentUserId)
                 {
                     throw new HubException("You can only mark messages sent to you as delivered");
                 }
 
-                // Mark as delivered
-                bool success = await _chatRepository.MarkMessageAsDeliveredAsync(messageId, userId);
+                bool success = await _chatRepository.MarkMessageAsDeliveredAsync(messageId, currentUserId);
 
                 if (success)
                 {
-                    // Notify the sender that the message was delivered
                     await Clients.Group(message.SenderId).SendAsync("MessageDelivered", messageId, DateTime.UtcNow);
-
                     return true;
                 }
 
                 return false;
             }
+            catch (HubException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                // Log error properly in production
-                throw new HubException($"Failed to mark message as delivered: {ex.Message}");
+                _logger.LogError(ex, "Error marking message as delivered {MessageId}", messageId);
+                throw new HubException("Failed to mark message as delivered");
             }
         }
 
@@ -378,18 +397,16 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                if (string.IsNullOrEmpty(userId))
-                {
-                    throw new HubException("UserId is required");
-                }
+                // SECURITY: Override userId with JWT identity — can only view own conversations
+                var currentUserId = GetCurrentUserId();
 
-                var conversations = await _chatRepository.GetAllUserConversationsAsync(userId);
+                var conversations = await _chatRepository.GetAllUserConversationsAsync(currentUserId);
                 return conversations;
             }
             catch (Exception ex)
             {
-                // Log error properly in production
-                throw new HubException($"Failed to get user conversations: {ex.Message}");
+                _logger.LogError(ex, "Error getting user conversations");
+                throw new HubException("Failed to get conversations");
             }
         }
     }

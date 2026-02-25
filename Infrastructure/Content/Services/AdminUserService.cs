@@ -23,14 +23,26 @@ namespace Infrastructure.Content.Services
 
         public async Task<string> CreateAdminUserAsync(AddAdminUserRequest addAdminUserRequest)
         {
-            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addAdminUserRequest.Password);
+            var normalizedEmail = addAdminUserRequest.Email.ToLower();
 
-            var adminUserExist = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Email == addAdminUserRequest.Email);
-
+            // Check for duplicate email across ALL collections (case-insensitive)
+            var adminUserExist = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
             if (adminUserExist != null)
-            {
                 throw new InvalidOperationException("User already exists. Kindly login or use 'Forgot Password'!");
-            }
+
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (appUserExist != null)
+                throw new InvalidOperationException("This email is already registered. Please use a different email.");
+
+            var clientExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (clientExist != null)
+                throw new InvalidOperationException("This email is already registered as a Client. Please use a different email.");
+
+            var caregiverExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (caregiverExist != null)
+                throw new InvalidOperationException("This email is already registered as a Caregiver. Please use a different email.");
+
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addAdminUserRequest.Password);
 
             /// CONVERT DTO TO DOMAIN OBJECT            
             var adminUser = new AdminUser
@@ -49,7 +61,7 @@ namespace Infrastructure.Content.Services
                 IsDeleted = false,
 
 
-                CreatedAt = DateTime.Now,
+                CreatedAt = DateTime.UtcNow,
             };
 
             await careProDbContext.AdminUsers.AddAsync(adminUser);

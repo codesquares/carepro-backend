@@ -45,6 +45,7 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AdminUser>().ToCollection("AdminUsers");
             modelBuilder.Entity<AdminUser>().HasKey(au => au.Id);
             modelBuilder.Entity<AdminUser>().Property(au => au.Id).HasElementName("_id");
+            modelBuilder.Entity<AdminUser>().HasIndex(au => au.Email).IsUnique();
             modelBuilder.Entity<Gig>().ToCollection("Gigs");
             modelBuilder.Entity<ClientOrder>().ToCollection("ClientOrders");
             modelBuilder.Entity<Certification>().ToCollection("Certifications");
@@ -103,6 +104,19 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AssessmentSession>().HasKey(s => s.Id);
             modelBuilder.Entity<AssessmentSession>().Property(s => s.Id).HasElementName("_id");
 
+            modelBuilder.Entity<CaregiverWallet>().ToCollection("CaregiverWallets");
+            modelBuilder.Entity<CaregiverWallet>().HasKey(w => w.Id);
+            modelBuilder.Entity<CaregiverWallet>().Property(w => w.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverWallet>().HasIndex(w => w.CaregiverId).IsUnique();
+
+            modelBuilder.Entity<EarningsLedger>().ToCollection("EarningsLedger");
+            modelBuilder.Entity<EarningsLedger>().HasKey(el => el.Id);
+            modelBuilder.Entity<EarningsLedger>().Property(el => el.Id).HasElementName("_id");
+
+            modelBuilder.Entity<BillingRecord>().ToCollection("BillingRecords");
+            modelBuilder.Entity<BillingRecord>().HasKey(br => br.Id);
+            modelBuilder.Entity<BillingRecord>().Property(br => br.Id).HasElementName("_id");
+
         }
 
 
@@ -136,5 +150,8 @@ namespace Infrastructure.Content.Data
         public DbSet<Subscription> Subscriptions { get; set; }
         public DbSet<ServiceRequirement> ServiceRequirements { get; set; }
         public DbSet<AssessmentSession> AssessmentSessions { get; set; }
+        public DbSet<CaregiverWallet> CaregiverWallets { get; set; }
+        public DbSet<EarningsLedger> EarningsLedger { get; set; }
+        public DbSet<BillingRecord> BillingRecords { get; set; }
     }
 }

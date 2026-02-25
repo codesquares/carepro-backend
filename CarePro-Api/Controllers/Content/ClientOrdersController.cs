@@ -6,6 +6,7 @@ using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -14,21 +15,40 @@ namespace CarePro_Api.Controllers.Content
     [Authorize]
     public class ClientOrdersController : ControllerBase
     {
-        private readonly CareProDbContext careProDbContext;
         private readonly IClientOrderService clientOrderService;
         private readonly ILogger<ClientOrdersController> logger;
 
-        public ClientOrdersController(CareProDbContext careProDbContext, IClientOrderService clientOrderService, ILogger<ClientOrdersController> logger)
+        public ClientOrdersController(IClientOrderService clientOrderService, ILogger<ClientOrdersController> logger)
         {
-            this.careProDbContext = careProDbContext;
             this.clientOrderService = clientOrderService;
             this.logger = logger;
         }
 
+        // ── Security: IDOR helper ──
+        private string? GetCurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
 
-        /// ENDPOINT TO CREATE  ClientOrder Services TO THE DATABASE
+        private bool IsAdminOrSuperAdmin()
+        {
+            var role = User.FindFirstValue(ClaimTypes.Role);
+            return role == "Admin" || role == "SuperAdmin";
+        }
+
+        private bool IsAuthorizedForUser(string userId)
+        {
+            if (IsAdminOrSuperAdmin()) return true;
+            return GetCurrentUserId() == userId;
+        }
+
+        /// <summary>
+        /// DEPRECATED: Direct order creation is not allowed.
+        /// Orders can only be created through the secure payment pipeline (/api/payments/initiate → webhook → order).
+        /// This endpoint is preserved only for internal/admin use.
+        /// </summary>
         [HttpPost]
-        // [Authorize(Roles = "Client")]
+        [Authorize(Roles = "Admin, SuperAdmin")]
         public async Task<IActionResult> AddClientOrderAsync([FromBody] AddClientOrderRequest addClientOrderRequest)
         {
             var result = await clientOrderService.CreateClientOrderAsync(addClientOrderRequest);
@@ -45,212 +65,175 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("clientUserId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetAllClientOrdersAsync(string clientUserId)
         {
+            if (!IsAuthorizedForUser(clientUserId))
+                return Forbid();
 
             try
             {
-                logger.LogInformation($"Retrieving all Orders for Client available");
-
                 var clientOrders = await clientOrderService.GetAllClientOrderAsync(clientUserId);
-
                 return Ok(clientOrders);
-
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (ApplicationException appEx)
-            {
-                // Handle application-specific exceptions
-                return BadRequest(new { ErrorMessage = appEx.Message });
-            }
-            catch (HttpRequestException httpEx)
-            {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
-            }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
 
 
         [HttpGet]
         [Route("CaregiverOrders/caregiverId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
         public async Task<IActionResult> GetCaregiverOrdersAsync(string caregiverId)
         {
+            if (!IsAuthorizedForUser(caregiverId))
+                return Forbid();
 
             try
             {
-                logger.LogInformation($"Retrieving all Orders for Client available");
-
                 var clientOrders = await clientOrderService.GetCaregiverOrdersAsync(caregiverId);
-
                 return Ok(clientOrders);
-
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (ApplicationException appEx)
-            {
-                // Handle application-specific exceptions
-                return BadRequest(new { ErrorMessage = appEx.Message });
-            }
-            catch (HttpRequestException httpEx)
-            {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
-            }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
 
 
         [HttpGet]
         [Route("gigId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetAllClientOrdersByGigIdAsync(string gigId)
         {
-
+            // Gig-based lookup is scoped by the gig — no direct user ID to check.
+            // The service returns order records tied to the gig; acceptable for participants.
             try
             {
-                logger.LogInformation($"Retrieving all Orders for Client available");
-
                 var clientOrders = await clientOrderService.GetAllClientOrdersByGigIdAsync(gigId);
-
                 return Ok(clientOrders);
-
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (ApplicationException appEx)
-            {
-                // Handle application-specific exceptions
-                return BadRequest(new { ErrorMessage = appEx.Message });
-            }
-            catch (HttpRequestException httpEx)
-            {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
-            }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
 
 
         [HttpGet]
         [Route("caregiverId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
         public async Task<IActionResult> GetAllCaregiverOrdersAsync(string caregiverId)
         {
+            if (!IsAuthorizedForUser(caregiverId))
+                return Forbid();
 
             try
             {
-                logger.LogInformation($"Retrieving all Orders for Client available");
-
                 var caregiverOrders = await clientOrderService.GetAllCaregiverOrderAsync(caregiverId);
-
                 return Ok(caregiverOrders);
-
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (ApplicationException appEx)
-            {
-                // Handle application-specific exceptions
-                return BadRequest(new { ErrorMessage = appEx.Message });
-            }
-            catch (HttpRequestException httpEx)
-            {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
-            }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
 
 
         [HttpGet]
         [Route("orderId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetOrderAsync(string orderId)
         {
-
             try
             {
-                logger.LogInformation($"Retrieving all Orders for Client available");
-
                 var clientOrder = await clientOrderService.GetClientOrderAsync(orderId);
 
-                return Ok(clientOrder);
+                // IDOR: verify caller is either the client or the caregiver on this order
+                if (!IsAdminOrSuperAdmin())
+                {
+                    var currentUserId = GetCurrentUserId();
+                    if (currentUserId != clientOrder.ClientId && currentUserId != clientOrder.CaregiverId)
+                        return Forbid();
+                }
 
+                return Ok(clientOrder);
             }
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (ApplicationException appEx)
+            catch (Exception ex)
             {
-                // Handle application-specific exceptions
-                return BadRequest(new { ErrorMessage = appEx.Message });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-            catch (HttpRequestException httpEx)
+        }
+
+
+        /// <summary>
+        /// Gets ALL orders (admin-only for dashboards/reporting).
+        /// </summary>
+        [HttpGet]
+        [Route("all")]
+        [Authorize(Roles = "Admin, SuperAdmin")]
+        public async Task<IActionResult> GetAllOrdersAsync()
+        {
+            try
             {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { ErrorMessage = httpEx.Message });
+                var orders = await clientOrderService.GetAllOrdersAsync();
+                return Ok(orders);
             }
             catch (Exception ex)
             {
-                // Handle other exceptions
-                logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+                logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
-
         }
-
 
 
         [HttpPut]
         [Route("UpdateClientOrderStatus/orderId")]
-        // [Authorize(Roles = "Caregiver, Admin")]
+        [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
         {
             try
             {
+                // Override the UserId from the body with the JWT-authenticated identity
+                updateClientOrderStatusRequest.UserId = GetCurrentUserId();
+
                 var result = await clientOrderService.UpdateClientOrderStatusAsync(orderId, updateClientOrderStatusRequest);
-                logger.LogInformation($"Client Order Status with ID: {orderId} updated.");
+                logger.LogInformation("Client Order Status with ID: {OrderId} updated by user {UserId}.", orderId, updateClientOrderStatusRequest.UserId);
                 return Ok(result);
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { Message = ex.Message }); // Returns 400 Bad Request
+                return BadRequest(new { Message = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
@@ -258,27 +241,27 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = ex.Message });
+                logger.LogError(ex, "Error updating order status for {OrderId}", orderId);
+                return StatusCode(500, new { message = "An error occurred on the server." });
             }
-
         }
 
 
 
         [HttpPut]
         [Route("ClientApproveOrderStatus/orderId")]
-        // [Authorize(Roles = "Client, Admin")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateOrderStatusToApproveApproveAsync(string orderId)
         {
             try
             {
                 var result = await clientOrderService.UpdateOrderStatusToApproveAsync(orderId);
-                logger.LogInformation($"Client Order Status with ID: {orderId} updated.");
+                logger.LogInformation("Client Order Status with ID: {OrderId} approved by user {UserId}.", orderId, GetCurrentUserId());
                 return Ok(result);
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { Message = ex.Message }); // Returns 400 Bad Request
+                return BadRequest(new { Message = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
@@ -286,26 +269,29 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = ex.Message });
+                logger.LogError(ex, "Error approving order {OrderId}", orderId);
+                return StatusCode(500, new { message = "An error occurred on the server." });
             }
-
         }
 
 
         [HttpPut]
         [Route("UpdateClientOrderStatusHasDispute/orderId")]
-        // [Authorize(Roles = "Caregiver, Admin")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
         {
             try
             {
+                // Override UserId from body with JWT identity
+                updateClientOrderStatusHasDisputeRequest.UserId = GetCurrentUserId();
+
                 var result = await clientOrderService.UpdateClientOrderStatusHasDisputeAsync(orderId, updateClientOrderStatusHasDisputeRequest);
-                logger.LogInformation($"Client Order Status with ID: {orderId} updated.");
+                logger.LogInformation("Dispute raised on Order {OrderId} by user {UserId}.", orderId, updateClientOrderStatusHasDisputeRequest.UserId);
                 return Ok(result);
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { Message = ex.Message }); // Returns 400 Bad Request
+                return BadRequest(new { Message = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
@@ -313,12 +299,9 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = ex.Message });
+                logger.LogError(ex, "Error raising dispute on order {OrderId}", orderId);
+                return StatusCode(500, new { message = "An error occurred on the server." });
             }
-
         }
-
-
-
     }
 }

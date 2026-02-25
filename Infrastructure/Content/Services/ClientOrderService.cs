@@ -26,6 +26,8 @@ namespace Infrastructure.Content.Services
         private readonly INotificationService notificationService;
         private readonly IOrderTasksService orderTasksService;
         private readonly IContractService contractService;
+        private readonly ICaregiverWalletService walletService;
+        private readonly IEarningsLedgerService ledgerService;
 
         public ClientOrderService(
             CareProDbContext careProDbContext,
@@ -35,7 +37,9 @@ namespace Infrastructure.Content.Services
             ILogger<GigServices> logger,
             INotificationService notificationService,
             IOrderTasksService orderTasksService,
-            IContractService contractService)
+            IContractService contractService,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
@@ -45,6 +49,8 @@ namespace Infrastructure.Content.Services
             this.notificationService = notificationService;
             this.orderTasksService = orderTasksService;
             this.contractService = contractService;
+            this.walletService = walletService;
+            this.ledgerService = ledgerService;
         }
 
         public async Task<Result<ClientOrderDTO>> CreateClientOrderAsync(AddClientOrderRequest addClientOrderRequest)
@@ -147,6 +153,44 @@ namespace Infrastructure.Content.Services
                     "New Order Received",
                     clientOrder.Id.ToString()
                 );
+            }
+
+            // ── EVENT: Credit caregiver wallet on order creation ──
+            try
+            {
+                bool isRecurring = clientOrder.PaymentOption == "monthly";
+                string serviceType = isRecurring ? "monthly" : "one-time";
+                string description = isRecurring
+                    ? $"Monthly service payment received for {gig!.Title}"
+                    : $"One-time service payment received for {gig!.Title}";
+
+                await walletService.CreditOrderReceivedAsync(
+                    clientOrder.CaregiverId, clientOrder.Amount, isRecurring);
+
+                await ledgerService.RecordOrderReceivedAsync(
+                    clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
+                    clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
+                    serviceType, description);
+
+                // For recurring orders, also record immediate funds release
+                if (isRecurring)
+                {
+                    string releaseReason = (clientOrder.BillingCycleNumber ?? 1) == 1
+                        ? Domain.Entities.FundsReleaseReason.InitialSubscription
+                        : Domain.Entities.FundsReleaseReason.RecurringPayment;
+
+                    await ledgerService.RecordFundsReleasedAsync(
+                        clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
+                        clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
+                        serviceType, releaseReason,
+                        $"Funds released for {gig!.Title} - cycle {clientOrder.BillingCycleNumber ?? 1}");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error crediting wallet for order {OrderId}. Order was created successfully.",
+                    clientOrder.Id.ToString());
+                // Don't fail the order creation — wallet can be reconciled later
             }
 
             var clientOrderDTO = new ClientOrderDTO
@@ -704,6 +748,33 @@ namespace Infrastructure.Content.Services
                 careProDbContext.ClientOrders.Update(existingOrder);
                 await careProDbContext.SaveChangesAsync();
 
+                // ── EVENT: Release pending funds to withdrawable on client approval ──
+                try
+                {
+                    // Only release for one-time orders (recurring are already released)
+                    bool isOneTime = existingOrder.ServiceType == "one-time" || string.IsNullOrEmpty(existingOrder.SubscriptionId);
+                    if (isOneTime)
+                    {
+                        bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
+                        if (!alreadyReleased)
+                        {
+                            await walletService.ReleasePendingFundsAsync(
+                                existingOrder.CaregiverId, existingOrder.Amount);
+
+                            await ledgerService.RecordFundsReleasedAsync(
+                                existingOrder.CaregiverId, existingOrder.Amount, orderId,
+                                null, null, "one-time",
+                                Domain.Entities.FundsReleaseReason.ClientApproved,
+                                $"Funds released - client approved order {orderId}");
+                        }
+                    }
+                }
+                catch (Exception walletEx)
+                {
+                    logger.LogError(walletEx, "Error releasing funds for approved order {OrderId}", orderId);
+                    // Don't fail the approval — wallet can be reconciled
+                }
+
                 return $"Order with ID '{orderId}' updated successfully.";
             }
             catch (Exception ex)
@@ -747,6 +818,18 @@ namespace Infrastructure.Content.Services
 
                 careProDbContext.ClientOrders.Update(existingOrder);
                 await careProDbContext.SaveChangesAsync();
+
+                // ── EVENT: Record dispute hold to block auto-release ──
+                try
+                {
+                    await ledgerService.RecordDisputeHoldAsync(
+                        existingOrder.CaregiverId, existingOrder.Amount, orderId,
+                        $"Dispute raised on order {orderId}: {updateClientOrderStatusHasDisputeRequest.DisputeReason}");
+                }
+                catch (Exception walletEx)
+                {
+                    logger.LogError(walletEx, "Error recording dispute hold for order {OrderId}", orderId);
+                }
 
                 LogAuditEvent($"Order Status updated (ID: {orderId})", updateClientOrderStatusHasDisputeRequest.UserId);
                 return $"Order with ID '{orderId}' updated successfully.";

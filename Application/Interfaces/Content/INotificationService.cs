@@ -31,5 +31,7 @@ namespace Application.Interfaces.Content
         Task DeleteNotificationAsync(string notificationId);
 
         Task<bool> SendRealTimeNotificationAsync(string userId, Notification notification);
+
+        Task<NotificationResponse?> GetNotificationByIdAsync(string notificationId);
     }
 }

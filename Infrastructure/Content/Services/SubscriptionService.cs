@@ -17,6 +17,9 @@ namespace Infrastructure.Content.Services
         private readonly INotificationService _notificationService;
         private readonly ILogger<SubscriptionService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly ICaregiverWalletService _walletService;
+        private readonly IEarningsLedgerService _ledgerService;
+        private readonly IBillingRecordService _billingRecordService;
 
         // Same fee structure as PendingPaymentService
         private const decimal SERVICE_CHARGE_RATE = 0.10m;
@@ -29,7 +32,10 @@ namespace Infrastructure.Content.Services
             FlutterwaveService flutterwaveService,
             INotificationService notificationService,
             ILogger<SubscriptionService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService,
+            IBillingRecordService billingRecordService)
         {
             _dbContext = dbContext;
             _clientOrderService = clientOrderService;
@@ -37,6 +43,9 @@ namespace Infrastructure.Content.Services
             _notificationService = notificationService;
             _logger = logger;
             _configuration = configuration;
+            _walletService = walletService;
+            _ledgerService = ledgerService;
+            _billingRecordService = billingRecordService;
         }
 
         // ══════════════════════════════════════════
@@ -51,8 +60,8 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(request.CaregiverId)) errors.Add("CaregiverId is required.");
             if (string.IsNullOrEmpty(request.GigId)) errors.Add("GigId is required.");
             if (string.IsNullOrEmpty(request.OrderId)) errors.Add("OrderId is required.");
-            if (!new[] { "weekly", "monthly" }.Contains(request.BillingCycle))
-                errors.Add("BillingCycle must be 'weekly' or 'monthly'.");
+            if (request.BillingCycle != "monthly")
+                errors.Add("BillingCycle must be 'monthly'.");
             if (request.RecurringAmount <= 0) errors.Add("RecurringAmount must be positive.");
 
             if (errors.Any())
@@ -74,9 +83,7 @@ namespace Infrastructure.Content.Services
             }
 
             var now = DateTime.UtcNow;
-            var periodEnd = request.BillingCycle == "weekly"
-                ? now.AddDays(7)
-                : now.AddDays(30);
+            var periodEnd = now.AddDays(30); // Monthly billing only
 
             var subscription = new Subscription
             {
@@ -199,8 +206,7 @@ namespace Infrastructure.Content.Services
             return new ClientSubscriptionSummary
             {
                 TotalActiveSubscriptions = active.Count,
-                TotalMonthlySpend = active.Sum(s =>
-                    s.BillingCycle == "weekly" ? s.RecurringAmount * 4.33m : s.RecurringAmount),
+                TotalMonthlySpend = active.Sum(s => s.RecurringAmount),
                 NextPaymentDate = nextPayment?.NextChargeDate,
                 NextPaymentAmount = nextPayment?.RecurringAmount ?? 0,
                 Subscriptions = subscriptions.Select(MapToDTO).ToList()
@@ -355,7 +361,29 @@ namespace Infrastructure.Content.Services
                         refundAmount, subscription.Currency, subscriptionId,
                         subscription.RemainingDaysInPeriod, subscription.TotalDaysInPeriod);
 
-                    // Refund is recorded; admin processes manual refund via Flutterwave dashboard
+                    // Debit the caregiver's wallet for the refund amount (order fee portion only)
+                    try
+                    {
+                        // Calculate what portion of the refund is the caregiver's order fee (exclude service charge & gateway fees)
+                        var totalWithoutFees = subscription.PriceBreakdown.OrderFee;
+                        var totalWithFees = subscription.PriceBreakdown.TotalAmount;
+                        var caregiverRefundPortion = totalWithFees > 0
+                            ? refundAmount * (totalWithoutFees / totalWithFees)
+                            : refundAmount;
+                        caregiverRefundPortion = Math.Round(caregiverRefundPortion, 2);
+
+                        await _walletService.DebitRefundAsync(subscription.CaregiverId, caregiverRefundPortion);
+                        await _ledgerService.RecordRefundAsync(
+                            subscription.CaregiverId,
+                            caregiverRefundPortion,
+                            subscription.OriginalOrderId,
+                            subscriptionId,
+                            $"Pro-rated refund for terminated subscription {subscriptionId}. Refund: {subscription.Currency} {refundAmount:N2}");
+                    }
+                    catch (Exception walletEx)
+                    {
+                        _logger.LogError(walletEx, "Failed to debit wallet for refund on subscription {SubscriptionId}", subscriptionId);
+                    }
                 }
             }
 
@@ -425,8 +453,8 @@ namespace Infrastructure.Content.Services
             var newCycle = request.NewBillingCycle?.ToLower() ?? subscription.BillingCycle;
             var newFrequency = request.NewFrequencyPerWeek ?? subscription.FrequencyPerWeek;
 
-            if (!new[] { "weekly", "monthly" }.Contains(newCycle))
-                return Result<PlanChangeResponse>.Failure(new List<string> { "BillingCycle must be 'weekly' or 'monthly'." });
+            if (newCycle != "monthly")
+                return Result<PlanChangeResponse>.Failure(new List<string> { "BillingCycle must be 'monthly'." });
 
             if (newFrequency < 1 || newFrequency > 7)
                 return Result<PlanChangeResponse>.Failure(new List<string> { "FrequencyPerWeek must be between 1 and 7." });
@@ -680,9 +708,7 @@ namespace Infrastructure.Content.Services
                 return Result<SubscriptionDTO>.Failure(new List<string> { "Only paused subscriptions can be resumed." });
 
             var now = DateTime.UtcNow;
-            var periodEnd = subscription.BillingCycle == "weekly"
-                ? now.AddDays(7)
-                : now.AddDays(30);
+            var periodEnd = now.AddDays(30); // Monthly billing only
 
             subscription.Status = SubscriptionStatus.Active;
             subscription.CurrentPeriodStart = now;
@@ -735,6 +761,24 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(subscription.FlutterwavePaymentToken))
                 return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "No payment token available." });
 
+            // ── DOUBLE-CHARGE GUARD ──
+            // If a charge is already in progress (status set to "charging"), skip.
+            // This protects against the background service picking up the same subscription
+            // on concurrent runs or when a charge takes longer than the check interval.
+            if (subscription.Status == SubscriptionStatus.Charging)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Skipping subscription {SubscriptionId} — charge already in progress (status=Charging).",
+                    subscriptionId);
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Charge already in progress." });
+            }
+
+            // Mark as "charging" to prevent concurrent processing
+            var previousStatus = subscription.Status;
+            subscription.Status = SubscriptionStatus.Charging;
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
             var txRef = $"CAREPRO-RECURRING-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
             var cycleNumber = subscription.BillingCyclesCompleted + 1;
 
@@ -765,17 +809,54 @@ namespace Infrastructure.Content.Services
                     paymentRecord.Status = "failed";
                     paymentRecord.ErrorMessage = error;
                     subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus; // Restore previous status
+                    await _dbContext.SaveChangesAsync();
                     await HandleFailedChargeAsync(subscriptionId, error);
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { error });
                 }
 
-                // Payment successful — create a new ClientOrder for this billing cycle
+                // ── SERVER-TO-SERVER VERIFICATION ──
+                // Don't trust the charge response alone — verify the transaction is genuinely successful
+                var verification = await _flutterwaveService.VerifyTransactionAsync(chargeResult.TransactionId);
+                if (verification == null || !verification.Success ||
+                    verification.Status.ToLower() != "successful")
+                {
+                    _logger.LogCritical(
+                        "SECURITY: Tokenized charge for subscription {SubscriptionId} returned success but server verification FAILED. " +
+                        "ChargeTransactionId: {TxId}, VerifyStatus: {Status}",
+                        subscriptionId, chargeResult.TransactionId, verification?.Status ?? "null");
+
+                    paymentRecord.Status = "verification_failed";
+                    paymentRecord.ErrorMessage = "Charge reported success but verification failed";
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus;
+                    await _dbContext.SaveChangesAsync();
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment verification failed. Will retry." });
+                }
+
+                // ── AMOUNT VERIFICATION ──
+                // Ensure the verified amount matches what we expected to charge
+                if (Math.Abs(verification.Amount - subscription.RecurringAmount) > 0.01m)
+                {
+                    _logger.LogCritical(
+                        "SECURITY: AMOUNT MISMATCH on recurring charge! Subscription {SubscriptionId}, Expected: {Expected}, Verified: {Verified}",
+                        subscriptionId, subscription.RecurringAmount, verification.Amount);
+
+                    paymentRecord.Status = "amount_mismatch";
+                    paymentRecord.ErrorMessage = $"Expected {subscription.RecurringAmount}, verified {verification.Amount}";
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus;
+                    await _dbContext.SaveChangesAsync();
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment amount mismatch detected." });
+                }
+
+                // Payment verified — create a new ClientOrder for this billing cycle
                 var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
                 {
                     ClientId = subscription.ClientId,
                     GigId = subscription.GigId,
                     PaymentOption = subscription.BillingCycle,
-                    Amount = (int)subscription.RecurringAmount,
+                    Amount = (int)Math.Round(subscription.RecurringAmount, 0), // Rounded to int for ClientOrder
                     TransactionId = chargeResult.TransactionId
                 });
 
@@ -787,13 +868,12 @@ namespace Infrastructure.Content.Services
                 // Advance the billing period
                 var now = DateTime.UtcNow;
                 subscription.CurrentPeriodStart = now;
-                subscription.CurrentPeriodEnd = subscription.BillingCycle == "weekly"
-                    ? now.AddDays(7)
-                    : now.AddDays(30);
+                subscription.CurrentPeriodEnd = now.AddDays(30); // Monthly billing only
                 subscription.NextChargeDate = subscription.CurrentPeriodEnd;
                 subscription.BillingCyclesCompleted = cycleNumber;
                 subscription.FailedChargeAttempts = 0;
                 subscription.LastChargeError = null;
+                subscription.Status = SubscriptionStatus.Active; // Restore from Charging → Active
                 subscription.PaymentHistory.Add(paymentRecord);
                 subscription.UpdatedAt = now;
 
@@ -802,6 +882,34 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation(
                     "Recurring charge successful for subscription {SubscriptionId}. Cycle #{Cycle}, Amount: {Amount}, OrderId: {OrderId}",
                     subscriptionId, cycleNumber, subscription.RecurringAmount, orderResult.Value?.Id);
+
+                // ── Create BillingRecord for this renewal cycle ──
+                try
+                {
+                    await _billingRecordService.CreateBillingRecordAsync(
+                        orderId: orderResult.Value?.Id ?? string.Empty,
+                        clientId: subscription.ClientId,
+                        caregiverId: subscription.CaregiverId,
+                        gigId: subscription.GigId,
+                        serviceType: subscription.BillingCycle,
+                        frequencyPerWeek: subscription.FrequencyPerWeek,
+                        amountPaid: subscription.RecurringAmount,
+                        orderFee: subscription.PriceBreakdown.OrderFee,
+                        serviceCharge: subscription.PriceBreakdown.ServiceCharge,
+                        gatewayFees: subscription.PriceBreakdown.GatewayFees,
+                        paymentTransactionId: chargeResult.TransactionId ?? txRef,
+                        subscriptionId: subscriptionId,
+                        contractId: subscription.ContractId,
+                        billingCycleNumber: cycleNumber,
+                        periodStart: subscription.CurrentPeriodStart,
+                        periodEnd: subscription.CurrentPeriodEnd,
+                        nextChargeDate: subscription.NextChargeDate
+                    );
+                }
+                catch (Exception billingEx)
+                {
+                    _logger.LogError(billingEx, "Failed to create BillingRecord for subscription {SubscriptionId} cycle {Cycle}", subscriptionId, cycleNumber);
+                }
 
                 // Notify client of successful charge
                 await _notificationService.CreateNotificationAsync(
@@ -830,6 +938,10 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing recurring charge for subscription {SubscriptionId}", subscriptionId);
+
+                // Restore status from Charging back to previous state
+                subscription.Status = previousStatus;
+
                 paymentRecord.Status = "failed";
                 paymentRecord.ErrorMessage = ex.Message;
                 subscription.PaymentHistory.Add(paymentRecord);
@@ -1078,8 +1190,7 @@ namespace Infrastructure.Content.Services
             return serviceType switch
             {
                 "one-time" => basePrice,
-                "weekly" => basePrice * frequencyPerWeek,
-                "monthly" => basePrice * frequencyPerWeek * 4,
+                "monthly" => basePrice * frequencyPerWeek * 4, // basePrice × visits/week × 4 weeks
                 _ => basePrice
             };
         }

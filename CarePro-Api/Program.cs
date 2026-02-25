@@ -120,6 +120,13 @@ builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Wallet, Ledger & Billing services (must be registered before services that depend on them)
+builder.Services.AddSingleton<WalletLockManager>(); // Per-caregiver mutex for wallet race condition protection
+builder.Services.AddScoped<ICaregiverWalletService, CaregiverWalletService>();
+builder.Services.AddScoped<IEarningsLedgerService, EarningsLedgerService>();
+builder.Services.AddScoped<IBillingRecordService, BillingRecordService>();
+
 builder.Services.AddScoped<IEarningsService, EarningsService>();
 builder.Services.AddScoped<IWithdrawalRequestService, WithdrawalRequestService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
@@ -223,7 +230,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var accessToken = context.Request.Query["access_token"];
                 if (!string.IsNullOrEmpty(accessToken) &&
-                    context.HttpContext.Request.Path.StartsWithSegments("/chathub"))
+                    (context.HttpContext.Request.Path.StartsWithSegments("/chathub") ||
+                     context.HttpContext.Request.Path.StartsWithSegments("/notificationHub")))
                 {
                     context.Token = accessToken;
                 }

@@ -6,95 +6,34 @@ using Application.DTOs;
 
 namespace CarePro_Api.Controllers.Content
 {
+    /// <summary>
+    /// DEPRECATED: This legacy webhook controller has been superseded by PaymentsController.FlutterwaveWebhook
+    /// which implements proper signature verification and server-to-server payment verification.
+    /// All endpoints are disabled and return 410 Gone.
+    /// </summary>
     [ApiController]
     [Route("api/webhook")]
     public class WebhookController : ControllerBase
     {
-        private readonly IContractService _contractService;
         private readonly ILogger<WebhookController> _logger;
 
         public WebhookController(IContractService contractService, ILogger<WebhookController> logger)
         {
-            _contractService = contractService;
             _logger = logger;
         }
 
         [HttpPost("flutterwave")]
-        public async Task<IActionResult> ReceiveFlutterwaveWebhook([FromBody] dynamic data)
+        public IActionResult ReceiveFlutterwaveWebhook()
         {
-            try
-            {
-                // Log the received data
-                _logger.LogInformation("Received webhook with headers: {Headers}", string.Join(", ", Request.Headers.Select(h => $"{h.Key}: {h.Value}")));
-
-                // Check payment status
-                if (data?.status == "successful")
-                {
-                    string transactionId = data?.id;
-                    string txRef = data?.tx_ref; // This should contain our contract generation data
-
-                    // Parse contract generation data from tx_ref or metadata
-                    var contractData = await ExtractContractDataFromPayment(transactionId, txRef);
-
-                    if (contractData != null)
-                    {
-                        // Generate and send contract
-                        var contract = await _contractService.GenerateContractAsync(contractData);
-                        await _contractService.SendContractToCaregiverAsync(contract.Id);
-
-                        _logger.LogInformation("Contract {ContractId} generated and sent for transaction {TransactionId}",
-                            contract.Id, transactionId);
-                    }
-                }
-
-                return Ok();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing Flutterwave webhook");
-                return StatusCode(500, "Webhook processing failed");
-            }
+            _logger.LogWarning("SECURITY: Legacy webhook endpoint /api/webhook/flutterwave called. This endpoint is disabled. Use /api/payments/webhook instead.");
+            return StatusCode(410, new { message = "This endpoint is deprecated. Use /api/payments/webhook." });
         }
 
         [HttpPost("contract-payment")]
-        public async Task<IActionResult> HandleContractPayment([FromBody] ContractPaymentWebhookDTO paymentData)
+        public IActionResult HandleContractPayment()
         {
-            try
-            {
-                if (paymentData.Status == "successful")
-                {
-                    var contractData = new ContractGenerationRequestDTO
-                    {
-                        GigId = paymentData.GigId,
-                        ClientId = paymentData.ClientId,
-                        CaregiverId = paymentData.CaregiverId,
-                        PaymentTransactionId = paymentData.TransactionId,
-                        SelectedPackage = paymentData.SelectedPackage,
-                        Tasks = paymentData.Tasks
-                    };
-
-                    // Generate and send contract
-                    var contract = await _contractService.GenerateContractAsync(contractData);
-                    await _contractService.SendContractToCaregiverAsync(contract.Id);
-
-                    return Ok(new { success = true, contractId = contract.Id });
-                }
-
-                return BadRequest("Payment not successful");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing contract payment webhook");
-                return StatusCode(500, "Contract generation failed");
-            }
-        }
-
-        private async Task<ContractGenerationRequestDTO> ExtractContractDataFromPayment(string transactionId, string txRef)
-        {
-            // Implementation to extract contract data from payment metadata
-            // This would typically involve parsing the tx_ref or querying payment metadata
-            // For now, return null - this needs to be implemented based on your payment flow
-            return null;
+            _logger.LogWarning("SECURITY: Legacy webhook endpoint /api/webhook/contract-payment called. This endpoint is disabled.");
+            return StatusCode(410, new { message = "This endpoint is deprecated." });
         }
     }
 

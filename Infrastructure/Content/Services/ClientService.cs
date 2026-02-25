@@ -104,7 +104,7 @@ namespace Infrastructure.Content.Services
                 AuthProvider = "local",
                 Status = true,
                 IsDeleted = false,
-                CreatedAt = DateTime.Now,
+                CreatedAt = DateTime.UtcNow,
             };
 
             await careProDbContext.Clients.AddAsync(clientUser);
@@ -154,14 +154,14 @@ namespace Infrastructure.Content.Services
 
             #region EmailVerificationHandling
 
-            // Check if this is a development environment or localhost origin
-            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
-                               origin?.Contains("localhost") == true ||
-                               origin?.Contains("127.0.0.1") == true;
+            // SECURITY: Only auto-confirm in Development environment (server-side check, NOT client-controlled)
+            var environment = configuration["ASPNETCORE_ENVIRONMENT"] ?? "Production";
+            var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase) &&
+                               configuration.GetValue<bool>("Development:AutoConfirmEmail", false);
 
             if (isDevelopment)
             {
-                // Auto-confirm email for development/localhost
+                // Auto-confirm email for development only
                 careProAppUser.EmailConfirmed = true;
                 careProDbContext.AppUsers.Update(careProAppUser);
                 await careProDbContext.SaveChangesAsync();

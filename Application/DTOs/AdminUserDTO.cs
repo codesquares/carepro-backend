@@ -22,7 +22,8 @@ namespace Application.DTOs
 
         public string? PhoneNo { get; set; }
 
-        public string Password { get; set; }
+        // SECURITY: Password hash must NEVER be returned in API responses
+        // public string Password { get; set; }
 
         public string Role { get; set; }
 
@@ -88,7 +89,8 @@ namespace Application.DTOs
 
         public string? PhoneNo { get; set; }
 
-        public string Password { get; set; }
+        // SECURITY: Password hash must NEVER be returned in API responses
+        // public string Password { get; set; }
 
         public string Role { get; set; }
 

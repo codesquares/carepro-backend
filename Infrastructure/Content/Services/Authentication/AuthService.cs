@@ -68,7 +68,7 @@ namespace Infrastructure.Content.Services.Authentication
 
 
                         Role = appUser?.Role ?? "User",
-                        Password = appUser?.Password ?? string.Empty,
+                        // SECURITY: Never return password hash
                         CreatedAt = appUser?.CreatedAt ?? DateTime.UtcNow,
                     };
 

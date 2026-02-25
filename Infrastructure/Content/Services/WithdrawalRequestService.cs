@@ -21,19 +21,25 @@ namespace Infrastructure.Content.Services
         private readonly ICareGiverService _careGiverService;
         private readonly IAdminUserService _adminUserService;
         private readonly INotificationService _notificationService;
+        private readonly ICaregiverWalletService _walletService;
+        private readonly IEarningsLedgerService _ledgerService;
 
         public WithdrawalRequestService(
             CareProDbContext dbContext,
             IEarningsService earningsService,
             ICareGiverService careGiverService,
             IAdminUserService adminUserService,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService)
         {
             _dbContext = dbContext;
             _earningsService = earningsService;
             _careGiverService = careGiverService;
             _adminUserService = adminUserService;
             _notificationService = notificationService;
+            _walletService = walletService;
+            _ledgerService = ledgerService;
         }
 
         public async Task<WithdrawalRequestResponse> GetWithdrawalRequestByIdAsync(string withdrawalRequestId)
@@ -133,29 +139,14 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> CreateWithdrawalRequestAsync(CreateWithdrawalRequestRequest request)
         {
-            var totalWithdrawnAmount = await GetTotalWithdrawnByCaregiverIdAsync(request.CaregiverId);
-            var totalAmountEarned = 0m;
-            decimal currentWithdrawableAmount = 0m;
-            // var totalWithdrawableAmount = 0m;
-
             // Check if there's already a pending withdrawal for this caregiver
             bool hasPending = await HasPendingRequest(request.CaregiverId);
             if (hasPending)
                 throw new InvalidOperationException("A pending withdrawal request already exists for this caregiver");
 
-            // Verify the caregiver has enough withdrawable funds
-            var earnings = await _earningsService.GetEarningByCaregiverIdAsync(request.CaregiverId);
-
-            totalAmountEarned = earnings.WithdrawableAmount;
-            currentWithdrawableAmount = totalAmountEarned - totalWithdrawnAmount;
-
-            //if (earnings == null || earnings.WithdrawableAmount < request.AmountRequested)
-            //{
-            //    throw new InvalidOperationException("Insufficient withdrawable funds");
-            //}
-
-
-            if (earnings == null || currentWithdrawableAmount < request.AmountRequested)
+            // Verify the caregiver has enough withdrawable funds using the wallet
+            bool hasSufficientBalance = await _walletService.HasSufficientWithdrawableBalance(request.CaregiverId, request.AmountRequested);
+            if (!hasSufficientBalance)
                 throw new InvalidOperationException("Insufficient withdrawable funds, kindly check your Withdrawable Amount and stay within the limit");
 
             // Calculate service charge and final amount
@@ -199,29 +190,14 @@ namespace Infrastructure.Content.Services
 
         public async Task<CaregiverWithdrawalSummaryResponse> GetTotalAmountEarnedAndWithdrawnByCaregiverIdAsync(string caregiverId)
         {
-            var withdrawals = await _dbContext.WithdrawalRequests
-                    .Where(e => e.CaregiverId == caregiverId && e.Status == "Completed")
-                    .OrderByDescending(n => n.CreatedAt)
-                    .ToListAsync();
-
-            decimal totalAmountWithdrawn = 0;
-            var totalAmountEarned = await _earningsService.GetEarningByCaregiverIdAsync(caregiverId);
-            decimal withdrawableAmount = 0;
-
-            foreach (var withdrawal in withdrawals)
-            {
-                //totalAmountEarned += withdrawal.AmountRequested;
-                totalAmountWithdrawn += withdrawal.AmountRequested;
-
-            }
-
-            withdrawableAmount = totalAmountEarned.TotalEarning - totalAmountWithdrawn;
+            // Read directly from the CaregiverWallet for accurate, persistent balances
+            var walletSummary = await _walletService.GetWalletSummaryAsync(caregiverId);
 
             return new CaregiverWithdrawalSummaryResponse
             {
-                TotalAmountEarned = totalAmountEarned.TotalEarning,
-                TotalAmountWithdrawn = totalAmountWithdrawn,
-                WithdrawableAmount = withdrawableAmount,
+                TotalAmountEarned = walletSummary.TotalEarned,
+                TotalAmountWithdrawn = walletSummary.TotalWithdrawn,
+                WithdrawableAmount = walletSummary.WithdrawableBalance,
             };
         }
 
@@ -301,13 +277,13 @@ namespace Infrastructure.Content.Services
             _dbContext.WithdrawalRequests.Update(withdrawal);
             await _dbContext.SaveChangesAsync();
 
-            // Update caregiver's withdrawals
-            bool updated = await _earningsService.UpdateWithdrawalAmountsAsync(
+            // Debit the caregiver wallet and record in ledger
+            await _walletService.DebitWithdrawalAsync(withdrawal.CaregiverId, withdrawal.AmountRequested);
+            await _ledgerService.RecordWithdrawalAsync(
                 withdrawal.CaregiverId,
-                withdrawal.AmountRequested);
-
-            if (!updated)
-                throw new InvalidOperationException("Failed to update caregiver withdrawals");
+                withdrawal.AmountRequested,
+                withdrawal.Id.ToString(),
+                $"Withdrawal completed. Requested: {withdrawal.AmountRequested:N2}, Service charge: {withdrawal.ServiceCharge:N2}, Final: {withdrawal.FinalAmount:N2}");
 
             // Notify caregiver
             await NotifyCaregiverAboutWithdrawalStatusChange(withdrawal,

@@ -26,6 +26,7 @@ namespace Infrastructure.Content.Services
         // Flutterwave local card fee rate (1.4%, capped at 2000 NGN)
         private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
         private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
+        private readonly IBillingRecordService _billingRecordService;
 
         public PendingPaymentService(
             CareProDbContext dbContext,
@@ -34,7 +35,8 @@ namespace Infrastructure.Content.Services
             FlutterwaveService flutterwaveService,
             ISubscriptionService subscriptionService,
             ILogger<PendingPaymentService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IBillingRecordService billingRecordService)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -43,6 +45,7 @@ namespace Infrastructure.Content.Services
             _subscriptionService = subscriptionService;
             _logger = logger;
             _configuration = configuration;
+            _billingRecordService = billingRecordService;
         }
 
         public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
@@ -56,8 +59,8 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(request.ServiceType))
                 errors.Add("ServiceType is required.");
             
-            if (!new[] { "one-time", "weekly", "monthly" }.Contains(request.ServiceType?.ToLower()))
-                errors.Add("ServiceType must be 'one-time', 'weekly', or 'monthly'.");
+            if (!new[] { "one-time", "monthly" }.Contains(request.ServiceType?.ToLower()))
+                errors.Add("ServiceType must be 'one-time' or 'monthly'.");
             
             if (request.FrequencyPerWeek < 1 || request.FrequencyPerWeek > 7)
                 errors.Add("FrequencyPerWeek must be between 1 and 7.");
@@ -86,7 +89,7 @@ namespace Infrastructure.Content.Services
 
             // Calculate amounts
             decimal basePrice = gig.Price;
-            decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType.ToLower(), request.FrequencyPerWeek);
+            decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType?.ToLower() ?? "one-time", request.FrequencyPerWeek);
             decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
             decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);
             decimal totalAmount = orderFee + serviceCharge + flutterwaveFees;
@@ -102,7 +105,7 @@ namespace Infrastructure.Content.Services
                 GigId = request.GigId,
                 ClientId = clientId,
                 Email = request.Email,
-                ServiceType = request.ServiceType.ToLower(),
+                ServiceType = request.ServiceType?.ToLower() ?? "one-time",
                 FrequencyPerWeek = request.FrequencyPerWeek,
                 BasePrice = basePrice,
                 OrderFee = orderFee,
@@ -153,7 +156,7 @@ namespace Infrastructure.Content.Services
                     Breakdown = new PaymentBreakdown
                     {
                         BasePrice = basePrice,
-                        ServiceType = request.ServiceType.ToLower(),
+                        ServiceType = request.ServiceType?.ToLower() ?? "one-time",
                         FrequencyPerWeek = request.FrequencyPerWeek,
                         OrderFee = orderFee,
                         ServiceCharge = serviceCharge,
@@ -183,6 +186,24 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogWarning("Payment completion attempted for unknown TxRef: {TxRef}", transactionReference);
                 return Result<PendingPayment>.Failure(new List<string> { "Payment record not found." });
+            }
+
+            // IDEMPOTENCY GUARD: If payment is already completed, return success (webhook replay protection)
+            if (pendingPayment.Status == PendingPaymentStatus.Completed)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Duplicate CompletePayment attempt for TxRef: {TxRef}. Already completed at {CompletedAt}. Returning existing result.",
+                    transactionReference, pendingPayment.CompletedAt);
+                return Result<PendingPayment>.Success(pendingPayment);
+            }
+
+            // Reject if already explicitly failed or flagged as amount mismatch
+            if (pendingPayment.Status == PendingPaymentStatus.AmountMismatch)
+            {
+                _logger.LogWarning(
+                    "SECURITY: CompletePayment retry for previously flagged TxRef: {TxRef} (AmountMismatch). Blocked.",
+                    transactionReference);
+                return Result<PendingPayment>.Failure(new List<string> { "This payment was previously flagged for amount mismatch." });
             }
 
             // CRITICAL SECURITY CHECK: Verify the paid amount matches expected amount
@@ -234,7 +255,37 @@ namespace Infrastructure.Content.Services
                 "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
                 transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
 
-            // For recurring service types (weekly/monthly), create a subscription
+            // ── Create BillingRecord for this payment ──
+            try
+            {
+                var gig = await _gigServices.GetGigAsync(pendingPayment.GigId);
+                var caregiverId = gig?.CaregiverId ?? string.Empty;
+
+                await _billingRecordService.CreateBillingRecordAsync(
+                    orderId: orderResult.Value?.Id ?? string.Empty,
+                    clientId: pendingPayment.ClientId,
+                    caregiverId: caregiverId,
+                    gigId: pendingPayment.GigId,
+                    serviceType: pendingPayment.ServiceType,
+                    frequencyPerWeek: pendingPayment.FrequencyPerWeek,
+                    amountPaid: pendingPayment.TotalAmount,
+                    orderFee: pendingPayment.OrderFee,
+                    serviceCharge: pendingPayment.ServiceCharge,
+                    gatewayFees: pendingPayment.FlutterwaveFees,
+                    paymentTransactionId: flutterwaveTransactionId,
+                    billingCycleNumber: 1
+                );
+
+                _logger.LogInformation(
+                    "BillingRecord created for OrderId: {OrderId}, TxRef: {TxRef}",
+                    orderResult.Value?.Id, transactionReference);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create BillingRecord for TxRef: {TxRef}. Payment was successful.", transactionReference);
+            }
+
+            // For recurring service types (monthly), create a subscription
             if (pendingPayment.ServiceType != "one-time")
             {
                 await CreateSubscriptionForRecurringPaymentAsync(pendingPayment, flutterwaveTransactionId, orderResult.Value?.Id);
@@ -325,7 +376,7 @@ namespace Infrastructure.Content.Services
                     GigId = payment.GigId,
                     OrderId = orderId ?? payment.ClientOrderId ?? string.Empty,
                     Email = payment.Email,
-                    BillingCycle = payment.ServiceType, // "weekly" or "monthly"
+                    BillingCycle = payment.ServiceType, // "monthly" (only recurring type)
                     FrequencyPerWeek = payment.FrequencyPerWeek,
                     PricePerVisit = payment.BasePrice,
                     RecurringAmount = payment.TotalAmount,
@@ -372,8 +423,7 @@ namespace Infrastructure.Content.Services
             return serviceType switch
             {
                 "one-time" => basePrice,
-                "weekly" => basePrice * frequencyPerWeek,
-                "monthly" => basePrice * frequencyPerWeek * 4,
+                "monthly" => basePrice * frequencyPerWeek * 4, // basePrice × visits/week × 4 weeks
                 _ => basePrice
             };
         }

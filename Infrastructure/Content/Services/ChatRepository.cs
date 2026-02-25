@@ -62,11 +62,11 @@ namespace Infrastructure.Content.Services
                 .ToListAsync();
         }
 
-        // Get a single message by ID
-        public async Task<ChatMessage> GetMessageByIdAsync(string messageId)
+        // Get a single message by ID (excludes soft-deleted)
+        public async Task<ChatMessage?> GetMessageByIdAsync(string messageId)
         {
             return await careProDbContext.ChatMessages
-                .FirstOrDefaultAsync(m => m.MessageId.ToString() == messageId);
+                .FirstOrDefaultAsync(m => m.MessageId.ToString() == messageId && !m.IsDeleted);
         }
 
         // Delete a message (soft delete)
@@ -146,9 +146,9 @@ namespace Infrastructure.Content.Services
 
         public async Task<IEnumerable<ChatPreviewResponse>> GetChatUserPreviewAsync(string userId)
         {
-            // Step 1: Fetch messages involving the user into memory
+            // Step 1: Fetch non-deleted messages involving the user into memory
             var messages = await careProDbContext.ChatMessages
-                .Where(x => x.SenderId == userId || x.ReceiverId == userId)
+                .Where(x => (x.SenderId == userId || x.ReceiverId == userId) && !x.IsDeleted)
                 .ToListAsync(); // Bring data into memory first
 
             // Step 2: Group by unique conversation pair (ignores order of sender/receiver)
@@ -162,7 +162,7 @@ namespace Infrastructure.Content.Services
 
             // Step 3: Extract IDs of chat partners
             var userIds = latestMessages
-                .Select(m => m.SenderId == userId ? m.ReceiverId : m.SenderId)
+                .Select(m => m!.SenderId == userId ? m.ReceiverId : m.SenderId)
                 .Distinct()
                 .ToList();
 
@@ -175,7 +175,7 @@ namespace Infrastructure.Content.Services
             var result = latestMessages
                 .Select(m =>
                 {
-                    var chatPartnerId = m.SenderId == userId ? m.ReceiverId : m.SenderId;
+                    var chatPartnerId = m!.SenderId == userId ? m.ReceiverId : m.SenderId;
                     var user = appUsers.FirstOrDefault(u => u.Id.ToString() == chatPartnerId);
 
                     if (user == null) return null;
@@ -191,6 +191,7 @@ namespace Infrastructure.Content.Services
                     };
                 })
                 .Where(x => x != null)
+                .Cast<ChatPreviewResponse>()
                 .OrderByDescending(x => x.LastMessageTimestamp)
                 .ToList();
 
@@ -215,8 +216,9 @@ namespace Infrastructure.Content.Services
         public async Task<List<MessageDTO>> GetMessageHistory(string user1Id, string user2Id, int skip, int take)
         {
             var messages = await careProDbContext.ChatMessages
-                .Where(m => (m.SenderId == user1Id && m.ReceiverId == user2Id) ||
-                            (m.SenderId == user2Id && m.ReceiverId == user1Id))
+                .Where(m => ((m.SenderId == user1Id && m.ReceiverId == user2Id) ||
+                            (m.SenderId == user2Id && m.ReceiverId == user1Id)) &&
+                            !m.IsDeleted)
                 .OrderByDescending(m => m.Timestamp) // newest first
                 .Skip(skip)
                 .Take(take)
@@ -247,7 +249,7 @@ namespace Infrastructure.Content.Services
         public async Task<List<string>> GetOnlineUsers()
         {
             return await careProDbContext.AppUsers
-                .Where(u => (bool)u.IsOnline)
+                .Where(u => u.IsOnline == true)
                 //.Select(u => u.AppUserId.ToString())
                 .Select(u => u.FirstName + " " + u.LastName)
                 .ToListAsync();
@@ -397,9 +399,9 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Get messages
+                // Get non-deleted messages
                 var messages = await careProDbContext.ChatMessages
-                    .Where(m => m.SenderId == userId || m.ReceiverId == userId)
+                    .Where(m => (m.SenderId == userId || m.ReceiverId == userId) && !m.IsDeleted)
                     .OrderByDescending(m => m.Timestamp)
                     .ToListAsync();
 

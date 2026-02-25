@@ -91,22 +91,24 @@ public class FlutterwaveService
     {
         if (string.IsNullOrEmpty(_webhookSecretHash))
         {
-            _logger.LogWarning("Webhook secret hash not configured. Skipping signature verification.");
-            return true;
+            _logger.LogCritical("SECURITY: Webhook secret hash not configured. Rejecting webhook to prevent unsigned payloads.");
+            return false; // FAIL-CLOSED: never accept unverified webhooks
         }
 
         if (string.IsNullOrEmpty(signatureHeader))
         {
-            _logger.LogWarning("Missing verif-hash header");
+            _logger.LogWarning("SECURITY: Missing verif-hash header in webhook request.");
             return false;
         }
 
-        // v3 simply compares the header value with your secret hash
-        var isValid = signatureHeader == _webhookSecretHash;
+        // Constant-time comparison to prevent timing attacks
+        var isValid = CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(signatureHeader),
+            System.Text.Encoding.UTF8.GetBytes(_webhookSecretHash));
         
         if (!isValid)
         {
-            _logger.LogWarning("Webhook signature mismatch. Received: {Received}", signatureHeader);
+            _logger.LogWarning("SECURITY: Webhook signature mismatch. Received: {Received}", signatureHeader);
         }
 
         return isValid;
