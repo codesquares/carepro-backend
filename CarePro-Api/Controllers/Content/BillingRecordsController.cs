@@ -21,11 +21,15 @@ namespace CarePro_Api.Controllers.Content
         /// Verify the authenticated user is the given user or is an admin.
         /// Prevents IDOR attacks where one user accesses another's billing records.
         /// </summary>
+        private string? GetCurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
         private bool IsAuthorizedForUser(string userId)
         {
-            var authenticatedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var role = User.FindFirstValue(ClaimTypes.Role);
-            return authenticatedUserId == userId || role == "Admin" || role == "SuperAdmin";
+            return GetCurrentUserId() == userId || role == "Admin" || role == "SuperAdmin";
         }
 
         /// <summary>
@@ -41,7 +45,7 @@ namespace CarePro_Api.Controllers.Content
                     return NotFound("Billing record not found");
 
                 // IDOR: verify caller is either the client or the caregiver on this record
-                var authenticatedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                var authenticatedUserId = GetCurrentUserId();
                 var role = User.FindFirstValue(ClaimTypes.Role);
                 if (authenticatedUserId != record.CaregiverId && authenticatedUserId != record.ClientId
                     && role != "Admin" && role != "SuperAdmin")
@@ -68,7 +72,7 @@ namespace CarePro_Api.Controllers.Content
                     return NotFound("Billing record not found for this order");
 
                 // IDOR check
-                var authenticatedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                var authenticatedUserId = GetCurrentUserId();
                 var role = User.FindFirstValue(ClaimTypes.Role);
                 if (authenticatedUserId != record.CaregiverId && authenticatedUserId != record.ClientId
                     && role != "Admin" && role != "SuperAdmin")
@@ -96,7 +100,7 @@ namespace CarePro_Api.Controllers.Content
                 if (records.Any())
                 {
                     var first = records.First();
-                    var authenticatedUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                    var authenticatedUserId = GetCurrentUserId();
                     var role = User.FindFirstValue(ClaimTypes.Role);
                     if (authenticatedUserId != first.CaregiverId && authenticatedUserId != first.ClientId
                         && role != "Admin" && role != "SuperAdmin")

@@ -117,6 +117,11 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<BillingRecord>().HasKey(br => br.Id);
             modelBuilder.Entity<BillingRecord>().Property(br => br.Id).HasElementName("_id");
 
+            modelBuilder.Entity<CaregiverBankAccount>().ToCollection("CaregiverBankAccounts");
+            modelBuilder.Entity<CaregiverBankAccount>().HasKey(ba => ba.Id);
+            modelBuilder.Entity<CaregiverBankAccount>().Property(ba => ba.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverBankAccount>().HasIndex(ba => ba.CaregiverId).IsUnique();
+
         }
 
 
@@ -153,5 +158,6 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverWallet> CaregiverWallets { get; set; }
         public DbSet<EarningsLedger> EarningsLedger { get; set; }
         public DbSet<BillingRecord> BillingRecords { get; set; }
+        public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
     }
 }

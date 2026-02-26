@@ -87,6 +87,91 @@ namespace Infrastructure.Content.Services
                 return Result<PendingPaymentResponse>.Failure(new List<string> { "This gig is not currently available for purchase." });
             }
 
+            // ── DUPLICATE PAYMENT GUARD ──────────────────────────────────────
+            // 1. Block if the client already has a non-completed order for this gig
+            var existingActiveOrder = await _dbContext.ClientOrders
+                .FirstOrDefaultAsync(o => o.ClientId == clientId
+                                       && o.GigId == request.GigId
+                                       && o.ClientOrderStatus != "Completed");
+
+            if (existingActiveOrder != null)
+            {
+                _logger.LogWarning(
+                    "Duplicate payment blocked. ClientId: {ClientId}, GigId: {GigId}, ExistingOrderId: {OrderId}, Status: {Status}",
+                    clientId, request.GigId, existingActiveOrder.Id, existingActiveOrder.ClientOrderStatus);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You already have an active order for this gig. You cannot pay for the same gig twice while an order is still in progress."
+                });
+            }
+
+            // 2. Allow re-purchase only if the most recent order was one-time AND completed
+            var lastCompletedOrder = await _dbContext.ClientOrders
+                .Where(o => o.ClientId == clientId
+                         && o.GigId == request.GigId
+                         && o.ClientOrderStatus == "Completed")
+                .OrderByDescending(o => o.OrderCreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (lastCompletedOrder != null
+                && !string.Equals(lastCompletedOrder.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Re-purchase blocked for non-one-time completed order. ClientId: {ClientId}, GigId: {GigId}, PaymentOption: {PaymentOption}",
+                    clientId, request.GigId, lastCompletedOrder.PaymentOption);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You have already purchased this gig on a recurring plan. You cannot purchase it again."
+                });
+            }
+
+            // 3. Reuse or expire stale pending payments for this client+gig
+            var existingPendingPayment = await _dbContext.PendingPayments
+                .FirstOrDefaultAsync(p => p.ClientId == clientId
+                                       && p.GigId == request.GigId
+                                       && p.Status == PendingPaymentStatus.Pending);
+
+            if (existingPendingPayment != null)
+            {
+                var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
+                if (age.TotalHours < 1 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
+                {
+                    // Payment link is still fresh — return it instead of creating a new one
+                    _logger.LogInformation(
+                        "Returning existing pending payment link. TxRef: {TxRef}, Age: {AgeMinutes}m",
+                        existingPendingPayment.TransactionReference, (int)age.TotalMinutes);
+
+                    return Result<PendingPaymentResponse>.Success(new PendingPaymentResponse
+                    {
+                        Success = true,
+                        Message = "A payment for this gig is already in progress. Use the existing payment link.",
+                        TransactionReference = existingPendingPayment.TransactionReference,
+                        PaymentLink = existingPendingPayment.PaymentLink,
+                        Breakdown = new PaymentBreakdown
+                        {
+                            BasePrice = existingPendingPayment.BasePrice,
+                            ServiceType = existingPendingPayment.ServiceType,
+                            FrequencyPerWeek = existingPendingPayment.FrequencyPerWeek,
+                            OrderFee = existingPendingPayment.OrderFee,
+                            ServiceCharge = existingPendingPayment.ServiceCharge,
+                            FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
+                            TotalAmount = existingPendingPayment.TotalAmount,
+                            Currency = existingPendingPayment.Currency
+                        }
+                    });
+                }
+                else
+                {
+                    // Stale pending payment — expire it so a fresh one can be created
+                    existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                    existingPendingPayment.ErrorMessage = "Expired: superseded by a new payment attempt.";
+                    _logger.LogInformation(
+                        "Expired stale pending payment. TxRef: {TxRef}, Age: {AgeHours}h",
+                        existingPendingPayment.TransactionReference, (int)age.TotalHours);
+                }
+            }
+            // ── END DUPLICATE PAYMENT GUARD ──────────────────────────────────
+
             // Calculate amounts
             decimal basePrice = gig.Price;
             decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType?.ToLower() ?? "one-time", request.FrequencyPerWeek);

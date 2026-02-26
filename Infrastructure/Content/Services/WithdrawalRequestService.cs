@@ -229,8 +229,19 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> VerifyWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request)
         {
-            var withdrawal = await _dbContext.WithdrawalRequests
-                .FirstOrDefaultAsync(w => w.Token == request.Token);
+            WithdrawalRequest withdrawal = null;
+
+            if (!string.IsNullOrEmpty(request.Token))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Token == request.Token);
+            }
+            else if (!string.IsNullOrEmpty(request.WithdrawalId) &&
+                     MongoDB.Bson.ObjectId.TryParse(request.WithdrawalId, out var verifyObjectId))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Id == verifyObjectId);
+            }
 
             if (withdrawal == null)
                 throw new InvalidOperationException("Withdrawal request not found");
@@ -259,8 +270,28 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> CompleteWithdrawalRequestAsync(string token, string adminId)
         {
-            var withdrawal = await _dbContext.WithdrawalRequests
-                .FirstOrDefaultAsync(w => w.Token == token);
+            return await CompleteWithdrawalRequestAsync(new AdminWithdrawalVerificationRequest
+            {
+                Token = token,
+                AdminId = adminId
+            });
+        }
+
+        public async Task<WithdrawalRequestResponse> CompleteWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request)
+        {
+            WithdrawalRequest withdrawal = null;
+
+            if (!string.IsNullOrEmpty(request.Token))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Token == request.Token);
+            }
+            else if (!string.IsNullOrEmpty(request.WithdrawalId) &&
+                     MongoDB.Bson.ObjectId.TryParse(request.WithdrawalId, out var completeObjectId))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Id == completeObjectId);
+            }
 
             if (withdrawal == null)
                 throw new InvalidOperationException("Withdrawal request not found");
@@ -268,22 +299,22 @@ namespace Infrastructure.Content.Services
             if (withdrawal.Status != WithdrawalStatus.Verified)
                 throw new InvalidOperationException("Withdrawal request must be verified before completion");
 
-            // Update status and fields directly
-            withdrawal.Status = WithdrawalStatus.Completed;
-            withdrawal.CompletedAt = DateTime.UtcNow;
-            withdrawal.AdminId = adminId;
-
-            // Save changes
-            _dbContext.WithdrawalRequests.Update(withdrawal);
-            await _dbContext.SaveChangesAsync();
-
-            // Debit the caregiver wallet and record in ledger
+            // Debit wallet and record ledger FIRST — if either fails, status
+            // stays Verified so the admin can safely retry without data corruption.
             await _walletService.DebitWithdrawalAsync(withdrawal.CaregiverId, withdrawal.AmountRequested);
             await _ledgerService.RecordWithdrawalAsync(
                 withdrawal.CaregiverId,
                 withdrawal.AmountRequested,
                 withdrawal.Id.ToString(),
                 $"Withdrawal completed. Requested: {withdrawal.AmountRequested:N2}, Service charge: {withdrawal.ServiceCharge:N2}, Final: {withdrawal.FinalAmount:N2}");
+
+            // Only mark Completed after the money has actually moved
+            withdrawal.Status = WithdrawalStatus.Completed;
+            withdrawal.CompletedAt = DateTime.UtcNow;
+            withdrawal.AdminId = request.AdminId;
+
+            _dbContext.WithdrawalRequests.Update(withdrawal);
+            await _dbContext.SaveChangesAsync();
 
             // Notify caregiver
             await NotifyCaregiverAboutWithdrawalStatusChange(withdrawal,
@@ -297,8 +328,19 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> RejectWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request)
         {
-            var withdrawal = await _dbContext.WithdrawalRequests
-                .FirstOrDefaultAsync(w => w.Token == request.Token);
+            WithdrawalRequest withdrawal = null;
+
+            if (!string.IsNullOrEmpty(request.Token))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Token == request.Token);
+            }
+            else if (!string.IsNullOrEmpty(request.WithdrawalId) &&
+                     MongoDB.Bson.ObjectId.TryParse(request.WithdrawalId, out var rejectObjectId))
+            {
+                withdrawal = await _dbContext.WithdrawalRequests
+                    .FirstOrDefaultAsync(w => w.Id == rejectObjectId);
+            }
 
             if (withdrawal == null)
                 throw new InvalidOperationException("Withdrawal request not found");
@@ -308,6 +350,7 @@ namespace Infrastructure.Content.Services
 
             // Update properties directly
             withdrawal.Status = WithdrawalStatus.Rejected;
+            withdrawal.RejectedAt = DateTime.UtcNow;
             withdrawal.AdminId = request.AdminId;
             withdrawal.AdminNotes = request.AdminNotes;
 
@@ -322,7 +365,6 @@ namespace Infrastructure.Content.Services
 
             return await MapWithdrawalToResponseAsync(withdrawal);
         }
-
 
 
         public async Task<bool> TokenExists(string token)
@@ -342,30 +384,34 @@ namespace Infrastructure.Content.Services
 
         private string GenerateUniqueToken()
         {
-            // Generate a random 8-character alphanumeric token
+            // Generate a cryptographically secure 8-character alphanumeric token
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            var random = new Random();
-            var token = new string(Enumerable.Repeat(chars, 8)
-                .Select(s => s[random.Next(s.Length)]).ToArray());
-
+            var bytes = RandomNumberGenerator.GetBytes(8);
+            var token = new string(bytes.Select(b => chars[b % chars.Length]).ToArray());
             return token;
         }
 
         private async Task<WithdrawalRequestResponse> MapWithdrawalToResponseAsync(WithdrawalRequest withdrawal)
         {
-            var caregiver = await _careGiverService.GetCaregiverUserAsync(withdrawal.CaregiverId);
-            string caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "Unknown";
+            string caregiverName = "Unknown";
+            try
+            {
+                var caregiver = await _careGiverService.GetCaregiverUserAsync(withdrawal.CaregiverId);
+                if (caregiver != null)
+                    caregiverName = $"{caregiver.FirstName} {caregiver.LastName}";
+            }
+            catch (KeyNotFoundException) { /* caregiver may have been deleted — degrade gracefully */ }
 
             string adminName = "Not assigned";
             if (!string.IsNullOrEmpty(withdrawal.AdminId))
             {
-                var admin = await _adminUserService.GetAdminUserByIdAsync(withdrawal.AdminId);
-                adminName = admin != null ? $"{admin.FirstName} {admin.LastName}" : "Unknown Admin";
-
-
-                // You may need to implement a method to get admin information
-                // For now, we'll use a placeholder
-                adminName = "Admin"; // Replace with actual admin name retrieval logic
+                try
+                {
+                    var admin = await _adminUserService.GetAdminUserByIdAsync(withdrawal.AdminId);
+                    if (admin != null)
+                        adminName = $"{admin.FirstName} {admin.LastName}";
+                }
+                catch (KeyNotFoundException) { adminName = "Unknown Admin"; }
             }
 
             return new WithdrawalRequestResponse
@@ -381,6 +427,7 @@ namespace Infrastructure.Content.Services
                 CreatedAt = withdrawal.CreatedAt,
                 VerifiedAt = withdrawal.VerifiedAt,
                 CompletedAt = withdrawal.CompletedAt,
+                RejectedAt = withdrawal.RejectedAt,
                 AdminNotes = withdrawal.AdminNotes,
                 AdminId = withdrawal.AdminId,
                 AdminName = adminName,

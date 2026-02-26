@@ -19,6 +19,7 @@ namespace Domain.Entities
         public DateTime CreatedAt { get; set; }
         public DateTime? VerifiedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
+        public DateTime? RejectedAt { get; set; }
         public string? AdminNotes { get; set; }
         public string? AdminId { get; set; } // ID of the admin who processed the withdrawal
         public string? AccountNumber { get; set; } // Caregiver's bank account number

@@ -28,7 +28,9 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         private bool IsAuthorizedForCaregiver(string caregiverId)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
             var role = User.FindFirstValue(ClaimTypes.Role);
             return userId == caregiverId || role == "Admin" || role == "SuperAdmin";
         }

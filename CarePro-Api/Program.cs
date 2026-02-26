@@ -129,6 +129,7 @@ builder.Services.AddScoped<IBillingRecordService, BillingRecordService>();
 
 builder.Services.AddScoped<IEarningsService, EarningsService>();
 builder.Services.AddScoped<IWithdrawalRequestService, WithdrawalRequestService>();
+builder.Services.AddScoped<ICaregiverBankAccountService, CaregiverBankAccountService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();

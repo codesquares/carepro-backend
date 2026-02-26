@@ -77,7 +77,9 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 // Check if the user is requesting their own data or is an admin
-                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
                 string userRole = User.FindFirstValue(ClaimTypes.Role);
 
                 if (userId != caregiverId && userRole != "Admin" && userRole != "SuperAdmin")
@@ -176,7 +178,9 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 // Ensure admin withdrawalRequestId in the request matches the authenticated user
-                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
                 request.AdminId = adminId;
 
                 var withdrawal = await _withdrawalRequestService.VerifyWithdrawalRequestAsync(request);
@@ -198,8 +202,33 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
                 var withdrawal = await _withdrawalRequestService.CompleteWithdrawalRequestAsync(token, adminId);
+                return Ok(withdrawal);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { ErrorMessage = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { ErrorMessage = ex.Message });
+            }
+        }
+
+        [HttpPost("complete")]
+        // [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> CompleteWithdrawalRequestByBody([FromBody] AdminWithdrawalVerificationRequest request)
+        {
+            try
+            {
+                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
+                request.AdminId = adminId;
+                var withdrawal = await _withdrawalRequestService.CompleteWithdrawalRequestAsync(request);
                 return Ok(withdrawal);
             }
             catch (InvalidOperationException ex)
@@ -218,7 +247,9 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                string adminId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
                 request.AdminId = adminId;
 
                 var withdrawal = await _withdrawalRequestService.RejectWithdrawalRequestAsync(request);
@@ -241,7 +272,9 @@ namespace CarePro_Api.Controllers.Content
             try
             {
                 // Verify that the user is checking their own status
-                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst("userId")?.Value;
                 if (userId != caregiverId)
                     return Forbid();
 
