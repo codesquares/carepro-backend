@@ -219,13 +219,30 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateClientOrderStatus/orderId")]
-        [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
+        [Authorize(Roles = "Client, Caregiver, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
         {
             try
             {
                 // Override the UserId from the body with the JWT-authenticated identity
                 updateClientOrderStatusRequest.UserId = GetCurrentUserId();
+
+                // ── IDOR protection: if the caller is a Client, verify they own this order ──
+                var currentRole = User.FindFirstValue(ClaimTypes.Role);
+                if (currentRole == "Client")
+                {
+                    var existingOrder = await clientOrderService.GetClientOrderAsync(orderId);
+                    if (existingOrder == null)
+                    {
+                        return NotFound(new { message = $"Order with ID '{orderId}' not found." });
+                    }
+                    if (existingOrder.ClientId != updateClientOrderStatusRequest.UserId)
+                    {
+                        logger.LogWarning("Client {UserId} attempted to update order {OrderId} belonging to client {OwnerId}.",
+                            updateClientOrderStatusRequest.UserId, orderId, existingOrder.ClientId);
+                        return Forbid();
+                    }
+                }
 
                 var result = await clientOrderService.UpdateClientOrderStatusAsync(orderId, updateClientOrderStatusRequest);
                 logger.LogInformation("Client Order Status with ID: {OrderId} updated by user {UserId}.", orderId, updateClientOrderStatusRequest.UserId);
@@ -270,6 +287,55 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error approving order {OrderId}", orderId);
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
+
+        /// <summary>
+        /// Releases pending funds for a completed order, moving them to the caregiver's withdrawable balance.
+        /// Only the client who owns the order (or an Admin/SuperAdmin) can release funds.
+        /// </summary>
+        [HttpPost]
+        [Route("ReleaseFunds/{orderId}")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
+        public async Task<IActionResult> ReleaseFundsAsync(string orderId)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var currentRole = User.FindFirstValue(ClaimTypes.Role);
+
+                // For Clients, pass their userId for IDOR validation in the service.
+                // For Admins/SuperAdmins, pass null to bypass the ownership check.
+                string? clientUserId = (currentRole == "Admin" || currentRole == "SuperAdmin")
+                    ? null
+                    : currentUserId;
+
+                var result = await clientOrderService.ReleaseFundsAsync(orderId, clientUserId);
+                logger.LogInformation("Funds released for order {OrderId} by user {UserId} (role: {Role}).", orderId, currentUserId, currentRole);
+                return Ok(new { message = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                logger.LogWarning("Unauthorized fund release attempt on order {OrderId} by user {UserId}.", orderId, GetCurrentUserId());
+                return StatusCode(403, new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error releasing funds for order {OrderId}", orderId);
                 return StatusCode(500, new { message = "An error occurred on the server." });
             }
         }

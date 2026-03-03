@@ -72,14 +72,15 @@ namespace Infrastructure.Content.Services
 
             var cutoffDate = DateTime.UtcNow.AddDays(-AutoReleaseDays);
 
-            // Find one-time orders that are completed, not approved by client, not disputed,
-            // and have been sitting for 7+ days
+            // Find all orders (one-time and cycle-1 recurring) that are completed,
+            // not approved by client, not disputed, and have been sitting for 7+ days.
+            // Recurring orders cycle 2+ are auto-released at creation time, so they
+            // won't match here (they already have a FundsReleased ledger entry).
             var eligibleOrders = await dbContext.ClientOrders
                 .Where(o =>
                     o.ClientOrderStatus == "Completed" &&
                     !o.IsOrderStatusApproved &&
                     o.HasDispute != true &&
-                    o.PaymentOption == "one-time" &&
                     o.OrderUpdatedOn <= cutoffDate)
                 .ToListAsync();
 
@@ -113,8 +114,8 @@ namespace Infrastructure.Content.Services
                         order.CaregiverId,
                         orderFeeAmount,
                         order.Id.ToString(),
-                        null,  // subscriptionId (one-time orders have no subscription)
-                        null,  // billingCycleNumber
+                        order.SubscriptionId,
+                        order.BillingCycleNumber,
                         order.PaymentOption ?? "one-time",
                         "AutoReleased",
                         $"Auto-released after {AutoReleaseDays} days without client action. Order completed on {order.OrderUpdatedOn:yyyy-MM-dd}");

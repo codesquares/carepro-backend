@@ -17,9 +17,10 @@ namespace Application.Interfaces.Content
 
         /// <summary>
         /// Increments TotalEarned when any order is created for the caregiver's gig.
-        /// Also increments PendingBalance for one-time orders.
+        /// For recurring orders with billingCycleNumber > 1, funds go directly to WithdrawableBalance.
+        /// For all other orders (one-time, or cycle 1 of a subscription), funds go to PendingBalance.
         /// </summary>
-        Task CreditOrderReceivedAsync(string caregiverId, decimal amount, bool isRecurring);
+        Task CreditOrderReceivedAsync(string caregiverId, decimal amount, bool isRecurring, int? billingCycleNumber = null);
 
         /// <summary>
         /// Releases funds from PendingBalance to WithdrawableBalance (for one-time orders).

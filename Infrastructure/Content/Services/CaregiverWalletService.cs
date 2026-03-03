@@ -100,7 +100,7 @@ namespace Infrastructure.Content.Services
             };
         }
 
-        public async Task CreditOrderReceivedAsync(string caregiverId, decimal amount, bool isRecurring)
+        public async Task CreditOrderReceivedAsync(string caregiverId, decimal amount, bool isRecurring, int? billingCycleNumber = null)
         {
             ValidateCaregiverId(caregiverId);
             ValidateAmount(amount, "CreditOrderReceived");
@@ -112,7 +112,11 @@ namespace Infrastructure.Content.Services
 
                 wallet.TotalEarned = SafeRound(wallet.TotalEarned + amount);
 
-                if (isRecurring)
+                // Recurring orders cycle 2+ go straight to withdrawable (trust established in cycle 1).
+                // Everything else (one-time, or cycle 1 of a subscription) goes to pending.
+                bool autoRelease = isRecurring && (billingCycleNumber ?? 1) > 1;
+
+                if (autoRelease)
                 {
                     wallet.WithdrawableBalance = SafeRound(wallet.WithdrawableBalance + amount);
                 }
@@ -128,8 +132,8 @@ namespace Infrastructure.Content.Services
                 await _dbContext.SaveChangesAsync();
 
                 _logger.LogInformation(
-                    "Wallet credited for caregiver {CaregiverId}: +{Amount} (Recurring: {IsRecurring}). TotalEarned: {TotalEarned}, Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
-                    caregiverId, amount, isRecurring, wallet.TotalEarned, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
+                    "Wallet credited for caregiver {CaregiverId}: +{Amount} (Recurring: {IsRecurring}, Cycle: {Cycle}, AutoRelease: {AutoRelease}). TotalEarned: {TotalEarned}, Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
+                    caregiverId, amount, isRecurring, billingCycleNumber ?? 1, autoRelease, wallet.TotalEarned, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
             });
         }
 

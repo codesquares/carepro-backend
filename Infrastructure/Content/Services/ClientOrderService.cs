@@ -159,31 +159,29 @@ namespace Infrastructure.Content.Services
             try
             {
                 bool isRecurring = clientOrder.PaymentOption == "monthly";
+                int cycleNumber = clientOrder.BillingCycleNumber ?? 1;
                 string serviceType = isRecurring ? "monthly" : "one-time";
                 string description = isRecurring
-                    ? $"Monthly service payment received for {gig!.Title}"
+                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber}"
                     : $"One-time service payment received for {gig!.Title}";
 
                 await walletService.CreditOrderReceivedAsync(
-                    clientOrder.CaregiverId, clientOrder.Amount, isRecurring);
+                    clientOrder.CaregiverId, clientOrder.Amount, isRecurring, cycleNumber);
 
                 await ledgerService.RecordOrderReceivedAsync(
                     clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
                     clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
                     serviceType, description);
 
-                // For recurring orders, also record immediate funds release
-                if (isRecurring)
+                // For recurring orders cycle 2+, record immediate funds release in the ledger
+                // (cycle 1 and one-time orders require client release or 7-day auto-release)
+                if (isRecurring && cycleNumber > 1)
                 {
-                    string releaseReason = (clientOrder.BillingCycleNumber ?? 1) == 1
-                        ? Domain.Entities.FundsReleaseReason.InitialSubscription
-                        : Domain.Entities.FundsReleaseReason.RecurringPayment;
-
                     await ledgerService.RecordFundsReleasedAsync(
                         clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
                         clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
-                        serviceType, releaseReason,
-                        $"Funds released for {gig!.Title} - cycle {clientOrder.BillingCycleNumber ?? 1}");
+                        serviceType, Domain.Entities.FundsReleaseReason.RecurringPayment,
+                        $"Funds auto-released for {gig!.Title} - cycle {cycleNumber} (trust established)");
                 }
             }
             catch (Exception ex)
@@ -751,22 +749,20 @@ namespace Infrastructure.Content.Services
                 // ── EVENT: Release pending funds to withdrawable on client approval ──
                 try
                 {
-                    // Only release for one-time orders (recurring are already released)
-                    bool isOneTime = existingOrder.ServiceType == "one-time" || string.IsNullOrEmpty(existingOrder.SubscriptionId);
-                    if (isOneTime)
+                    bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
+                    if (!alreadyReleased)
                     {
-                        bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
-                        if (!alreadyReleased)
-                        {
-                            await walletService.ReleasePendingFundsAsync(
-                                existingOrder.CaregiverId, existingOrder.Amount);
+                        string serviceType = string.IsNullOrEmpty(existingOrder.SubscriptionId) ? "one-time" : "monthly";
 
-                            await ledgerService.RecordFundsReleasedAsync(
-                                existingOrder.CaregiverId, existingOrder.Amount, orderId,
-                                null, null, "one-time",
-                                Domain.Entities.FundsReleaseReason.ClientApproved,
-                                $"Funds released - client approved order {orderId}");
-                        }
+                        await walletService.ReleasePendingFundsAsync(
+                            existingOrder.CaregiverId, existingOrder.Amount);
+
+                        await ledgerService.RecordFundsReleasedAsync(
+                            existingOrder.CaregiverId, existingOrder.Amount, orderId,
+                            existingOrder.SubscriptionId, existingOrder.BillingCycleNumber,
+                            serviceType,
+                            Domain.Entities.FundsReleaseReason.ClientApproved,
+                            $"Funds released - client approved order {orderId}");
                     }
                 }
                 catch (Exception walletEx)
@@ -782,6 +778,62 @@ namespace Infrastructure.Content.Services
                 LogException(ex);
                 throw new Exception(ex.Message);
             }
+        }
+
+        public async Task<string> ReleaseFundsAsync(string orderId, string clientUserId)
+        {
+            if (!ObjectId.TryParse(orderId, out var objectId))
+            {
+                throw new ArgumentException("Invalid order ID format.");
+            }
+
+            var existingOrder = await careProDbContext.ClientOrders.FindAsync(objectId);
+
+            if (existingOrder == null)
+            {
+                throw new KeyNotFoundException($"Order with ID '{orderId}' not found.");
+            }
+
+            // IDOR: Verify the client owns this order
+            if (!string.IsNullOrEmpty(clientUserId) && existingOrder.ClientId != clientUserId)
+            {
+                throw new UnauthorizedAccessException("You are not authorized to release funds for this order.");
+            }
+
+            // Only allow release on completed orders
+            if (existingOrder.ClientOrderStatus != "Completed")
+            {
+                throw new InvalidOperationException($"Funds can only be released for completed orders. Current status: {existingOrder.ClientOrderStatus}");
+            }
+
+            // Block if order has an active dispute
+            if (existingOrder.HasDispute == true)
+            {
+                throw new InvalidOperationException("Cannot release funds for an order with an active dispute.");
+            }
+
+            // Idempotency: check if funds were already released
+            bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
+            if (alreadyReleased)
+            {
+                return $"Funds for order '{orderId}' have already been released.";
+            }
+
+            string serviceType = string.IsNullOrEmpty(existingOrder.SubscriptionId) ? "one-time" : "monthly";
+
+            await walletService.ReleasePendingFundsAsync(
+                existingOrder.CaregiverId, existingOrder.Amount);
+
+            await ledgerService.RecordFundsReleasedAsync(
+                existingOrder.CaregiverId, existingOrder.Amount, orderId,
+                existingOrder.SubscriptionId, existingOrder.BillingCycleNumber,
+                serviceType,
+                Domain.Entities.FundsReleaseReason.ClientApproved,
+                $"Funds released by client for order {orderId}");
+
+            logger.LogInformation("Funds released for order {OrderId} by client {ClientId}.", orderId, clientUserId);
+
+            return $"Funds for order '{orderId}' released successfully.";
         }
 
         public async Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
