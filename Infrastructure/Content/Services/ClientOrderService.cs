@@ -148,7 +148,7 @@ namespace Infrastructure.Content.Services
                 await notificationService.CreateNotificationAsync(
                     clientOrder.CaregiverId,
                     clientOrder.ClientId ?? string.Empty,
-                    "OrderReceived",
+                    NotificationTypes.OrderReceived,
                     notificationContent,
                     "New Order Received",
                     clientOrder.Id.ToString()

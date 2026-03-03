@@ -64,33 +64,89 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
     }
 
-    public class NotificationTypes
+    /// <summary>
+    /// Single source of truth for all notification type strings.
+    /// All values use consistent snake_case for frontend compatibility.
+    /// Frontend should use these exact strings in their notification routing switch.
+    /// </summary>
+    public static class NotificationTypes
     {
-        public const string WithdrawalRequest = "WithdrawalRequest";
-        public const string SystemAlert = "SystemAlert";
-        public const string OrderNotification = "OrderNotification";
-        public const string MessageNotification = "MessageNotification";
+        // ── Chat ──
+        public const string ChatMessage = "chat_message";
 
-        // Contract lifecycle
-        public const string ContractSent = "contract_pending_approval";
-        public const string ContractApproved = "contract_client_approved";
-        public const string ContractRejected = "contract_client_rejected";
-        public const string ContractRevisionRequested = "contract_review_requested";
-        public const string ContractRevised = "contract_revised";
+        // ── Gigs ──
+        public const string NewGig = "new_gig";
+
+        // ── Orders ──
+        public const string OrderReceived = "order_received";
+        public const string OrderConfirmation = "order_confirmation";
+        public const string OrderCompleted = "order_completed";
+        public const string OrderCancelled = "order_cancelled";
+        public const string OrderDisputed = "order_disputed";
+
+        // ── Booking ──
+        public const string BookingConfirmed = "booking_confirmed";
+
+        // ── Contract lifecycle (caregiver-side) ──
         public const string ContractReceived = "contract_received";
-        public const string ContractAccepted = "contract_accepted";
-        public const string ContractExpired = "contract_expired";
-        public const string ContractReminder = "contract_reminder";
         public const string ContractPending = "contract_pending";
+        public const string ContractAccepted = "contract_accepted";
+        public const string ContractRejected = "contract_rejected";
+        public const string ContractResponse = "contract_response";
+        public const string ContractReviewRequested = "contract_review_requested";
+        public const string ContractReminder = "contract_reminder";
+        public const string ContractExpired = "contract_expired";
+
+        // ── Contract lifecycle (client-side) ──
+        public const string ContractPendingApproval = "contract_pending_approval";
+        public const string ContractPendingClientApproval = "contract_pending_client_approval";
+        public const string ContractRevised = "contract_revised";
+        public const string ContractClientApproved = "contract_client_approved";
+        public const string ContractClientRejected = "contract_client_rejected";
+        public const string ContractClientResponse = "contract_client_response";
         public const string ContractClientReminder = "contract_client_reminder";
 
-        // Order lifecycle
-        public const string OrderReceived = "OrderReceived";
-        public const string OrderCompleted = "OrderCompleted";
-        public const string OrderDisputed = "OrderDisputed";
-        public const string BookingConfirmed = "BookingConfirmed";
+        // ── Certificates ──
+        public const string CertificateUploaded = "certificate_uploaded";
+        public const string CertificateVerification = "certificate_verification";
+        public const string CertificateManualApproval = "certificate_manual_approval";
+        public const string CertificateManualRejection = "certificate_manual_rejection";
+        public const string CertificateReview = "certificate_review";
 
-        // Review
-        public const string NewReview = "NewReview";
+        // ── Subscriptions ──
+        public const string SubscriptionCreated = "subscription_created";
+        public const string SubscriptionCancellationScheduled = "subscription_cancellation_scheduled";
+        public const string SubscriptionCancellationNotice = "subscription_cancellation_notice";
+        public const string SubscriptionReactivated = "subscription_reactivated";
+        public const string SubscriptionTerminated = "subscription_terminated";
+        public const string SubscriptionPlanChanged = "subscription_plan_changed";
+        public const string SubscriptionPaused = "subscription_paused";
+        public const string SubscriptionResumed = "subscription_resumed";
+        public const string SubscriptionSuspended = "subscription_suspended";
+        public const string SubscriptionCancelled = "subscription_cancelled";
+        public const string SubscriptionEnded = "subscription_ended";
+
+        // ── Payments ──
+        public const string PaymentReceived = "payment_received";
+        public const string PaymentConfirmed = "payment_confirmed";
+        public const string PaymentMethodUpdated = "payment_method_updated";
+        public const string RecurringPaymentSuccessful = "recurring_payment_successful";
+        public const string PaymentFailed = "payment_failed";
+        public const string EarningsAdded = "earnings_added";
+        public const string OrderPayment = "order_payment";
+        public const string RefundProcessed = "refund_processed";
+
+        // ── Withdrawals ──
+        public const string WithdrawalRequest = "withdrawal_request";
+        public const string WithdrawalVerified = "withdrawal_verified";
+        public const string WithdrawalCompleted = "withdrawal_completed";
+        public const string WithdrawalRejected = "withdrawal_rejected";
+
+        // ── Reviews ──
+        public const string NewReview = "new_review";
+
+        // ── System ──
+        public const string SystemNotice = "system_notice";
+        public const string SystemAlert = "system_alert";
     }
 }

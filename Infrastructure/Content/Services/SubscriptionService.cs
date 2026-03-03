@@ -147,7 +147,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 request.ClientId,
                 "system",
-                "subscription_created",
+                NotificationTypes.SubscriptionCreated,
                 $"Your {request.BillingCycle} subscription has been activated. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Activated",
                 subscription.Id);
@@ -254,7 +254,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_cancellation_scheduled",
+                NotificationTypes.SubscriptionCancellationScheduled,
                 $"Your subscription will be cancelled on {subscription.CurrentPeriodEnd:MMM dd, yyyy}. Service continues until then.",
                 "Cancellation Scheduled",
                 subscriptionId);
@@ -263,7 +263,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.CaregiverId,
                 "system",
-                "subscription_cancellation_notice",
+                NotificationTypes.SubscriptionCancellationNotice,
                 $"A client's subscription for your service will end on {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                 "Subscription Ending",
                 subscriptionId);
@@ -309,7 +309,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_reactivated",
+                NotificationTypes.SubscriptionReactivated,
                 "Your subscription has been reactivated. Auto-renewal is back on.",
                 "Subscription Reactivated",
                 subscriptionId);
@@ -415,7 +415,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_terminated",
+                NotificationTypes.SubscriptionTerminated,
                 $"Your subscription has been terminated immediately.{refundMsg}",
                 "Subscription Terminated",
                 subscriptionId);
@@ -423,7 +423,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.CaregiverId,
                 "system",
-                "subscription_terminated",
+                NotificationTypes.SubscriptionTerminated,
                 "A subscription for your service has been terminated.",
                 "Subscription Terminated",
                 subscriptionId);
@@ -519,7 +519,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_plan_changed",
+                NotificationTypes.SubscriptionPlanChanged,
                 $"Your plan has been {changeType}d. New amount: {subscription.Currency} {newTotal:N2}/{newCycle}. " +
                 $"Changes take effect on {planChange.EffectiveDate:MMM dd, yyyy}.",
                 "Plan Changed",
@@ -647,7 +647,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "payment_method_updated",
+                NotificationTypes.PaymentMethodUpdated,
                 $"Your payment method has been updated to {cardBrand} ****{cardLastFour}.",
                 "Payment Method Updated",
                 subscriptionId);
@@ -685,7 +685,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_paused",
+                NotificationTypes.SubscriptionPaused,
                 "Your subscription has been paused. No charges will be made until you resume.",
                 "Subscription Paused",
                 subscriptionId);
@@ -725,7 +725,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_resumed",
+                NotificationTypes.SubscriptionResumed,
                 $"Your subscription has been resumed. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Resumed",
                 subscriptionId);
@@ -915,7 +915,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     subscription.ClientId,
                     "system",
-                    "recurring_payment_successful",
+                    NotificationTypes.RecurringPaymentSuccessful,
                     $"Your {subscription.BillingCycle} subscription payment of {subscription.Currency} {subscription.RecurringAmount:N2} was successful. " +
                     $"Next charge: {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                     "Payment Successful",
@@ -976,7 +976,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     subscription.ClientId,
                     "system",
-                    "subscription_suspended",
+                    NotificationTypes.SubscriptionSuspended,
                     "Your subscription has been suspended due to repeated payment failures. Please update your payment method to continue service.",
                     "Subscription Suspended",
                     subscriptionId);
@@ -996,7 +996,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     subscription.ClientId,
                     "system",
-                    "payment_failed",
+                    NotificationTypes.PaymentFailed,
                     $"Your subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
                     "Payment Failed",
                     subscriptionId);
@@ -1035,7 +1035,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.ClientId,
                 "system",
-                "subscription_cancelled",
+                NotificationTypes.SubscriptionCancelled,
                 "Your subscription has ended. Thank you for using CarePro.",
                 "Subscription Ended",
                 subscriptionId);
@@ -1043,7 +1043,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 subscription.CaregiverId,
                 "system",
-                "subscription_ended",
+                NotificationTypes.SubscriptionEnded,
                 "A client's subscription for your service has ended.",
                 "Subscription Ended",
                 subscriptionId);

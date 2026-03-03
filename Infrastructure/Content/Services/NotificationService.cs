@@ -65,40 +65,76 @@ namespace Infrastructure.Content.Services
 
 
 
-        public async Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId)
+        public async Task<PaginatedResponse<NotificationResponse>> GetUserNotificationsAsync(string userId, int page = 1, int pageSize = 50)
         {
             try
             {
-                var notifications = await _dbContext.Notifications
-                    .Where(n => n.RecipientId == userId)
+                // Clamp inputs
+                if (page < 1) page = 1;
+                if (pageSize < 1) pageSize = 10;
+                if (pageSize > 200) pageSize = 200;
+
+                var query = _dbContext.Notifications
+                    .Where(n => n.RecipientId == userId);
+
+                var totalCount = await query.CountAsync();
+
+                var notifications = await query
                     .OrderByDescending(n => n.CreatedAt)
-                    //.Skip((page - 1) * pageSize)
-                    //.Take(pageSize)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
                     .ToListAsync();
 
-                var notificationsDTO = new List<NotificationResponse>();
+                // Batch-load sender names for all notifications that have a SenderId
+                var senderIds = notifications
+                    .Where(n => !string.IsNullOrEmpty(n.SenderId))
+                    .Select(n => n.SenderId!)
+                    .Distinct()
+                    .ToList();
 
-                foreach (var notification in notifications)
+                var senderNames = new Dictionary<string, string>();
+                if (senderIds.Any())
                 {
-                    var notificationDTO = new NotificationResponse()
+                    var senders = await _dbContext.AppUsers
+                        .Where(u => senderIds.Contains(u.AppUserId.ToString()) || senderIds.Contains(u.Id.ToString()))
+                        .ToListAsync();
+
+                    foreach (var sender in senders)
                     {
-                        Id = notification.Id.ToString(),
-                        UserId = notification.RecipientId,
-                        SenderId = notification.SenderId,
-                        Type = notification.Type,
-                        Content = notification.Content,
-                        Title = notification.Title,
-                        IsRead = notification.IsRead,
-                        RelatedEntityId = notification.RelatedEntityId,
-                        OrderId = notification.OrderId,
-                        CreatedAt = notification.CreatedAt,
-                    };
-
-
-                    notificationsDTO.Add(notificationDTO);
+                        var key = sender.AppUserId.ToString();
+                        var name = $"{sender.FirstName} {sender.LastName}".Trim();
+                        if (!string.IsNullOrEmpty(name))
+                            senderNames[key] = name;
+                        // Also index by Id in case SenderId references that
+                        senderNames[sender.Id.ToString()] = name;
+                    }
                 }
 
-                return notificationsDTO;
+                var items = notifications.Select(notification => new NotificationResponse
+                {
+                    Id = notification.Id.ToString(),
+                    UserId = notification.RecipientId,
+                    UserFullName = notification.SenderId != null && senderNames.TryGetValue(notification.SenderId, out var fullName)
+                        ? fullName
+                        : null,
+                    SenderId = notification.SenderId,
+                    Type = notification.Type,
+                    Content = notification.Content,
+                    Title = notification.Title,
+                    IsRead = notification.IsRead,
+                    RelatedEntityId = notification.RelatedEntityId,
+                    OrderId = notification.OrderId,
+                    CreatedAt = notification.CreatedAt,
+                }).ToList();
+
+                return new PaginatedResponse<NotificationResponse>
+                {
+                    Items = items,
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize,
+                    HasMore = (page * pageSize) < totalCount
+                };
             }
             catch (Exception ex)
             {
@@ -204,10 +240,22 @@ namespace Infrastructure.Content.Services
                 if (notification == null)
                     return null;
 
+                // Look up sender name
+                string? senderFullName = null;
+                if (!string.IsNullOrEmpty(notification.SenderId))
+                {
+                    var sender = await _dbContext.AppUsers
+                        .FirstOrDefaultAsync(u => u.AppUserId.ToString() == notification.SenderId
+                                               || u.Id.ToString() == notification.SenderId);
+                    if (sender != null)
+                        senderFullName = $"{sender.FirstName} {sender.LastName}".Trim();
+                }
+
                 return new NotificationResponse
                 {
                     Id = notification.Id.ToString(),
                     UserId = notification.RecipientId,
+                    UserFullName = senderFullName,
                     SenderId = notification.SenderId,
                     Type = notification.Type,
                     Content = notification.Content,
@@ -230,31 +278,26 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                // Get the user's connection ID
-                var user = await _dbContext.AppUsers
-                    .FirstOrDefaultAsync(u => u.AppUserId.ToString() == userId && u.IsOnline == true);
+                // Send to all connections in the user's notification group.
+                // NotificationHub adds each connection to group "notifications_{userId}" on connect.
+                // This supports multiple devices / tabs for the same user.
+                await _notificationHubContext.Clients
+                    .Group($"notifications_{userId}")
+                    .SendAsync("ReceiveNotification", new
+                    {
+                        id = notification.Id.ToString(),
+                        userId = notification.RecipientId,
+                        senderId = notification.SenderId,
+                        type = notification.Type,
+                        content = notification.Content,
+                        title = notification.Title,
+                        isRead = notification.IsRead,
+                        relatedEntityId = notification.RelatedEntityId,
+                        orderId = notification.OrderId,
+                        createdAt = notification.CreatedAt
+                    });
 
-                if (user != null && !string.IsNullOrEmpty(user.ConnectionId))
-                {
-                    // Send to the specific user's connection
-                    await _notificationHubContext.Clients.Client(user.ConnectionId).SendAsync(
-                        "ReceiveNotification",
-                        new
-                        {
-                            id = notification.Id.ToString(),
-                            type = notification.Type.ToString(),
-                            content = notification.Content,
-                            createdAt = notification.CreatedAt,
-                            isRead = notification.IsRead,
-                            senderId = notification.SenderId,
-                            relatedEntityId = notification.RelatedEntityId,
-                            orderId = notification.OrderId
-                        });
-
-                    return true;
-                }
-
-                return false;
+                return true;
             }
             catch (Exception ex)
             {

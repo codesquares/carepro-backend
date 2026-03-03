@@ -122,6 +122,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<CaregiverBankAccount>().Property(ba => ba.Id).HasElementName("_id");
             modelBuilder.Entity<CaregiverBankAccount>().HasIndex(ba => ba.CaregiverId).IsUnique();
 
+            modelBuilder.Entity<BookingCommitment>().ToCollection("BookingCommitments");
+            modelBuilder.Entity<BookingCommitment>().HasKey(bc => bc.Id);
+            modelBuilder.Entity<BookingCommitment>().Property(bc => bc.Id).HasElementName("_id");
+
         }
 
 
@@ -159,5 +163,6 @@ namespace Infrastructure.Content.Data
         public DbSet<EarningsLedger> EarningsLedger { get; set; }
         public DbSet<BillingRecord> BillingRecords { get; set; }
         public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
+        public DbSet<BookingCommitment> BookingCommitments { get; set; }
     }
 }

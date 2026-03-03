@@ -11,11 +11,11 @@ namespace Application.Interfaces.Content
     public interface INotificationService
     {
         Task<string> CreateNotificationAsync(string recipientId, string senderId, string type, string content, string? Title, string relatedEntityId, string? orderId = null);
-        // Task<string> CCreateNotificationAsync(AddNotificationRequest addNotificationRequest );
 
-
-        // Task<List<Notification>> GetUserNotificationsAsync(string userId);
-        Task<List<NotificationResponse>> GetUserNotificationsAsync(string userId);
+        /// <summary>
+        /// Returns paginated notifications for a user. Defaults to page 1, 50 items.
+        /// </summary>
+        Task<PaginatedResponse<NotificationResponse>> GetUserNotificationsAsync(string userId, int page = 1, int pageSize = 50);
 
 
         Task<int> GetUnreadNotificationCountAsync(string userId);

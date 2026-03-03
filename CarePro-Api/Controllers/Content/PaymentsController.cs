@@ -12,15 +12,18 @@ namespace CarePro_Api.Controllers.Content
     public class PaymentsController : ControllerBase
     {
         private readonly IPendingPaymentService _pendingPaymentService;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly ILogger<PaymentsController> _logger;
 
         public PaymentsController(
             IPendingPaymentService pendingPaymentService,
+            IBookingCommitmentService bookingCommitmentService,
             FlutterwaveService flutterwaveService,
             ILogger<PaymentsController> logger)
         {
             _pendingPaymentService = pendingPaymentService;
+            _bookingCommitmentService = bookingCommitmentService;
             _flutterwaveService = flutterwaveService;
             _logger = logger;
         }
@@ -126,6 +129,27 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogWarning("Transaction verification failed for TxRef: {TxRef}", txRef);
                 return BadRequest(new { success = false, message = "Transaction verification failed." });
             }
+
+            // ── ROUTE: Booking commitment payments vs regular gig payments ──────
+            if (txRef.StartsWith("CAREPRO-COMMIT-", StringComparison.OrdinalIgnoreCase))
+            {
+                var commitResult = await _bookingCommitmentService.CompleteCommitmentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!commitResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete commitment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", commitResult.Errors));
+                    return BadRequest(new { success = false, message = "Commitment processing failed." });
+                }
+
+                _logger.LogInformation("Booking commitment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Commitment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
 
             // Complete the payment (this will verify amounts and create the order)
             var result = await _pendingPaymentService.CompletePaymentAsync(

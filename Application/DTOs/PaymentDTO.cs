@@ -57,6 +57,10 @@ namespace Application.DTOs
         public decimal FlutterwaveFees { get; set; }
         public decimal TotalAmount { get; set; }
         public string Currency { get; set; } = "NGN";
+        /// <summary>
+        /// Amount deducted from a prior booking commitment fee (₦5,000 or 0)
+        /// </summary>
+        public decimal CommitmentFeeDeducted { get; set; } = 0m;
     }
     
     /// <summary>

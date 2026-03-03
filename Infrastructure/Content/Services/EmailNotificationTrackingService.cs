@@ -1,3 +1,4 @@
+using Application.DTOs;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
@@ -19,24 +20,40 @@ namespace Infrastructure.Content.Services
         // Notification types that should only be sent once
         private readonly HashSet<string> _immediateOnceOnlyTypes = new()
         {
-            "NewGig", "SystemNotice", "SystemAlert", "OrderReceived", "OrderConfirmation", 
-            "OrderCompleted", "OrderCancelled", "WithdrawalCompleted", 
-            "WithdrawalVerified", "WithdrawalRejected", "WithdrawalRequest",
-            "PaymentReceived", "PaymentConfirmed", "EarningsAdded", "OrderPayment",
-            "PaymentFailed", "RefundProcessed"
+            NotificationTypes.NewGig,
+            NotificationTypes.SystemNotice,
+            NotificationTypes.SystemAlert,
+            NotificationTypes.OrderReceived,
+            NotificationTypes.OrderConfirmation,
+            NotificationTypes.OrderCompleted,
+            NotificationTypes.OrderCancelled,
+            NotificationTypes.WithdrawalCompleted,
+            NotificationTypes.WithdrawalVerified,
+            NotificationTypes.WithdrawalRejected,
+            NotificationTypes.WithdrawalRequest,
+            NotificationTypes.PaymentReceived,
+            NotificationTypes.PaymentConfirmed,
+            NotificationTypes.EarningsAdded,
+            NotificationTypes.OrderPayment,
+            NotificationTypes.PaymentFailed,
+            NotificationTypes.RefundProcessed
         };
 
         // Message-related notification types for batching
         private readonly HashSet<string> _messageTypes = new()
         {
-            "Message", "MessageNotification"
+            NotificationTypes.ChatMessage
         };
 
         // Contract-related notification types for reminders
         private readonly HashSet<string> _contractTypes = new()
         {
-            "contract_received", "contract_reminder", "contract_accepted", 
-            "contract_rejected", "contract_review_requested", "contract_response"
+            NotificationTypes.ContractReceived,
+            NotificationTypes.ContractReminder,
+            NotificationTypes.ContractAccepted,
+            NotificationTypes.ContractRejected,
+            NotificationTypes.ContractReviewRequested,
+            NotificationTypes.ContractResponse
         };
 
         public EmailNotificationTrackingService(
@@ -189,7 +206,7 @@ namespace Infrastructure.Content.Services
                 foreach (var userGroup in groupedByUser)
                 {
                     var userId = userGroup.Key;
-                    var hasBatchEmailToday = await HasBatchEmailBeenSentTodayAsync(userId, "Message");
+                    var hasBatchEmailToday = await HasBatchEmailBeenSentTodayAsync(userId, NotificationTypes.ChatMessage);
                     
                     if (!hasBatchEmailToday)
                     {

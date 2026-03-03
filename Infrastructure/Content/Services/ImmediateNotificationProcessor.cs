@@ -1,3 +1,4 @@
+using Application.DTOs;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
@@ -131,84 +132,84 @@ namespace Infrastructure.Content.Services
         {
             switch (notification.Type)
             {
-                case "NewGig":
+                case NotificationTypes.NewGig:
                     await emailService.SendNewGigNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User", notification.Content);
                     break;
 
-                case "SystemNotice":
-                case "SystemAlert":
+                case NotificationTypes.SystemNotice:
+                case NotificationTypes.SystemAlert:
                     await emailService.SendSystemNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User", notification.Title ?? "System Update", 
                         notification.Content);
                     break;
 
-                case "WithdrawalCompleted":
-                case "WithdrawalVerified":
-                case "WithdrawalRejected":
+                case NotificationTypes.WithdrawalCompleted:
+                case NotificationTypes.WithdrawalVerified:
+                case NotificationTypes.WithdrawalRejected:
                     await emailService.SendWithdrawalStatusEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User", notification.Type, notification.Content);
                     break;
 
-                case "WithdrawalRequest":
+                case NotificationTypes.WithdrawalRequest:
                     // Extract amount from notification content (this might need adjustment based on your notification format)
                     var amount = ExtractAmountFromContent(notification.Content);
                     await emailService.SendWithdrawalRequestEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User", amount, "submitted");
                     break;
 
-                case "PaymentReceived":
-                case "PaymentConfirmed":
+                case NotificationTypes.PaymentReceived:
+                case NotificationTypes.PaymentConfirmed:
                     var paymentDetails = ExtractPaymentDetailsFromContent(notification.Content);
                     await emailService.SendPaymentConfirmationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User", 
                         paymentDetails.Amount, paymentDetails.Service, paymentDetails.TransactionId);
                     break;
 
-                case "EarningsAdded":
-                case "OrderPayment":
+                case NotificationTypes.EarningsAdded:
+                case NotificationTypes.OrderPayment:
                     var earningsDetails = ExtractEarningsDetailsFromContent(notification.Content);
                     await emailService.SendEarningsNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         earningsDetails.Amount, earningsDetails.ClientName, earningsDetails.ServiceType);
                     break;
 
-                case "OrderReceived":
+                case NotificationTypes.OrderReceived:
                     var orderDetails = ExtractOrderDetailsFromContent(notification.Content);
                     await emailService.SendOrderReceivedEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         orderDetails.Amount, orderDetails.GigTitle, orderDetails.ClientName, orderDetails.OrderId);
                     break;
 
-                case "OrderConfirmation":
+                case NotificationTypes.OrderConfirmation:
                     var confirmDetails = ExtractOrderConfirmationDetailsFromContent(notification.Content);
                     await emailService.SendOrderConfirmationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         confirmDetails.Amount, confirmDetails.GigTitle, confirmDetails.OrderId);
                     break;
 
-                case "OrderCompleted":
+                case NotificationTypes.OrderCompleted:
                     var completedDetails = ExtractOrderCompletionDetailsFromContent(notification.Content);
                     await emailService.SendOrderCompletedEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         completedDetails.Amount, completedDetails.GigTitle, completedDetails.OrderId);
                     break;
 
-                case "OrderCancelled":
+                case NotificationTypes.OrderCancelled:
                     var cancelDetails = ExtractOrderCancellationDetailsFromContent(notification.Content);
                     await emailService.SendOrderCancelledEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         cancelDetails.GigTitle, cancelDetails.Reason, cancelDetails.OrderId);
                     break;
 
-                case "PaymentFailed":
+                case NotificationTypes.PaymentFailed:
                     var failedPaymentDetails = ExtractPaymentFailureDetailsFromContent(notification.Content);
                     await emailService.SendPaymentFailedEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
                         failedPaymentDetails.Amount, failedPaymentDetails.Reason);
                     break;
 
-                case "RefundProcessed":
+                case NotificationTypes.RefundProcessed:
                     var refundDetails = ExtractRefundDetailsFromContent(notification.Content);
                     await emailService.SendRefundNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
@@ -227,23 +228,23 @@ namespace Infrastructure.Content.Services
         {
             return notificationType switch
             {
-                "NewGig" => "New Care Opportunity Available - CarePro",
-                "SystemNotice" => "System Update - CarePro",
-                "SystemAlert" => "Important System Alert - CarePro",
-                "OrderReceived" => "New Order Received - CarePro",
-                "OrderConfirmation" => "Order Confirmation - CarePro", 
-                "OrderCompleted" => "Order Completed - CarePro",
-                "OrderCancelled" => "Order Cancelled - CarePro",
-                "WithdrawalCompleted" => "Withdrawal Completed - CarePro",
-                "WithdrawalVerified" => "Withdrawal Verified - CarePro",
-                "WithdrawalRejected" => "Withdrawal Update - CarePro",
-                "WithdrawalRequest" => "Withdrawal Request Submitted - CarePro",
-                "PaymentReceived" => "Payment Confirmation - CarePro",
-                "PaymentConfirmed" => "Payment Confirmation - CarePro",
-                "EarningsAdded" => "Earnings Added - CarePro",
-                "OrderPayment" => "Payment Received - CarePro",
-                "PaymentFailed" => "Payment Failed - CarePro",
-                "RefundProcessed" => "Refund Processed - CarePro",
+                NotificationTypes.NewGig => "New Care Opportunity Available - CarePro",
+                NotificationTypes.SystemNotice => "System Update - CarePro",
+                NotificationTypes.SystemAlert => "Important System Alert - CarePro",
+                NotificationTypes.OrderReceived => "New Order Received - CarePro",
+                NotificationTypes.OrderConfirmation => "Order Confirmation - CarePro",
+                NotificationTypes.OrderCompleted => "Order Completed - CarePro",
+                NotificationTypes.OrderCancelled => "Order Cancelled - CarePro",
+                NotificationTypes.WithdrawalCompleted => "Withdrawal Completed - CarePro",
+                NotificationTypes.WithdrawalVerified => "Withdrawal Verified - CarePro",
+                NotificationTypes.WithdrawalRejected => "Withdrawal Update - CarePro",
+                NotificationTypes.WithdrawalRequest => "Withdrawal Request Submitted - CarePro",
+                NotificationTypes.PaymentReceived => "Payment Confirmation - CarePro",
+                NotificationTypes.PaymentConfirmed => "Payment Confirmation - CarePro",
+                NotificationTypes.EarningsAdded => "Earnings Added - CarePro",
+                NotificationTypes.OrderPayment => "Payment Received - CarePro",
+                NotificationTypes.PaymentFailed => "Payment Failed - CarePro",
+                NotificationTypes.RefundProcessed => "Refund Processed - CarePro",
                 _ => "Notification - CarePro"
             };
         }

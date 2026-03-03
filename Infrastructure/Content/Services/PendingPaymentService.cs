@@ -27,6 +27,7 @@ namespace Infrastructure.Content.Services
         private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
         private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
         private readonly IBillingRecordService _billingRecordService;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
 
         public PendingPaymentService(
             CareProDbContext dbContext,
@@ -36,7 +37,8 @@ namespace Infrastructure.Content.Services
             ISubscriptionService subscriptionService,
             ILogger<PendingPaymentService> logger,
             IConfiguration configuration,
-            IBillingRecordService billingRecordService)
+            IBillingRecordService billingRecordService,
+            IBookingCommitmentService bookingCommitmentService)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -46,6 +48,7 @@ namespace Infrastructure.Content.Services
             _logger = logger;
             _configuration = configuration;
             _billingRecordService = billingRecordService;
+            _bookingCommitmentService = bookingCommitmentService;
         }
 
         public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
@@ -134,7 +137,7 @@ namespace Infrastructure.Content.Services
             if (existingPendingPayment != null)
             {
                 var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
-                if (age.TotalHours < 1 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
+                if (age.TotalMinutes < 20 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
                 {
                     // Payment link is still fresh — return it instead of creating a new one
                     _logger.LogInformation(
@@ -156,7 +159,8 @@ namespace Infrastructure.Content.Services
                             ServiceCharge = existingPendingPayment.ServiceCharge,
                             FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
                             TotalAmount = existingPendingPayment.TotalAmount,
-                            Currency = existingPendingPayment.Currency
+                            Currency = existingPendingPayment.Currency,
+                            CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted
                         }
                     });
                 }
@@ -175,6 +179,24 @@ namespace Infrastructure.Content.Services
             // Calculate amounts
             decimal basePrice = gig.Price;
             decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType?.ToLower() ?? "one-time", request.FrequencyPerWeek);
+
+            // ── BOOKING COMMITMENT FEE DEDUCTION ─────────────────────────────
+            // If the client already paid a ₦5,000 booking commitment for this gig,
+            // deduct it from the order fee before calculating service charge & gateway fees.
+            decimal commitmentFeeDeducted = 0m;
+            string? bookingCommitmentId = null;
+            var applicableCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
+            if (applicableCommitment != null)
+            {
+                commitmentFeeDeducted = applicableCommitment.Amount; // ₦5,000
+                orderFee = Math.Max(0, orderFee - commitmentFeeDeducted);
+                bookingCommitmentId = applicableCommitment.Id.ToString();
+                _logger.LogInformation(
+                    "Booking commitment {CommitmentId} found. Deducting ₦{Amount} from order fee for GigId: {GigId}",
+                    bookingCommitmentId, commitmentFeeDeducted, request.GigId);
+            }
+            // ── END BOOKING COMMITMENT FEE DEDUCTION ─────────────────────────
+
             decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
             decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);
             decimal totalAmount = orderFee + serviceCharge + flutterwaveFees;
@@ -200,7 +222,9 @@ namespace Infrastructure.Content.Services
                 Currency = "NGN",
                 RedirectUrl = request.RedirectUrl,
                 Status = PendingPaymentStatus.Pending,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                BookingCommitmentId = bookingCommitmentId,
+                CommitmentFeeDeducted = commitmentFeeDeducted
             };
 
             // Call Flutterwave to initiate payment
@@ -247,7 +271,8 @@ namespace Infrastructure.Content.Services
                         ServiceCharge = serviceCharge,
                         FlutterwaveFees = flutterwaveFees,
                         TotalAmount = totalAmount,
-                        Currency = "NGN"
+                        Currency = "NGN",
+                        CommitmentFeeDeducted = commitmentFeeDeducted
                     }
                 });
             }
@@ -376,6 +401,27 @@ namespace Infrastructure.Content.Services
                 await CreateSubscriptionForRecurringPaymentAsync(pendingPayment, flutterwaveTransactionId, orderResult.Value?.Id);
             }
 
+            // ── Mark booking commitment as applied if one was deducted ──
+            if (!string.IsNullOrEmpty(pendingPayment.BookingCommitmentId))
+            {
+                try
+                {
+                    await _bookingCommitmentService.MarkCommitmentAppliedAsync(
+                        pendingPayment.BookingCommitmentId,
+                        orderResult.Value?.Id ?? string.Empty);
+
+                    _logger.LogInformation(
+                        "Booking commitment {CommitmentId} applied to order {OrderId}",
+                        pendingPayment.BookingCommitmentId, orderResult.Value?.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to mark commitment {CommitmentId} as applied. Payment was successful.",
+                        pendingPayment.BookingCommitmentId);
+                }
+            }
+
             return Result<PendingPayment>.Success(pendingPayment);
         }
 
@@ -421,7 +467,8 @@ namespace Infrastructure.Content.Services
                     ServiceCharge = pendingPayment.ServiceCharge,
                     FlutterwaveFees = pendingPayment.FlutterwaveFees,
                     TotalAmount = pendingPayment.TotalAmount,
-                    Currency = pendingPayment.Currency
+                    Currency = pendingPayment.Currency,
+                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted
                 },
                 ErrorMessage = pendingPayment.ErrorMessage
             });

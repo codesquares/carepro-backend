@@ -56,7 +56,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     recipientId: contract.CaregiverId,
                     senderId: contract.ClientId,
-                    type: "contract_received",
+                    type: NotificationTypes.ContractReceived,
                     content: notificationMessage,
                     Title: "New Care Contract",
                     relatedEntityId: contractId
@@ -66,7 +66,7 @@ namespace Infrastructure.Content.Services
                 await CreateDashboardNotificationAsync(
                     contract.CaregiverId,
                     "You have received a new care contract. Please review and respond.",
-                    "contract_pending",
+                    NotificationTypes.ContractPending,
                     contractId
                 );
 
@@ -141,19 +141,19 @@ namespace Infrastructure.Content.Services
                 {
                     case "accept":
                         notificationMessage = $"{caregiverName} has accepted your care contract. Your service is confirmed!";
-                        notificationType = "contract_accepted";
+                        notificationType = NotificationTypes.ContractAccepted;
                         break;
                     case "reject":
                         notificationMessage = $"{caregiverName} has declined your care contract. View alternative caregivers.";
-                        notificationType = "contract_rejected";
+                        notificationType = NotificationTypes.ContractRejected;
                         break;
                     case "review":
                         notificationMessage = $"{caregiverName} has requested to review your care contract terms.";
-                        notificationType = "contract_review_requested";
+                        notificationType = NotificationTypes.ContractReviewRequested;
                         break;
                     default:
                         notificationMessage = $"{caregiverName} has responded to your care contract.";
-                        notificationType = "contract_response";
+                        notificationType = NotificationTypes.ContractResponse;
                         break;
                 }
 
@@ -205,7 +205,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     recipientId: contract.CaregiverId,
                     senderId: "system",
-                    type: "contract_reminder",
+                    type: NotificationTypes.ContractReminder,
                     content: reminderMessage,
                     Title: "Contract Response Reminder",
                     relatedEntityId: contractId
@@ -236,7 +236,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     recipientId: contract.ClientId,
                     senderId: "system",
-                    type: "contract_expired",
+                    type: NotificationTypes.ContractExpired,
                     content: expiryMessage,
                     Title: "Contract Expired",
                     relatedEntityId: contractId
@@ -335,7 +335,7 @@ namespace Infrastructure.Content.Services
                     ? $"{caregiverName} has revised the care contract based on your feedback. Please review and approve or reject."
                     : $"{caregiverName} has sent you a care contract for approval. Package: {contract.SelectedPackage.VisitsPerWeek} visits/week. Total: ${contract.TotalAmount:F2}";
 
-                var notificationType = isRevision ? "contract_revised" : "contract_pending_approval";
+                var notificationType = isRevision ? NotificationTypes.ContractRevised : NotificationTypes.ContractPendingApproval;
                 var title = isRevision ? "Revised Care Contract" : "New Care Contract for Approval";
 
                 await _notificationService.CreateNotificationAsync(
@@ -353,7 +353,7 @@ namespace Infrastructure.Content.Services
                     isRevision 
                         ? "A revised care contract is awaiting your approval." 
                         : "You have a new care contract to review and approve.",
-                    "contract_pending_client_approval",
+                    NotificationTypes.ContractPendingClientApproval,
                     contractId
                 );
 
@@ -428,22 +428,22 @@ namespace Infrastructure.Content.Services
                 {
                     case "approved":
                         notificationMessage = $"Great news! {clientName} has approved your care contract. The service is now confirmed!";
-                        notificationType = "contract_client_approved";
+                        notificationType = NotificationTypes.ContractClientApproved;
                         title = "Contract Approved";
                         break;
                     case "review_requested":
                         notificationMessage = $"{clientName} has requested changes to the contract. Please review their feedback and submit a revised schedule.";
-                        notificationType = "contract_review_requested";
+                        notificationType = NotificationTypes.ContractReviewRequested;
                         title = "Contract Review Requested";
                         break;
                     case "rejected":
                         notificationMessage = $"{clientName} has rejected the revised contract. They may be looking for a different caregiver.";
-                        notificationType = "contract_client_rejected";
+                        notificationType = NotificationTypes.ContractClientRejected;
                         title = "Contract Rejected";
                         break;
                     default:
                         notificationMessage = $"{clientName} has responded to your care contract.";
-                        notificationType = "contract_client_response";
+                        notificationType = NotificationTypes.ContractClientResponse;
                         title = "Contract Response";
                         break;
                 }
@@ -503,7 +503,7 @@ namespace Infrastructure.Content.Services
                 await _notificationService.CreateNotificationAsync(
                     recipientId: contract.ClientId,
                     senderId: "system",
-                    type: "contract_client_reminder",
+                    type: NotificationTypes.ContractClientReminder,
                     content: reminderMessage,
                     Title: "Contract Approval Reminder",
                     relatedEntityId: contractId

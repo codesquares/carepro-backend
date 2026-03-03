@@ -138,6 +138,9 @@ builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
 
+// Booking commitment (gig access fee) services
+builder.Services.AddScoped<IBookingCommitmentService, BookingCommitmentService>();
+
 // Subscription & recurring billing services
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHostedService<RecurringBillingService>();

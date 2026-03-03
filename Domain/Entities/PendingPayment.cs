@@ -110,6 +110,16 @@ namespace Domain.Entities
         /// Any error message if payment failed
         /// </summary>
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// If a booking commitment fee was deducted from this payment, stores the BookingCommitment ID
+        /// </summary>
+        public string? BookingCommitmentId { get; set; }
+
+        /// <summary>
+        /// The amount deducted from the order fee as a booking commitment credit (₦5,000 or 0)
+        /// </summary>
+        public decimal CommitmentFeeDeducted { get; set; } = 0m;
     }
     
     public enum PendingPaymentStatus

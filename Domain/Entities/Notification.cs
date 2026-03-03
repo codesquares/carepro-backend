@@ -21,23 +21,5 @@ namespace Domain.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
-    public enum NotificationType
-    {
-        Message,
-        Payment,
-        SystemNotice,
-        NewGig,
-        WithdrawalRequest,
-        WithdrawalVerified,
-        WithdrawalCompleted,
-        WithdrawalRejected,
-        ContractSent,
-        ContractApproved,
-        ContractRejected,
-        ContractRevisionRequested,
-        OrderCompleted,
-        OrderDisputed,
-        NewReview,
-        BookingConfirmed
-    }
+    // All notification type constants are defined in Application.DTOs.NotificationTypes (single source of truth).
 }

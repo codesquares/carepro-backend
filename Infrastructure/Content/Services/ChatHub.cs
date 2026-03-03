@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces;
 using Application.Interfaces.Common;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -19,12 +20,14 @@ namespace Infrastructure.Content.Services
         private readonly ChatRepository _chatRepository;
         private readonly ILogger<ChatHub> _logger;
         private readonly IContentSanitizer _contentSanitizer;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
 
-        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer)
+        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer, IBookingCommitmentService bookingCommitmentService)
         {
             _chatRepository = chatRepository;
             _logger = logger;
             _contentSanitizer = contentSanitizer;
+            _bookingCommitmentService = bookingCommitmentService;
         }
 
         /// <summary>
@@ -127,6 +130,26 @@ namespace Infrastructure.Content.Services
             {
                 throw new HubException("Cannot send messages to yourself");
             }
+
+            // ── BOOKING COMMITMENT GATE ──────────────────────────────────────
+            // If the sender is a Client messaging a Caregiver, they must have
+            // paid a booking commitment fee first. Caregivers can always reply.
+            var senderRole = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+                          ?? Context.User?.FindFirst("role")?.Value;
+
+            if (!string.IsNullOrEmpty(senderRole) &&
+                senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
+            {
+                var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, receiverId);
+                if (!hasAccess)
+                {
+                    _logger.LogWarning(
+                        "Chat blocked: Client {ClientId} has no booking commitment with caregiver {CaregiverId}",
+                        currentUserId, receiverId);
+                    throw new HubException("You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page.");
+                }
+            }
+            // ── END BOOKING COMMITMENT GATE ──────────────────────────────────
 
             _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", currentUserId, receiverId);
 

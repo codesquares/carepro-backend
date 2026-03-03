@@ -30,23 +30,35 @@ namespace Infrastructure.Content.Services
             await careProDbContext.ChatMessages.AddAsync(chatMessage);
             await careProDbContext.SaveChangesAsync();
 
-            // Create a notification for the recipient
+            // Create a notification for the recipient (throttled to 1 per sender/recipient pair every 5 minutes)
             var sender = await careProDbContext.AppUsers.FirstOrDefaultAsync(u =>
                 u.Id.ToString() == chatMessage.SenderId || u.AppUserId.ToString() == chatMessage.SenderId);
 
             if (sender != null)
             {
-                string senderName = $"{sender.FirstName} {sender.LastName}";
-                string notificationContent = $"{senderName} sent you a message";
+                // Throttle: skip if a chat_message notification from this sender to this recipient
+                // was already created within the last 5 minutes
+                var throttleWindow = DateTime.UtcNow.AddMinutes(-5);
+                var recentChatNotification = await careProDbContext.Notifications
+                    .AnyAsync(n => n.RecipientId == chatMessage.ReceiverId
+                                && n.SenderId == chatMessage.SenderId
+                                && n.Type == NotificationTypes.ChatMessage
+                                && n.CreatedAt >= throttleWindow);
 
-                await notificationService.CreateNotificationAsync(
-                    chatMessage.ReceiverId,
-                    chatMessage.SenderId,
-                    "Chat Message",
-                    notificationContent,
-                    "New Message Alert",
-                    chatMessage.MessageId.ToString()
-                );
+                if (!recentChatNotification)
+                {
+                    string senderName = $"{sender.FirstName} {sender.LastName}";
+                    string notificationContent = $"{senderName} sent you a message";
+
+                    await notificationService.CreateNotificationAsync(
+                        chatMessage.ReceiverId,
+                        chatMessage.SenderId,
+                        NotificationTypes.ChatMessage,
+                        notificationContent,
+                        "New Message Alert",
+                        chatMessage.MessageId.ToString()
+                    );
+                }
             }
         }
 

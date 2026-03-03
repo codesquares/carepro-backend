@@ -152,7 +152,7 @@ namespace Infrastructure.Content.Services
                     await notificationService.CreateNotificationAsync(
                         recipientId: addCertificationRequest.CaregiverId,
                         senderId: "System",
-                        type: "CertificateUploaded",
+                        type: NotificationTypes.CertificateUploaded,
                         content: $"Your {certification.CertificateName} has been uploaded successfully and is pending admin review. You will be notified once it has been reviewed.",
                         Title: "Certificate Uploaded - Pending Review",
                         relatedEntityId: certification.Id.ToString()
@@ -607,7 +607,7 @@ namespace Infrastructure.Content.Services
                 await notificationService.CreateNotificationAsync(
                     recipientId: certification.CaregiverId,
                     senderId: "System",
-                    type: "CertificateVerification",
+                    type: NotificationTypes.CertificateVerification,
                     content: notificationContent,
                     Title: notificationTitle,
                     relatedEntityId: certification.Id.ToString()
@@ -869,7 +869,7 @@ namespace Infrastructure.Content.Services
                 await notificationService.CreateNotificationAsync(
                     recipientId: caregiver.Id,
                     senderId: "System",
-                    type: "CertificateManualApproval",
+                    type: NotificationTypes.CertificateManualApproval,
                     content: notificationContent,
                     Title: notificationTitle,
                     relatedEntityId: certificate.Id.ToString()
@@ -912,7 +912,7 @@ namespace Infrastructure.Content.Services
                 await notificationService.CreateNotificationAsync(
                     recipientId: caregiver.Id,
                     senderId: "System",
-                    type: "CertificateManualRejection",
+                    type: NotificationTypes.CertificateManualRejection,
                     content: notificationContent,
                     Title: notificationTitle,
                     relatedEntityId: certificate.Id.ToString()
@@ -1101,7 +1101,7 @@ namespace Infrastructure.Content.Services
                 await notificationService.CreateNotificationAsync(
                     recipientId: certification.CaregiverId,
                     senderId: "System",
-                    type: "CertificateReview",
+                    type: NotificationTypes.CertificateReview,
                     content: notificationContent,
                     Title: notificationTitle,
                     relatedEntityId: certification.Id.ToString()

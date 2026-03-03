@@ -45,7 +45,10 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Notifications
         [HttpGet]
-        public async Task<IActionResult> GetUserNotifications(string? userId)
+        public async Task<IActionResult> GetUserNotifications(
+            string? userId,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
             try
             {
@@ -58,8 +61,8 @@ namespace CarePro_Api.Controllers.Content
                     return Forbid();
                 }
 
-                var notifications = await _notificationService.GetUserNotificationsAsync(targetUserId);
-                return Ok(notifications);
+                var result = await _notificationService.GetUserNotificationsAsync(targetUserId, page, pageSize);
+                return Ok(result);
             }
             catch (Exception ex)
             {
@@ -179,7 +182,7 @@ namespace CarePro_Api.Controllers.Content
                 var notification = await _notificationService.CreateNotificationAsync(
                     request.RecipientId,
                     GetCurrentUserId(),
-                    "System Notice",
+                    NotificationTypes.SystemNotice,
                     request.Message,
                     "test_notification",
                     "");
