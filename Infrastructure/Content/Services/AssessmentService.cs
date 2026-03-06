@@ -44,7 +44,15 @@ namespace Infrastructure.Content.Services
             /// CONVERT DTO TO DOMAIN OBJECT            
             var assessment = new Assessment
             {
-                Questions = addAssessmentRequest.Questions,
+                Questions = addAssessmentRequest.Questions.Select(q => new AssessmentQuestion
+                {
+                    QuestionId = q.QuestionId,
+                    UserAnswer = q.UserAnswer,
+                    Question = string.Empty,
+                    Options = new List<string>(),
+                    CorrectAnswer = string.Empty,
+                    IsCorrect = false
+                }).ToList(),
                 Status = addAssessmentRequest.Status,
                 Score = addAssessmentRequest.Score,
                 CaregiverId = addAssessmentRequest.CaregiverId,
@@ -280,7 +288,7 @@ namespace Infrastructure.Content.Services
 
                 if (activeSession != null)
                 {
-                    // If session is expired, mark it as expired
+                    // If session is expired or failed, clear it so a new one can be created
                     if (activeSession.ExpiresAt <= DateTime.UtcNow)
                     {
                         activeSession.Status = "Expired";
@@ -381,11 +389,49 @@ namespace Infrastructure.Content.Services
                         .ToList();
                     var sessionQuestionIds = session.QuestionIds.OrderBy(id => id).ToList();
 
+                    // ── Always log both lists for diagnostics ──
+                    logger.LogInformation(
+                        "ASSESSMENT QUESTION COMPARISON — SessionId: {SessionId}, " +
+                        "SessionQuestionCount: {SessionCount}, SubmittedQuestionCount: {SubmittedCount}, " +
+                        "SessionQuestionIds: [{SessionIds}], " +
+                        "SubmittedQuestionIds: [{SubmittedIds}]",
+                        session.Id,
+                        sessionQuestionIds.Count, submittedQuestionIds.Count,
+                        string.Join(", ", sessionQuestionIds),
+                        string.Join(", ", submittedQuestionIds));
+
                     if (!submittedQuestionIds.SequenceEqual(sessionQuestionIds))
                     {
+                        // ── Detailed diagnostic logging ──
+                        var missingFromSubmission = sessionQuestionIds.Except(submittedQuestionIds).ToList();
+                        var extraInSubmission = submittedQuestionIds.Except(sessionQuestionIds).ToList();
+
+                        logger.LogWarning(
+                            "ASSESSMENT QUESTION MISMATCH — SessionId: {SessionId}, CaregiverId: {CaregiverId}, " +
+                            "Category: {Category}, " +
+                            "SessionQuestionCount: {SessionCount}, SubmittedQuestionCount: {SubmittedCount}, " +
+                            "MissingFromSubmission ({MissingCount}): [{Missing}], " +
+                            "ExtraInSubmission ({ExtraCount}): [{Extra}], " +
+                            "SessionRawQuestionIds: [{SessionIds}], " +
+                            "SubmittedRawQuestionIds: [{SubmittedIds}]",
+                            session.Id, assessmentRequest.CaregiverId,
+                            session.ServiceCategory,
+                            sessionQuestionIds.Count, submittedQuestionIds.Count,
+                            missingFromSubmission.Count, string.Join(", ", missingFromSubmission),
+                            extraInSubmission.Count, string.Join(", ", extraInSubmission),
+                            string.Join(", ", sessionQuestionIds),
+                            string.Join(", ", submittedQuestionIds));
+
+                        // Mark session as Failed so the caregiver isn't stuck waiting for expiry
+                        session.Status = "Failed";
+                        careProDbContext.AssessmentSessions.Update(session);
+                        await careProDbContext.SaveChangesAsync();
+
                         throw new ArgumentException(
-                            "Submitted questions do not match the questions assigned in your session. " +
-                            "Please answer only the questions you were given.");
+                            $"Submitted questions do not match the questions assigned in your session. " +
+                            $"Session has {sessionQuestionIds.Count} questions: [{string.Join(", ", sessionQuestionIds.Take(5))}{(sessionQuestionIds.Count > 5 ? "..." : "")}]. " +
+                            $"Submitted {submittedQuestionIds.Count} questions: [{string.Join(", ", submittedQuestionIds.Take(5))}{(submittedQuestionIds.Count > 5 ? "..." : "")}]. " +
+                            $"Please start a new assessment.");
                     }
 
                     // Use the session's service category

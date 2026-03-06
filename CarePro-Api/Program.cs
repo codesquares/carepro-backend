@@ -161,6 +161,9 @@ builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
 // Order Tasks services (Enhanced Contract Generation feature)
 builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
 
+// Task Sheets services (Caregiver visit session tracking)
+builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();

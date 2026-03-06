@@ -103,6 +103,7 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AssessmentSession>().ToCollection("AssessmentSessions");
             modelBuilder.Entity<AssessmentSession>().HasKey(s => s.Id);
             modelBuilder.Entity<AssessmentSession>().Property(s => s.Id).HasElementName("_id");
+            modelBuilder.Entity<AssessmentSession>().Property(s => s.QuestionIds).HasElementName("QuestionIds");
 
             modelBuilder.Entity<CaregiverWallet>().ToCollection("CaregiverWallets");
             modelBuilder.Entity<CaregiverWallet>().HasKey(w => w.Id);
@@ -125,6 +126,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<BookingCommitment>().ToCollection("BookingCommitments");
             modelBuilder.Entity<BookingCommitment>().HasKey(bc => bc.Id);
             modelBuilder.Entity<BookingCommitment>().Property(bc => bc.Id).HasElementName("_id");
+
+            modelBuilder.Entity<TaskSheet>().ToCollection("TaskSheets");
+            modelBuilder.Entity<TaskSheet>().HasKey(ts => ts.Id);
+            modelBuilder.Entity<TaskSheet>().Property(ts => ts.Id).HasElementName("_id");
 
         }
 
@@ -164,5 +169,6 @@ namespace Infrastructure.Content.Data
         public DbSet<BillingRecord> BillingRecords { get; set; }
         public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
         public DbSet<BookingCommitment> BookingCommitments { get; set; }
+        public DbSet<TaskSheet> TaskSheets { get; set; }
     }
 }

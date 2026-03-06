@@ -48,6 +48,11 @@ namespace Application.DTOs
         public string? DeclineReason { get; set; }
         public bool? IsDeclined { get; set; }
 
+        // Recurring service tracking
+        public int? FrequencyPerWeek { get; set; }
+        public int? BillingCycleNumber { get; set; }
+        public string? SubscriptionId { get; set; }
+
 
         // public decimal TotalEarning { get; set; }
         public int NoOfOrders { get; set; }

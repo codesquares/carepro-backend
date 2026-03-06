@@ -682,6 +682,11 @@ namespace Infrastructure.Content.Services
                 ClientOrderStatus = order.ClientOrderStatus,
                 OrderCreatedOn = order.OrderCreatedAt,
 
+                // Recurring service tracking
+                FrequencyPerWeek = order.FrequencyPerWeek,
+                BillingCycleNumber = order.BillingCycleNumber,
+                SubscriptionId = order.SubscriptionId,
+
             };
 
             return clientOrderDTO;

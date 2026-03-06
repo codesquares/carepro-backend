@@ -73,6 +73,25 @@ namespace Infrastructure.Content.Services
             if (gig.CaregiverId == clientId)
                 return Result<BookingCommitmentResponse>.Failure(new List<string> { "You cannot pay a commitment fee for your own gig." });
 
+            // ── EXISTING ORDER GUARD ─────────────────────────────────────────
+            // Block commitment if the client already has an active (non-completed) order for this gig,
+            // because the commitment fee would be pointless — they can't pay for the gig again.
+            var existingActiveOrder = await _dbContext.ClientOrders
+                .FirstOrDefaultAsync(o => o.ClientId == clientId
+                                       && o.GigId == request.GigId
+                                       && o.ClientOrderStatus != "Completed");
+
+            if (existingActiveOrder != null)
+            {
+                _logger.LogWarning(
+                    "Commitment fee blocked — active order exists. ClientId: {ClientId}, GigId: {GigId}, OrderId: {OrderId}, Status: {Status}",
+                    clientId, request.GigId, existingActiveOrder.Id, existingActiveOrder.ClientOrderStatus);
+                return Result<BookingCommitmentResponse>.Failure(new List<string>
+                {
+                    "You already have an active order for this gig. A commitment fee is not required."
+                });
+            }
+
             // Check if client already has an active (completed) commitment for this gig
             var existingCompleted = await _dbContext.BookingCommitments
                 .FirstOrDefaultAsync(bc => bc.ClientId == clientId
