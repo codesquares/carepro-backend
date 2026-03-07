@@ -69,7 +69,7 @@ namespace CarePro_Api.Controllers.Content
         /// Client approves the contract sent by caregiver.
         /// </summary>
         [HttpPut("{contractId}/client-approve")]
-        public async Task<ActionResult<ContractDTO>> ClientApproveContract(string contractId)
+        public async Task<ActionResult<ContractDTO>> ClientApproveContract(string contractId, [FromBody] ClientContractApprovalRequest? request = null)
         {
             try
             {
@@ -77,7 +77,7 @@ namespace CarePro_Api.Controllers.Content
                 if (string.IsNullOrEmpty(clientId))
                     return Unauthorized("Client authorization required");
 
-                var contract = await _contractService.ClientApproveContractAsync(contractId, clientId);
+                var contract = await _contractService.ClientApproveContractAsync(contractId, clientId, request);
                 
                 _logger.LogInformation("Contract {ContractId} approved by client {ClientId}",
                     contractId, clientId);

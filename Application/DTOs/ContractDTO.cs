@@ -22,6 +22,13 @@ namespace Application.DTOs
         public string? SpecialClientRequirements { get; set; }
         public string? AccessInstructions { get; set; }
         public string? AdditionalNotes { get; set; }
+
+        /// <summary>
+        /// Optional: Direct GPS coordinates for the service address.
+        /// If provided, these are stored directly instead of geocoding the ServiceAddress text.
+        /// </summary>
+        public double? ServiceLatitude { get; set; }
+        public double? ServiceLongitude { get; set; }
     }
 
     /// <summary>
@@ -83,6 +90,25 @@ namespace Application.DTOs
         public string ContractId { get; set; } = string.Empty;
         public string OrderId { get; set; } = string.Empty;
         public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Optional request body for client contract approval.
+    /// If the client is at the service address, frontend sends their device GPS.
+    /// </summary>
+    public class ClientContractApprovalRequest
+    {
+        /// <summary>
+        /// Client's device latitude captured via navigator.geolocation.
+        /// If provided, overrides any previously geocoded service coordinates.
+        /// </summary>
+        public double? ServiceLatitude { get; set; }
+
+        /// <summary>
+        /// Client's device longitude captured via navigator.geolocation.
+        /// If provided, overrides any previously geocoded service coordinates.
+        /// </summary>
+        public double? ServiceLongitude { get; set; }
     }
 
     /// <summary>

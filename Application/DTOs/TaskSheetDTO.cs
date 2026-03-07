@@ -17,6 +17,16 @@ namespace Application.DTOs
         public DateTime? SubmittedAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        // Visit check-in data (null if not yet checked in)
+        public VisitCheckinDTO? Checkin { get; set; }
+
+        // Client signature data (null if not yet signed)
+        public ClientSignatureDTO? ClientSignature { get; set; }
+
+        // Report counts for UI badges
+        public int ObservationReportCount { get; set; }
+        public int IncidentReportCount { get; set; }
     }
 
     public class TaskSheetItemDTO
@@ -25,6 +35,12 @@ namespace Application.DTOs
         public string Text { get; set; } = string.Empty;
         public bool Completed { get; set; }
         public bool AddedByCaregiver { get; set; }
+    }
+
+    public class ClientSignatureDTO
+    {
+        public string SignatureUrl { get; set; } = string.Empty;
+        public DateTime SignedAt { get; set; }
     }
 
     public class TaskSheetListResponse
@@ -44,5 +60,11 @@ namespace Application.DTOs
     public class UpdateTaskSheetRequest
     {
         public List<TaskSheetItemDTO> Tasks { get; set; } = new List<TaskSheetItemDTO>();
+    }
+
+    public class SubmitTaskSheetRequest
+    {
+        public string? ClientSignature { get; set; }
+        public DateTime? SignedAt { get; set; }
     }
 }

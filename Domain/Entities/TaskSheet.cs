@@ -14,6 +14,8 @@ namespace Domain.Entities
         public List<TaskSheetItem> Tasks { get; set; } = new List<TaskSheetItem>();
         public string Status { get; set; } = "in-progress";
         public DateTime? SubmittedAt { get; set; }
+        public string? ClientSignatureUrl { get; set; }
+        public DateTime? ClientSignatureSignedAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

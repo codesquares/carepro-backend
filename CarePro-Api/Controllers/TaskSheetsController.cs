@@ -8,7 +8,7 @@ namespace CarePro_Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
+    [Authorize(Roles = "Client, Caregiver, Admin, SuperAdmin")]
     public class TaskSheetsController : ControllerBase
     {
         private readonly ITaskSheetService _taskSheetService;
@@ -145,9 +145,10 @@ namespace CarePro_Api.Controllers
 
         /// <summary>
         /// Mark a task sheet as submitted. This finalizes the sheet.
+        /// Requires a prior check-in. Optionally accepts a client signature (base64 PNG).
         /// </summary>
         [HttpPut("{taskSheetId}/submit")]
-        public async Task<IActionResult> SubmitTaskSheet(string taskSheetId)
+        public async Task<IActionResult> SubmitTaskSheet(string taskSheetId, [FromBody] SubmitTaskSheetRequest? request)
         {
             try
             {
@@ -155,7 +156,7 @@ namespace CarePro_Api.Controllers
                 if (string.IsNullOrEmpty(userId))
                     return Unauthorized(new { error = "Caregiver authorization required." });
 
-                var result = await _taskSheetService.SubmitTaskSheetAsync(taskSheetId, userId);
+                var result = await _taskSheetService.SubmitTaskSheetAsync(taskSheetId, request ?? new SubmitTaskSheetRequest(), userId);
                 return Ok(result);
             }
             catch (UnauthorizedAccessException ex)

@@ -523,6 +523,13 @@ namespace Infrastructure.Content.Services
                 existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
             }
 
+            // If frontend sent direct GPS coordinates, store them on the client
+            if (updateClientUserRequest.Latitude.HasValue && updateClientUserRequest.Longitude.HasValue)
+            {
+                existingClient.Latitude = updateClientUserRequest.Latitude.Value;
+                existingClient.Longitude = updateClientUserRequest.Longitude.Value;
+            }
+
             careProDbContext.Clients.Update(existingClient);
             await careProDbContext.SaveChangesAsync();
 

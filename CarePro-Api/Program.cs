@@ -164,6 +164,11 @@ builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
 // Task Sheets services (Caregiver visit session tracking)
 builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
 
+// Visit Management services (GPS check-in, observation & incident reports)
+builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
+builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
+builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();

@@ -33,6 +33,8 @@ namespace Domain.Entities
 
         // NEW: Caregiver Notes (details from client-caregiver discussion)
         public string? ServiceAddress { get; set; }
+        public double? ServiceLatitude { get; set; }
+        public double? ServiceLongitude { get; set; }
         public string? SpecialClientRequirements { get; set; }
         public string? AccessInstructions { get; set; }
         public string? CaregiverAdditionalNotes { get; set; }

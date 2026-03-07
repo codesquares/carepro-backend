@@ -15,11 +15,13 @@ namespace Infrastructure.Content.Services
     public class TaskSheetService : ITaskSheetService
     {
         private readonly CareProDbContext _dbContext;
+        private readonly CloudinaryService _cloudinaryService;
         private readonly ILogger<TaskSheetService> _logger;
 
-        public TaskSheetService(CareProDbContext dbContext, ILogger<TaskSheetService> logger)
+        public TaskSheetService(CareProDbContext dbContext, CloudinaryService cloudinaryService, ILogger<TaskSheetService> logger)
         {
             _dbContext = dbContext;
+            _cloudinaryService = cloudinaryService;
             _logger = logger;
         }
 
@@ -30,16 +32,8 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation("GetTaskSheets - Order {OrderId} has ClientOrderStatus: '{Status}', CaregiverId: '{CaregiverId}'",
                 orderId, order.ClientOrderStatus ?? "(null)", order.CaregiverId);
 
-            // Block completed orders from loading task sheets
-            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogWarning("GetTaskSheets blocked - Order {OrderId} is completed (status: '{Status}')",
-                    orderId, order.ClientOrderStatus);
-                throw new InvalidOperationException("This order has been completed. Task sheets can no longer be viewed or modified.");
-            }
-
-            // Authorization: only assigned caregiver or admin
-            if (!isAdmin && order.CaregiverId != caregiverId)
+            // Authorization: only assigned caregiver, order client, or admin
+            if (!isAdmin && order.CaregiverId != caregiverId && order.ClientId != caregiverId)
             {
                 throw new UnauthorizedAccessException("You are not authorized to view task sheets for this order.");
             }
@@ -66,9 +60,52 @@ namespace Infrastructure.Content.Services
                     .Where(ts => ts.OrderId == orderId && ts.BillingCycleNumber == currentBillingCycle)
                     .CountAsync();
 
+            // Enrich each sheet with check-in, signature, and report counts
+            var sheetDtos = new List<TaskSheetDTO>();
+            foreach (var sheet in sheets)
+            {
+                var dto = MapToDTO(sheet);
+
+                var sheetIdStr = sheet.Id.ToString();
+
+                // Check-in data
+                var checkin = await _dbContext.VisitCheckins
+                    .FirstOrDefaultAsync(vc => vc.TaskSheetId == sheetIdStr);
+                if (checkin != null)
+                {
+                    dto.Checkin = new VisitCheckinDTO
+                    {
+                        CheckinId = checkin.Id.ToString(),
+                        Latitude = checkin.Latitude,
+                        Longitude = checkin.Longitude,
+                        Accuracy = checkin.Accuracy,
+                        DistanceFromServiceAddress = checkin.DistanceFromServiceAddress,
+                        CheckinTimestamp = checkin.CheckinTimestamp
+                    };
+                }
+
+                // Client signature data
+                if (sheet.ClientSignatureUrl != null)
+                {
+                    dto.ClientSignature = new ClientSignatureDTO
+                    {
+                        SignatureUrl = sheet.ClientSignatureUrl,
+                        SignedAt = sheet.ClientSignatureSignedAt ?? sheet.SubmittedAt ?? DateTime.UtcNow
+                    };
+                }
+
+                // Report counts for UI badges
+                dto.ObservationReportCount = await _dbContext.ObservationReports
+                    .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
+                dto.IncidentReportCount = await _dbContext.IncidentReports
+                    .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
+
+                sheetDtos.Add(dto);
+            }
+
             return new TaskSheetListResponse
             {
-                Sheets = sheets.Select(MapToDTO).ToList(),
+                Sheets = sheetDtos,
                 MaxSheets = maxSheets,
                 CurrentSheetCount = currentSheetCount
             };
@@ -246,7 +283,7 @@ namespace Infrastructure.Content.Services
             return MapToDTO(taskSheet);
         }
 
-        public async Task<TaskSheetDTO> SubmitTaskSheetAsync(string taskSheetId, string caregiverId)
+        public async Task<TaskSheetDTO> SubmitTaskSheetAsync(string taskSheetId, SubmitTaskSheetRequest request, string caregiverId)
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
 
@@ -272,6 +309,25 @@ namespace Infrastructure.Content.Services
             if (taskSheet.Status == "submitted")
             {
                 throw new InvalidOperationException("This task sheet has already been submitted.");
+            }
+
+            // Require check-in before submission
+            var checkin = await _dbContext.VisitCheckins
+                .FirstOrDefaultAsync(vc => vc.TaskSheetId == taskSheetId);
+            if (checkin == null)
+            {
+                throw new InvalidOperationException("You must check in at the service location before submitting this task sheet.");
+            }
+
+            // Handle client signature upload
+            if (!string.IsNullOrEmpty(request.ClientSignature))
+            {
+                var signatureBytes = Convert.FromBase64String(request.ClientSignature);
+                var signatureUrl = await _cloudinaryService.UploadImageAsync(
+                    signatureBytes,
+                    $"client_signature_{taskSheetId}_{DateTime.UtcNow:yyyyMMddHHmmss}");
+                taskSheet.ClientSignatureUrl = signatureUrl;
+                taskSheet.ClientSignatureSignedAt = request.SignedAt ?? DateTime.UtcNow;
             }
 
             taskSheet.Status = "submitted";

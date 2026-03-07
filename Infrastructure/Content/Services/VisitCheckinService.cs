@@ -1,0 +1,216 @@
+using Application.DTOs;
+using Application.Interfaces.Content;
+using Domain.Entities;
+using Infrastructure.Content.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
+using System;
+using System.Threading.Tasks;
+
+namespace Infrastructure.Content.Services
+{
+    public class VisitCheckinService : IVisitCheckinService
+    {
+        private readonly CareProDbContext _dbContext;
+        private readonly IGeocodingService _geocodingService;
+        private readonly IConfiguration _configuration;
+        private readonly ILogger<VisitCheckinService> _logger;
+
+        public VisitCheckinService(
+            CareProDbContext dbContext,
+            IGeocodingService geocodingService,
+            IConfiguration configuration,
+            ILogger<VisitCheckinService> logger)
+        {
+            _dbContext = dbContext;
+            _geocodingService = geocodingService;
+            _configuration = configuration;
+            _logger = logger;
+        }
+
+        public async Task<VisitCheckinResponse> CheckinAsync(VisitCheckinRequest request, string caregiverId)
+        {
+            // Check if already checked in for this task sheet (idempotent)
+            var existing = await _dbContext.VisitCheckins
+                .FirstOrDefaultAsync(vc => vc.TaskSheetId == request.TaskSheetId);
+
+            if (existing != null)
+            {
+                _logger.LogInformation("Caregiver {CaregiverId} already checked in for TaskSheet {TaskSheetId}", caregiverId, request.TaskSheetId);
+                return new VisitCheckinResponse
+                {
+                    Success = true,
+                    CheckinId = existing.Id.ToString(),
+                    CheckinTimestamp = existing.CheckinTimestamp,
+                    DistanceFromServiceAddress = existing.DistanceFromServiceAddress,
+                    AlreadyCheckedIn = true
+                };
+            }
+
+            // Validate order exists and caregiver is assigned
+            if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
+                throw new ArgumentException("Invalid order ID format.");
+
+            var order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderObjectId);
+            if (order == null)
+                throw new KeyNotFoundException($"Order '{request.OrderId}' not found.");
+
+            if (order.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("You are not assigned to this order.");
+
+            // Validate the task sheet exists and belongs to this order
+            if (!ObjectId.TryParse(request.TaskSheetId, out var taskSheetObjectId))
+                throw new ArgumentException("Invalid task sheet ID format.");
+
+            var taskSheet = await _dbContext.TaskSheets.FirstOrDefaultAsync(ts => ts.Id == taskSheetObjectId);
+            if (taskSheet == null)
+                throw new KeyNotFoundException($"Task sheet '{request.TaskSheetId}' not found.");
+
+            if (taskSheet.OrderId != request.OrderId)
+                throw new InvalidOperationException("Task sheet does not belong to the specified order.");
+
+            if (taskSheet.Status == "submitted")
+                throw new InvalidOperationException("Cannot check in to an already submitted task sheet.");
+
+            // GPS proximity validation
+            double? distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
+
+            var checkin = new VisitCheckin
+            {
+                Id = ObjectId.GenerateNewId(),
+                TaskSheetId = request.TaskSheetId,
+                OrderId = request.OrderId,
+                CaregiverId = caregiverId,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                Accuracy = request.Accuracy,
+                DistanceFromServiceAddress = distanceMeters,
+                CheckinTimestamp = request.CheckinTimestamp,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _dbContext.VisitCheckins.AddAsync(checkin);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Caregiver {CaregiverId} checked in for TaskSheet {TaskSheetId}. Distance: {Distance}m",
+                caregiverId, request.TaskSheetId, distanceMeters?.ToString("F0") ?? "unknown");
+
+            return new VisitCheckinResponse
+            {
+                Success = true,
+                CheckinId = checkin.Id.ToString(),
+                CheckinTimestamp = checkin.CheckinTimestamp,
+                DistanceFromServiceAddress = distanceMeters,
+                AlreadyCheckedIn = false
+            };
+        }
+
+        public async Task<VisitCheckinDTO?> GetCheckinByTaskSheetIdAsync(string taskSheetId)
+        {
+            var checkin = await _dbContext.VisitCheckins
+                .FirstOrDefaultAsync(vc => vc.TaskSheetId == taskSheetId);
+
+            if (checkin == null) return null;
+
+            return new VisitCheckinDTO
+            {
+                CheckinId = checkin.Id.ToString(),
+                Latitude = checkin.Latitude,
+                Longitude = checkin.Longitude,
+                Accuracy = checkin.Accuracy,
+                DistanceFromServiceAddress = checkin.DistanceFromServiceAddress,
+                CheckinTimestamp = checkin.CheckinTimestamp
+            };
+        }
+
+        private async Task<double?> ValidateProximity(double caregiverLat, double caregiverLng, ClientOrder order, string caregiverId)
+        {
+            int maxDistanceMeters = _configuration.GetValue<int>("VisitCheckin:MaxDistanceMeters", 150);
+
+            // Try to get service location coordinates
+            double? serviceLat = null;
+            double? serviceLng = null;
+
+            // Priority 1: Contract's geocoded service coordinates
+            var contract = await _dbContext.Contracts
+                .FirstOrDefaultAsync(c => c.OrderId == order.Id.ToString() &&
+                    (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
+
+            if (contract != null)
+            {
+                if (contract.ServiceLatitude.HasValue && contract.ServiceLongitude.HasValue)
+                {
+                    serviceLat = contract.ServiceLatitude;
+                    serviceLng = contract.ServiceLongitude;
+                }
+                else if (!string.IsNullOrEmpty(contract.ServiceAddress))
+                {
+                    // Geocode the contract service address and cache it
+                    try
+                    {
+                        var geocoded = await _geocodingService.GeocodeAsync(contract.ServiceAddress);
+                        serviceLat = geocoded.Latitude;
+                        serviceLng = geocoded.Longitude;
+
+                        // Cache for future check-ins
+                        contract.ServiceLatitude = serviceLat;
+                        contract.ServiceLongitude = serviceLng;
+                        _dbContext.Contracts.Update(contract);
+                        await _dbContext.SaveChangesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to geocode contract service address for order {OrderId}", order.Id);
+                    }
+                }
+            }
+
+            // Priority 2: Client's stored coordinates
+            if (!serviceLat.HasValue || !serviceLng.HasValue)
+            {
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                if (client?.Latitude != null && client?.Longitude != null)
+                {
+                    serviceLat = client.Latitude;
+                    serviceLng = client.Longitude;
+                }
+            }
+
+            // If we have no reference coordinates, allow check-in but log warning
+            if (!serviceLat.HasValue || !serviceLng.HasValue)
+            {
+                _logger.LogWarning("No service location coordinates available for order {OrderId}. Allowing check-in without proximity validation.", order.Id);
+                return null;
+            }
+
+            // Calculate distance using Haversine
+            double distanceKm = CalculateHaversineDistance(caregiverLat, caregiverLng, serviceLat.Value, serviceLng.Value);
+            double distanceMeters = distanceKm * 1000;
+
+            if (distanceMeters > maxDistanceMeters)
+            {
+                throw new InvalidOperationException(
+                    $"You are approximately {distanceMeters:F0}m away from the service address. " +
+                    $"You must be within {maxDistanceMeters}m to check in.");
+            }
+
+            return Math.Round(distanceMeters, 1);
+        }
+
+        private static double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 6371; // Earth's radius in km
+            var dLat = ToRadians(lat2 - lat1);
+            var dLon = ToRadians(lon2 - lon1);
+            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                    Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2)) *
+                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return R * c;
+        }
+
+        private static double ToRadians(double degrees) => degrees * Math.PI / 180;
+    }
+}

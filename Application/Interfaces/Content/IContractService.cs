@@ -18,7 +18,7 @@ namespace Application.Interfaces.Content
         /// <summary>
         /// Client approves the contract sent by caregiver.
         /// </summary>
-        Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId);
+        Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId, ClientContractApprovalRequest? request = null);
         
         /// <summary>
         /// Client requests review/changes (only allowed in Round 1).

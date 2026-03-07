@@ -110,5 +110,11 @@ namespace Application.DTOs
 
         public string? PhoneNo { get; set; }
 
+        /// <summary>
+        /// Optional: Direct GPS coordinates from the client's device.
+        /// If provided, these take priority over geocoding the HomeAddress.
+        /// </summary>
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
     }
 }

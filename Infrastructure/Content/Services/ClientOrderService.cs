@@ -298,6 +298,7 @@ namespace Infrastructure.Content.Services
                     Amount = caregiverOrder.Amount,
                     TransactionId = caregiverOrder.TransactionId,
                     ClientOrderStatus = caregiverOrder.ClientOrderStatus,
+                    IsOrderStatusApproved = caregiverOrder.IsOrderStatusApproved,
                     OrderCreatedOn = caregiverOrder.OrderCreatedAt,
 
                 };
@@ -363,6 +364,7 @@ namespace Infrastructure.Content.Services
                     Amount = clientOrder.Amount,
                     TransactionId = clientOrder.TransactionId,
                     ClientOrderStatus = clientOrder.ClientOrderStatus,
+                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
@@ -426,6 +428,7 @@ namespace Infrastructure.Content.Services
                         Amount = clientOrder.Amount,
                         TransactionId = clientOrder.TransactionId,
                         ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
                         NoOfOrders = clientOrdersDTOs.Count(),
                         OrderCreatedOn = clientOrder.OrderCreatedAt,
                         DeclineReason = clientOrder.DisputeReason,
@@ -494,6 +497,7 @@ namespace Infrastructure.Content.Services
                     Amount = clientOrder.Amount,
                     TransactionId = clientOrder.TransactionId,
                     ClientOrderStatus = clientOrder.ClientOrderStatus,
+                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
@@ -555,6 +559,7 @@ namespace Infrastructure.Content.Services
                     Amount = clientOrder.Amount,
                     TransactionId = clientOrder.TransactionId,
                     ClientOrderStatus = clientOrder.ClientOrderStatus,
+                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
@@ -680,6 +685,7 @@ namespace Infrastructure.Content.Services
                 Amount = order.Amount,
                 TransactionId = order.TransactionId,
                 ClientOrderStatus = order.ClientOrderStatus,
+                IsOrderStatusApproved = order.IsOrderStatusApproved,
                 OrderCreatedOn = order.OrderCreatedAt,
 
                 // Recurring service tracking
@@ -821,6 +827,15 @@ namespace Infrastructure.Content.Services
             bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
             if (alreadyReleased)
             {
+                // Self-heal: ensure IsOrderStatusApproved is in sync with ledger
+                if (!existingOrder.IsOrderStatusApproved)
+                {
+                    existingOrder.IsOrderStatusApproved = true;
+                    existingOrder.OrderUpdatedOn = DateTime.Now;
+                    careProDbContext.ClientOrders.Update(existingOrder);
+                    await careProDbContext.SaveChangesAsync();
+                    logger.LogWarning("Self-healed IsOrderStatusApproved for order {OrderId} — was false despite funds already released.", orderId);
+                }
                 return $"Funds for order '{orderId}' have already been released.";
             }
 
@@ -835,6 +850,12 @@ namespace Infrastructure.Content.Services
                 serviceType,
                 Domain.Entities.FundsReleaseReason.ClientApproved,
                 $"Funds released by client for order {orderId}");
+
+            // Mark order as approved
+            existingOrder.IsOrderStatusApproved = true;
+            existingOrder.OrderUpdatedOn = DateTime.Now;
+            careProDbContext.ClientOrders.Update(existingOrder);
+            await careProDbContext.SaveChangesAsync();
 
             logger.LogInformation("Funds released for order {OrderId} by client {ClientId}.", orderId, clientUserId);
 

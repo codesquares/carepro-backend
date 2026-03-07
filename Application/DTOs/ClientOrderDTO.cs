@@ -43,6 +43,7 @@ namespace Application.DTOs
         public int Amount { get; set; }
         public string? TransactionId { get; set; }
         public string? ClientOrderStatus { get; set; }
+        public bool IsOrderStatusApproved { get; set; }
         public DateTime OrderCreatedOn { get; set; }
 
         public string? DeclineReason { get; set; }

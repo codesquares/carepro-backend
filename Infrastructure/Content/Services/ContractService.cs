@@ -15,6 +15,7 @@ namespace Infrastructure.Content.Services
         private readonly IContractLLMService _llmService;
         private readonly IContractNotificationService _notificationService;
         private readonly ILocationService _locationService;
+        private readonly IGeocodingService _geocodingService;
         private readonly ILogger<ContractService> _logger;
         private readonly IConfiguration _configuration;
 
@@ -23,6 +24,7 @@ namespace Infrastructure.Content.Services
             IContractLLMService llmService,
             IContractNotificationService notificationService,
             ILocationService locationService,
+            IGeocodingService geocodingService,
             ILogger<ContractService> logger,
             IConfiguration configuration)
         {
@@ -30,6 +32,7 @@ namespace Infrastructure.Content.Services
             _llmService = llmService;
             _notificationService = notificationService;
             _locationService = locationService;
+            _geocodingService = geocodingService;
             _logger = logger;
             _configuration = configuration;
         }
@@ -897,6 +900,28 @@ namespace Infrastructure.Content.Services
                 var contractTerms = await _llmService.GenerateContractWithScheduleAsync(enrichedData);
 
                 // Create contract entity (use the pre-generated ID so it matches the contract text)
+                // Resolve service location coordinates
+                double? serviceLat = request.ServiceLatitude;
+                double? serviceLng = request.ServiceLongitude;
+
+                if (!serviceLat.HasValue || !serviceLng.HasValue)
+                {
+                    // Geocode the text address if direct coords were not provided
+                    if (!string.IsNullOrWhiteSpace(request.ServiceAddress))
+                    {
+                        try
+                        {
+                            var geocode = await _geocodingService.GeocodeAsync(request.ServiceAddress);
+                            serviceLat = geocode.Latitude;
+                            serviceLng = geocode.Longitude;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to geocode service address for order {OrderId}. Continuing without coordinates.", request.OrderId);
+                        }
+                    }
+                }
+
                 var contract = new Contract
                 {
                     Id = contractId,
@@ -909,6 +934,8 @@ namespace Infrastructure.Content.Services
                     Tasks = tasks,
                     Schedule = scheduleEntities,
                     ServiceAddress = request.ServiceAddress,
+                    ServiceLatitude = serviceLat,
+                    ServiceLongitude = serviceLng,
                     SpecialClientRequirements = request.SpecialClientRequirements,
                     AccessInstructions = request.AccessInstructions,
                     CaregiverAdditionalNotes = request.AdditionalNotes,
@@ -949,7 +976,7 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        public async Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId)
+        public async Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId, ClientContractApprovalRequest? request = null)
         {
             try
             {
@@ -963,6 +990,15 @@ namespace Infrastructure.Content.Services
                 if (contract.Status != ContractStatus.PendingClientApproval && 
                     contract.Status != ContractStatus.Revised)
                     throw new InvalidOperationException($"Contract cannot be approved. Current status: {contract.Status}");
+
+                // Store client's device GPS if provided (most accurate source)
+                if (request?.ServiceLatitude.HasValue == true && request.ServiceLongitude.HasValue == true)
+                {
+                    contract.ServiceLatitude = request.ServiceLatitude.Value;
+                    contract.ServiceLongitude = request.ServiceLongitude.Value;
+                    _logger.LogInformation("Contract {ContractId} received client device GPS: {Lat}, {Lng}",
+                        contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
+                }
 
                 // Update contract
                 contract.Status = ContractStatus.Approved;
@@ -1108,6 +1144,22 @@ namespace Infrastructure.Content.Services
                 // Update contract
                 contract.Schedule = scheduleEntities;
                 contract.ServiceAddress = revision.ServiceAddress ?? contract.ServiceAddress;
+
+                // Re-geocode if service address changed
+                if (!string.IsNullOrWhiteSpace(revision.ServiceAddress) && revision.ServiceAddress != contract.ServiceAddress)
+                {
+                    try
+                    {
+                        var geocode = await _geocodingService.GeocodeAsync(revision.ServiceAddress);
+                        contract.ServiceLatitude = geocode.Latitude;
+                        contract.ServiceLongitude = geocode.Longitude;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to geocode revised service address for contract {ContractId}", contract.Id);
+                    }
+                }
+
                 contract.SpecialClientRequirements = revision.SpecialClientRequirements ?? contract.SpecialClientRequirements;
                 contract.AccessInstructions = revision.AccessInstructions ?? contract.AccessInstructions;
                 contract.CaregiverAdditionalNotes = revision.AdditionalNotes ?? contract.CaregiverAdditionalNotes;

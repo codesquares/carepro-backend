@@ -131,6 +131,18 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<TaskSheet>().HasKey(ts => ts.Id);
             modelBuilder.Entity<TaskSheet>().Property(ts => ts.Id).HasElementName("_id");
 
+            modelBuilder.Entity<VisitCheckin>().ToCollection("VisitCheckins");
+            modelBuilder.Entity<VisitCheckin>().HasKey(vc => vc.Id);
+            modelBuilder.Entity<VisitCheckin>().Property(vc => vc.Id).HasElementName("_id");
+
+            modelBuilder.Entity<ObservationReport>().ToCollection("ObservationReports");
+            modelBuilder.Entity<ObservationReport>().HasKey(or => or.Id);
+            modelBuilder.Entity<ObservationReport>().Property(or => or.Id).HasElementName("_id");
+
+            modelBuilder.Entity<IncidentReport>().ToCollection("IncidentReports");
+            modelBuilder.Entity<IncidentReport>().HasKey(ir => ir.Id);
+            modelBuilder.Entity<IncidentReport>().Property(ir => ir.Id).HasElementName("_id");
+
         }
 
 
@@ -170,5 +182,8 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
         public DbSet<BookingCommitment> BookingCommitments { get; set; }
         public DbSet<TaskSheet> TaskSheets { get; set; }
+        public DbSet<VisitCheckin> VisitCheckins { get; set; }
+        public DbSet<ObservationReport> ObservationReports { get; set; }
+        public DbSet<IncidentReport> IncidentReports { get; set; }
     }
 }
