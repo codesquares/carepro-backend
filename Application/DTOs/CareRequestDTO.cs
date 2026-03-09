@@ -105,6 +105,57 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
 
         public DateTime? UpdatedAt { get; set; }
+
+        public DateTime? MatchedAt { get; set; }
+
+        public int MatchCount { get; set; }
+    }
+
+    /// <summary>
+    /// A single caregiver match result with scoring breakdown
+    /// </summary>
+    public class CaregiverMatchDTO
+    {
+        public int Rank { get; set; }
+        public string CaregiverId { get; set; } = string.Empty;
+        public string CaregiverName { get; set; } = string.Empty;
+        public string? ProfileImage { get; set; }
+        public bool IsAvailable { get; set; }
+        public string? AboutMe { get; set; }
+        public string? Location { get; set; }
+        public double MatchScore { get; set; }
+        public string MatchedServiceCategory { get; set; } = string.Empty;
+        public string? GigTitle { get; set; }
+        public int? GigPrice { get; set; }
+        public double? DistanceKm { get; set; }
+        public double AverageRating { get; set; }
+        public int ReviewCount { get; set; }
+        public MatchScoreBreakdownDTO ScoreBreakdown { get; set; } = new();
+    }
+
+    public class MatchScoreBreakdownDTO
+    {
+        public double CategoryScore { get; set; }
+        public double ProximityScore { get; set; }
+        public double BudgetScore { get; set; }
+        public double RatingScore { get; set; }
+        public double PreferenceScore { get; set; }
+        public double EngagementScore { get; set; }
+        public double ProfileScore { get; set; }
+    }
+
+    /// <summary>
+    /// Response wrapper for care request matches
+    /// </summary>
+    public class CareRequestMatchResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string CareRequestId { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public int TotalMatches { get; set; }
+        public bool HasAlternatives { get; set; }
+        public List<CaregiverMatchDTO> Matches { get; set; } = new();
     }
 
     /// <summary>

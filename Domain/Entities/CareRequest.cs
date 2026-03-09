@@ -30,6 +30,10 @@ namespace Domain.Entities
 
         public string? SpecialRequirements { get; set; }
 
+        // Geocoded coordinates resolved from Location or Client's address
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
         /// <summary>
         /// Status of the care request: pending, matched, accepted, completed, cancelled
         /// </summary>
@@ -38,5 +42,9 @@ namespace Domain.Entities
         public DateTime CreatedAt { get; set; }
 
         public DateTime? UpdatedAt { get; set; }
+
+        public DateTime? MatchedAt { get; set; }
+
+        public int? MatchCount { get; set; }
     }
 }

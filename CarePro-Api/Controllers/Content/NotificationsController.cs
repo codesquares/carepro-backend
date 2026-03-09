@@ -220,6 +220,60 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { message = "Failed to send notification" });
             }
         }
+
+        // POST: api/Notifications/BroadcastToCaregivers — Admin only
+        [HttpPost("BroadcastToCaregivers")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> BroadcastToCaregivers([FromBody] BroadcastNotificationRequest request)
+        {
+            try
+            {
+                var senderId = GetCurrentUserId();
+                var result = await _notificationService.BroadcastNotificationAsync(request, senderId, "caregivers");
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting notification to caregivers");
+                return StatusCode(500, new { message = "Failed to broadcast notification" });
+            }
+        }
+
+        // POST: api/Notifications/BroadcastToClients — Admin only
+        [HttpPost("BroadcastToClients")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> BroadcastToClients([FromBody] BroadcastNotificationRequest request)
+        {
+            try
+            {
+                var senderId = GetCurrentUserId();
+                var result = await _notificationService.BroadcastNotificationAsync(request, senderId, "clients");
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting notification to clients");
+                return StatusCode(500, new { message = "Failed to broadcast notification" });
+            }
+        }
+
+        // POST: api/Notifications/BroadcastToAll — Admin only
+        [HttpPost("BroadcastToAll")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> BroadcastToAll([FromBody] BroadcastNotificationRequest request)
+        {
+            try
+            {
+                var senderId = GetCurrentUserId();
+                var result = await _notificationService.BroadcastNotificationAsync(request, senderId, "all");
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting notification to all users");
+                return StatusCode(500, new { message = "Failed to broadcast notification" });
+            }
+        }
     }
 
     public class TestNotificationRequest

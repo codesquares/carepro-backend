@@ -39,7 +39,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost]
-        // [Authorize(Roles = "Caregiver")]
+        [Authorize(Roles = "Caregiver")]
         public async Task<IActionResult> AddAssessmentAsync([FromBody] AddAssessmentRequest addAssessmentRequest)
         {
             try
@@ -78,7 +78,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("careGiverId")]
-        // [Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize(Roles = "Caregiver,Client,Admin")]
         public async Task<IActionResult> GetAssessmentAsync(string careGiverId)
         {
             try
@@ -112,7 +112,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("questions/{userType}")]
-        // [Authorize(Roles = "Caregiver, Cleaner")]
+        [Authorize(Roles = "Caregiver,Admin")]
         public async Task<IActionResult> GetQuestionsForAssessmentAsync(string userType)
         {
             try
@@ -134,7 +134,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("{id}")]
-        // [Authorize(Roles = "Caregiver, Cleaner, Admin")]
+        [Authorize(Roles = "Caregiver,Admin")]
         public async Task<IActionResult> GetAssessmentByIdAsync(string id)
         {
             try
@@ -154,7 +154,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("user/{userId}")]
-        // [Authorize(Roles = "Caregiver, Cleaner, Admin")]
+        [Authorize(Roles = "Caregiver,Admin")]
         public async Task<IActionResult> GetAssessmentsByUserIdAsync(string userId)
         {
             try
@@ -170,7 +170,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("calculate-score/{assessmentId}")]
-        // [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CalculateAssessmentScoreAsync(string assessmentId)
         {
             try

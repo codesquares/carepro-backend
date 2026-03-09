@@ -18,6 +18,8 @@ namespace Application.Interfaces.Content
         Task<IEnumerable<ClientOrderResponse>> GetAllClientOrdersByGigIdAsync(string gigId);
         Task<IEnumerable<ClientOrderResponse>> GetAllOrdersAsync();
 
+        Task<PaginatedResponse<ClientOrderResponse>> GetAllOrdersPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null);
+
         Task<ClientOrderResponse> GetClientOrderAsync(string orderId);
 
         Task<CaregiverClientOrdersSummaryResponse> GetAllCaregiverOrderAsync(string caregiverId);

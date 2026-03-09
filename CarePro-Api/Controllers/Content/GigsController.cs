@@ -90,11 +90,31 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [AllowAnonymous]
-        public async Task<IActionResult> GetAllGigsAsync()
+        public async Task<IActionResult> GetAllGigsAsync(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string? category = null)
         {
             try
             {
                 logger.LogInformation($"Retrieving all Gigs available");
+
+                if (page.HasValue || pageSize.HasValue)
+                {
+                    var paginatedGigs = await gigServices.GetAllGigsPaginatedAsync(
+                        page ?? 1, pageSize ?? 20, status, search, category);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = paginatedGigs.Items,
+                        totalCount = paginatedGigs.TotalCount,
+                        page = paginatedGigs.Page,
+                        pageSize = paginatedGigs.PageSize,
+                        hasMore = paginatedGigs.HasMore,
+                    });
+                }
 
                 var gigs = await gigServices.GetAllGigsAsync();
 

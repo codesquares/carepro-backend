@@ -33,5 +33,7 @@ namespace Application.Interfaces.Content
         Task<bool> SendRealTimeNotificationAsync(string userId, Notification notification);
 
         Task<NotificationResponse?> GetNotificationByIdAsync(string notificationId);
+
+        Task<BroadcastNotificationResponse> BroadcastNotificationAsync(BroadcastNotificationRequest request, string senderId, string audience);
     }
 }

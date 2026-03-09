@@ -148,5 +148,28 @@ namespace Application.DTOs
         // ── System ──
         public const string SystemNotice = "system_notice";
         public const string SystemAlert = "system_alert";
+
+        // ── Care Request Matching ──
+        public const string CareRequestMatched = "care_request_matched";
+        public const string CareRequestNoMatch = "care_request_no_match";
+        public const string CareRequestAdminMatchUpdate = "care_request_admin_match_update";
+        public const string CareRequestAdminNoMatch = "care_request_admin_no_match";
+
+        // ── Broadcast ──
+        public const string Broadcast = "broadcast";
+    }
+
+    public class BroadcastNotificationRequest
+    {
+        public string Title { get; set; }
+        public string Message { get; set; }
+        public string? Type { get; set; } // defaults to "broadcast"
+    }
+
+    public class BroadcastNotificationResponse
+    {
+        public bool Success { get; set; }
+        public int RecipientsCount { get; set; }
+        public string Message { get; set; }
     }
 }

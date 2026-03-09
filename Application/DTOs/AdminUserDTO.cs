@@ -27,6 +27,8 @@ namespace Application.DTOs
 
         public string Role { get; set; }
 
+        public string? Department { get; set; }
+
         public string? Status { get; set; }
 
         public bool IsDeleted { get; set; }
@@ -69,6 +71,12 @@ namespace Application.DTOs
         [RegularExpression("^(Admin|SuperAdmin)$", ErrorMessage = "Role must be 'Admin' or 'SuperAdmin'")]
         public string Role { get; set; }
 
+        /// <summary>
+        /// Required for Admin role. Must be one of: Finance, HR, ComplianceAndLegal, CareLeads, MarketingAndSales.
+        /// SuperAdmin role does not require a department (full access).
+        /// </summary>
+        public string? Department { get; set; }
+
         [StringLength(50, ErrorMessage = "Status cannot exceed 50 characters")]
         public string? Status { get; set; }
 
@@ -94,6 +102,8 @@ namespace Application.DTOs
 
         public string Role { get; set; }
 
+        public string? Department { get; set; }
+
         public string? Status { get; set; }
 
         public bool IsDeleted { get; set; }
@@ -101,6 +111,18 @@ namespace Application.DTOs
 
         public DateTime CreatedAt { get; set; }
 
+    }
+
+    public class DashboardStatsResponse
+    {
+        public int TotalCaregivers { get; set; }
+        public int TotalClients { get; set; }
+        public int TotalOrders { get; set; }
+        public int TotalGigs { get; set; }
+        public int PendingCertificates { get; set; }
+        public int ActiveSubscriptions { get; set; }
+        public int PendingWithdrawals { get; set; }
+        public int TotalAdmins { get; set; }
     }
 
 }

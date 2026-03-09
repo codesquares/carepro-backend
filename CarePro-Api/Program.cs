@@ -121,6 +121,9 @@ builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
+// Care request matching engine
+builder.Services.AddScoped<ICareRequestMatchingService, CareRequestMatchingService>();
+
 // Wallet, Ledger & Billing services (must be registered before services that depend on them)
 builder.Services.AddSingleton<WalletLockManager>(); // Per-caregiver mutex for wallet race condition protection
 builder.Services.AddScoped<ICaregiverWalletService, CaregiverWalletService>();
@@ -194,6 +197,9 @@ builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationT
 builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
+
+// Care request matching background processor
+builder.Services.AddHostedService<CareRequestMatchingProcessor>();
 
 
 

@@ -319,7 +319,9 @@ namespace Infrastructure.Content.Services
                 SpecialRequirements = careRequest.SpecialRequirements,
                 Status = careRequest.Status,
                 CreatedAt = careRequest.CreatedAt,
-                UpdatedAt = careRequest.UpdatedAt
+                UpdatedAt = careRequest.UpdatedAt,
+                MatchedAt = careRequest.MatchedAt,
+                MatchCount = careRequest.MatchCount ?? 0
             };
         }
     }

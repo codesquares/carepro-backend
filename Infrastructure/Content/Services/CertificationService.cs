@@ -667,6 +667,57 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<PaginatedResponse<AdminCertificationResponse>> GetAllCertificatesPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null)
+        {
+            try
+            {
+                var query = careProDbContext.Certifications.AsQueryable();
+
+                if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<DocumentVerificationStatus>(status, true, out var parsedStatus))
+                    query = query.Where(c => c.VerificationStatus == parsedStatus);
+
+                var totalCount = await query.CountAsync();
+
+                var certificates = await query
+                    .OrderByDescending(c => c.SubmittedOn)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var adminCertificateResponses = new List<AdminCertificationResponse>();
+
+                foreach (var certificate in certificates)
+                {
+                    CaregiverResponse? caregiver = null;
+                    try
+                    {
+                        caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, $"Could not fetch caregiver details for certificate {certificate.Id}");
+                    }
+
+                    var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+                    adminCertificateResponses.Add(adminResponse);
+                }
+
+                return new PaginatedResponse<AdminCertificationResponse>
+                {
+                    Items = adminCertificateResponses,
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize,
+                    HasMore = (page * pageSize) < totalCount,
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error fetching paginated certificates");
+                throw;
+            }
+        }
+
         public async Task<IEnumerable<AdminCertificationResponse>> GetCertificatesByStatusAsync(DocumentVerificationStatus status)
         {
             try

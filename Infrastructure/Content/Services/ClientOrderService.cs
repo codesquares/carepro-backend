@@ -447,6 +447,77 @@ namespace Infrastructure.Content.Services
             return clientOrdersDTOs;
         }
 
+        public async Task<PaginatedResponse<ClientOrderResponse>> GetAllOrdersPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null)
+        {
+            var query = careProDbContext.ClientOrders.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(x => x.ClientOrderStatus == status);
+
+            var totalCount = await query.CountAsync();
+
+            var orders = await query
+                .OrderByDescending(x => x.OrderCreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var clientOrdersDTOs = new List<ClientOrderResponse>();
+
+            foreach (var clientOrder in orders)
+            {
+                try
+                {
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null) continue;
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null) continue;
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null) continue;
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+                        DeclineReason = clientOrder.DisputeReason,
+                        IsDeclined = clientOrder.HasDispute,
+                    };
+                    clientOrdersDTOs.Add(clientOrderDTO);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, $"Error processing order {clientOrder.Id}");
+                    continue;
+                }
+            }
+
+            return new PaginatedResponse<ClientOrderResponse>
+            {
+                Items = clientOrdersDTOs,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize,
+                HasMore = (page * pageSize) < totalCount,
+            };
+        }
+
         public async Task<IEnumerable<ClientOrderResponse>> GetCaregiverOrdersAsync(string caregiverId)
         {
             var orders = await careProDbContext.ClientOrders

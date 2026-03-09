@@ -2,6 +2,7 @@ using Application.DTOs;
 using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -10,11 +11,16 @@ namespace CarePro_Api.Controllers.Content
     public class CareRequestsController : ControllerBase
     {
         private readonly ICareRequestService _careRequestService;
+        private readonly ICareRequestMatchingService _matchingService;
         private readonly ILogger<CareRequestsController> _logger;
 
-        public CareRequestsController(ICareRequestService careRequestService, ILogger<CareRequestsController> logger)
+        public CareRequestsController(
+            ICareRequestService careRequestService,
+            ICareRequestMatchingService matchingService,
+            ILogger<CareRequestsController> logger)
         {
             _careRequestService = careRequestService;
+            _matchingService = matchingService;
             _logger = logger;
         }
 
@@ -258,6 +264,74 @@ namespace CarePro_Api.Controllers.Content
             {
                 _logger.LogError(ex, $"Error updating status of care request with ID: {id}");
                 return StatusCode(500, new { success = false, message = "An error occurred while updating the care request status." });
+            }
+        }
+
+        /// <summary>
+        /// Get caregiver matches for a care request. Only the owning client or an admin can access.
+        /// </summary>
+        [HttpGet("{id}/matches")]
+        [Authorize(Roles = "Client, Admin")]
+        public async Task<IActionResult> GetCareRequestMatches(string id)
+        {
+            try
+            {
+                var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                             ?? User.FindFirst("sub")?.Value
+                             ?? User.FindFirst("userId")?.Value;
+
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                _logger.LogInformation("Getting matches for CareRequest {Id} by user {UserId}", id, userId);
+
+                var result = await _matchingService.GetMatchesForCareRequestAsync(id, userId);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving matches for CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while retrieving matches." });
+            }
+        }
+
+        /// <summary>
+        /// Manually trigger matching for a care request (Admin only)
+        /// </summary>
+        [HttpPost("{id}/match")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> TriggerMatching(string id)
+        {
+            try
+            {
+                _logger.LogInformation("Admin triggered matching for CareRequest {Id}", id);
+                var result = await _matchingService.FindMatchesForCareRequestAsync(id);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error triggering matching for CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while matching." });
             }
         }
     }

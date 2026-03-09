@@ -306,6 +306,65 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<BroadcastNotificationResponse> BroadcastNotificationAsync(BroadcastNotificationRequest request, string senderId, string audience)
+        {
+            var type = string.IsNullOrWhiteSpace(request.Type) ? NotificationTypes.Broadcast : request.Type;
+            var recipientIds = new List<string>();
+
+            switch (audience.ToLower())
+            {
+                case "caregivers":
+                    recipientIds = await _dbContext.CareGivers
+                        .Where(c => !c.IsDeleted)
+                        .Select(c => c.Id.ToString())
+                        .ToListAsync();
+                    break;
+                case "clients":
+                    recipientIds = await _dbContext.Clients
+                        .Where(c => !c.IsDeleted)
+                        .Select(c => c.Id.ToString())
+                        .ToListAsync();
+                    break;
+                case "all":
+                    var caregiverIds = await _dbContext.CareGivers
+                        .Where(c => !c.IsDeleted)
+                        .Select(c => c.Id.ToString())
+                        .ToListAsync();
+                    var clientIds = await _dbContext.Clients
+                        .Where(c => !c.IsDeleted)
+                        .Select(c => c.Id.ToString())
+                        .ToListAsync();
+                    recipientIds = caregiverIds.Concat(clientIds).Distinct().ToList();
+                    break;
+                default:
+                    return new BroadcastNotificationResponse
+                    {
+                        Success = false,
+                        RecipientsCount = 0,
+                        Message = $"Invalid audience: {audience}. Must be 'caregivers', 'clients', or 'all'."
+                    };
+            }
+
+            foreach (var recipientId in recipientIds)
+            {
+                try
+                {
+                    await CreateNotificationAsync(recipientId, senderId, type, request.Message, request.Title, string.Empty);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send broadcast notification to user {RecipientId}", recipientId);
+                }
+            }
+
+            return new BroadcastNotificationResponse
+            {
+                Success = true,
+                RecipientsCount = recipientIds.Count,
+                Message = $"Broadcast sent to {recipientIds.Count} {audience} recipients."
+            };
+        }
+
 
     }
 }

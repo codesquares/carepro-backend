@@ -90,15 +90,15 @@ namespace Infrastructure.Content.Services.Authentication
                 .FirstOrDefaultAsync(x => x.Email.ToLower() == loginRequest.Email.ToLower());
 
             if (appUser == null)
-                throw new UnauthorizedAccessException("Account does not exist, please check the e-mail you entered or Click on Sign Up!");
+                throw new UnauthorizedAccessException("Invalid email or password.");
 
             if (!appUser.EmailConfirmed && appUser.Role != "Admin")
-                throw new UnauthorizedAccessException("Email not yet verified. Please check your inbox to verify your account, or request a resend confirmation.");
+                throw new UnauthorizedAccessException("Invalid email or password.");
 
             // ✅ Verify password here
             bool isValidPassword = BCrypt.Net.BCrypt.Verify(loginRequest.Password, appUser.Password);
             if (!isValidPassword)
-                throw new UnauthorizedAccessException("Incorrect Password.");
+                throw new UnauthorizedAccessException("Invalid email or password.");
 
             // ✅ Track first-time login before retrieving related data
             bool isFirstLogin = (appUser.LoginCount ?? 0) == 0 || appUser.LastLoginAt == null;

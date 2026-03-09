@@ -154,6 +154,12 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
+            // If gig is published/active, requeue unmatched care requests in the same category
+            if (gig.Status == "Published" || gig.Status == "Active")
+            {
+                await RequeueUnmatchedCareRequestsAsync(gig.Category);
+            }
+
 
             var gigDTO = new GigDTO()
             {
@@ -378,6 +384,71 @@ namespace Infrastructure.Content.Services
             return gigDTOs;
         }
 
+        public async Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null)
+        {
+            var query = careProDbContext.Gigs.Where(x => x.IsDeleted != true);
+
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(x => x.Status == status);
+            else
+                query = query.Where(x => x.Status == "Published" || x.Status == "Active");
+
+            if (!string.IsNullOrWhiteSpace(category))
+                query = query.Where(x => x.Category == category);
+
+            if (!string.IsNullOrWhiteSpace(search))
+                query = query.Where(x => x.Title.ToLower().Contains(search.ToLower()));
+
+            var totalCount = await query.CountAsync();
+
+            var gigs = await query
+                .OrderByDescending(x => x.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var gigDTOs = new List<GigDTO>();
+
+            foreach (var gig in gigs)
+            {
+                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                if (caregiver == null) continue;
+
+                var serviceDTO = new GigDTO()
+                {
+                    Id = gig.Id.ToString(),
+                    Title = gig.Title,
+                    Category = gig.Category,
+                    SubCategory = gig.SubCategory
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(x => x.Trim())
+                        .ToList(),
+                    Tags = gig.Tags,
+                    PackageType = gig.PackageType,
+                    PackageName = gig.PackageName,
+                    PackageDetails = gig.PackageDetails,
+                    DeliveryTime = gig.DeliveryTime,
+                    Price = gig.Price,
+                    Image1 = gig.Image1,
+                    Status = gig.Status,
+                    CaregiverId = gig.CaregiverId,
+                    UpdatedOn = gig.UpdatedOn,
+                    IsUpdatedToPause = gig.IsUpdatedToPause,
+                    CreatedAt = gig.CreatedAt,
+                };
+                gigDTOs.Add(serviceDTO);
+            }
+
+            return new PaginatedResponse<GigDTO>
+            {
+                Items = gigDTOs,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize,
+                HasMore = (page * pageSize) < totalCount,
+            };
+        }
+
 
 
         public async Task<List<string>> GetAllSubCategoriesForCaregiverAsync(string caregiverId)
@@ -530,6 +601,13 @@ namespace Infrastructure.Content.Services
                 careProDbContext.Gigs.Update(existingGig);
                 await careProDbContext.SaveChangesAsync();
 
+                // If gig became active/published, requeue unmatched care requests in the same category
+                if ((normalizedStatus == "Published" || normalizedStatus == "Active")
+                    && oldStatus != normalizedStatus)
+                {
+                    await RequeueUnmatchedCareRequestsAsync(existingGig.Category);
+                }
+
                 logger.LogInformation($"Successfully updated gig {gigId} status to '{normalizedStatus}'");
                 LogAuditEvent($"Gig Status updated from '{oldStatus}' to '{normalizedStatus}' (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
                 
@@ -674,6 +752,12 @@ namespace Infrastructure.Content.Services
             careProDbContext.Gigs.Update(existingGig);
             await careProDbContext.SaveChangesAsync();
 
+            // If gig became active/published, requeue unmatched care requests in the same category
+            if (existingGig.Status == "Published" || existingGig.Status == "Active")
+            {
+                await RequeueUnmatchedCareRequestsAsync(existingGig.Category);
+            }
+
             LogAuditEvent($"Gig with (ID: {gigId}) successfully updated", updateGigRequest.CaregiverId);
             return $"Gig with ID '{gigId}' updated successfully.";
 
@@ -754,6 +838,32 @@ namespace Infrastructure.Content.Services
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
         }
 
+        /// <summary>
+        /// Reset unmatched care requests in the same category back to pending
+        /// so the background processor will re-evaluate them on its next cycle.
+        /// </summary>
+        private async Task RequeueUnmatchedCareRequestsAsync(string gigCategory)
+        {
+            var unmatchedRequests = await careProDbContext.CareRequests
+                .Where(cr => cr.Status == "unmatched"
+                    && cr.ServiceCategory == gigCategory)
+                .ToListAsync();
+
+            if (unmatchedRequests.Count == 0) return;
+
+            foreach (var cr in unmatchedRequests)
+            {
+                cr.Status = "pending";
+                cr.UpdatedAt = DateTime.UtcNow;
+            }
+
+            careProDbContext.CareRequests.UpdateRange(unmatchedRequests);
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Requeued {Count} unmatched care requests in category '{Category}' for re-matching",
+                unmatchedRequests.Count, gigCategory);
+        }
 
     }
 }

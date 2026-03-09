@@ -30,6 +30,8 @@ namespace Application.Interfaces.Content
         // Admin Certificate Management
         Task<IEnumerable<AdminCertificationResponse>> GetAllCertificatesAsync();
 
+        Task<PaginatedResponse<AdminCertificationResponse>> GetAllCertificatesPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null);
+
         Task<IEnumerable<AdminCertificationResponse>> GetCertificatesByStatusAsync(DocumentVerificationStatus status);
 
         Task<AdminCertificationResponse> GetCertificateDetailsAsync(string certificateId);

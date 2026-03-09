@@ -140,16 +140,61 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// GET ALL ORDERS - Admin endpoint to retrieve all orders in the system
+        /// GET DASHBOARD STATS - Admin endpoint to retrieve aggregated dashboard statistics
+        /// </summary>
+        [HttpGet]
+        [Route("DashboardStats")]
+        public async Task<IActionResult> GetDashboardStatsAsync()
+        {
+            try
+            {
+                var stats = await adminUserService.GetDashboardStatsAsync();
+                return Ok(new
+                {
+                    success = true,
+                    data = stats
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error retrieving dashboard stats");
+                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// GET ALL ORDERS - Admin endpoint to retrieve all orders in the system.
+        /// Supports optional pagination via query parameters.
         /// </summary>
         [HttpGet]
         [Route("AllOrders")]
         //[Authorize(Roles = "SuperAdmin,Admin")]
-        public async Task<IActionResult> GetAllOrdersAsync()
+        public async Task<IActionResult> GetAllOrdersAsync(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? search = null)
         {
             try
             {
                 logger.LogInformation("Admin retrieving all orders");
+
+                // If pagination params are provided, use paginated endpoint
+                if (page.HasValue || pageSize.HasValue)
+                {
+                    var paginatedOrders = await clientOrderService.GetAllOrdersPaginatedAsync(
+                        page ?? 1, pageSize ?? 20, status, search);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = paginatedOrders.Items,
+                        totalCount = paginatedOrders.TotalCount,
+                        page = paginatedOrders.Page,
+                        pageSize = paginatedOrders.PageSize,
+                        hasMore = paginatedOrders.HasMore,
+                    });
+                }
+
                 var orders = await clientOrderService.GetAllOrdersAsync();
                 
                 return Ok(new
@@ -452,14 +497,35 @@ namespace CarePro_Api.Controllers.Content
         #region Certificate Management Endpoints
 
         /// <summary>
-        /// Get all certificates system-wide with caregiver details
+        /// Get all certificates system-wide with caregiver details.
+        /// Supports optional pagination via query parameters.
         /// </summary>
         [HttpGet("Certificates/All")]
         // [Authorize(Roles = "Admin,SuperAdmin")]
-        public async Task<IActionResult> GetAllCertificatesAsync()
+        public async Task<IActionResult> GetAllCertificatesAsync(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? search = null)
         {
             try
             {
+                if (page.HasValue || pageSize.HasValue)
+                {
+                    var paginatedCertificates = await certificationService.GetAllCertificatesPaginatedAsync(
+                        page ?? 1, pageSize ?? 20, status, search);
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Certificates retrieved successfully",
+                        data = paginatedCertificates.Items,
+                        totalCount = paginatedCertificates.TotalCount,
+                        page = paginatedCertificates.Page,
+                        pageSize = paginatedCertificates.PageSize,
+                        hasMore = paginatedCertificates.HasMore,
+                    });
+                }
+
                 var certificates = await certificationService.GetAllCertificatesAsync();
                 
                 return Ok(new
