@@ -619,6 +619,9 @@ namespace Infrastructure.Content.Services
                 IsDeleted = caregiver.IsDeleted,
                 Status = caregiver.Status,
                 HomeAddress = caregiver.HomeAddress,
+                ServiceAddress = caregiver.ServiceAddress,
+                ServiceCity = caregiver.ServiceCity,
+                ServiceState = caregiver.ServiceState,
                 AboutMe = caregiver.AboutMe,
                 AboutMeIntro = string.IsNullOrWhiteSpace(caregiver.AboutMe)
                     ? null
@@ -972,13 +975,12 @@ namespace Infrastructure.Content.Services
             {
                 UserId = caregiverId,
                 UserType = "Caregiver",
-                Address = request.Address
+                Address = request.Address,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude
             };
 
             var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
-
-            // The location service automatically updates the caregiver entity's location fields
-            // through its UpdateUserEntityLocation method, so we don't need to manually update here
 
             return locationResult;
         }

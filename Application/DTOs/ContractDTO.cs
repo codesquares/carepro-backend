@@ -24,6 +24,12 @@ namespace Application.DTOs
         public string? AdditionalNotes { get; set; }
 
         /// <summary>
+        /// Additional tasks the caregiver wants to add during contract generation.
+        /// These are added directly to the contract tasks.
+        /// </summary>
+        public List<ProposedTaskDTO>? AdditionalTasks { get; set; }
+
+        /// <summary>
         /// Optional: Direct GPS coordinates for the service address.
         /// If provided, these are stored directly instead of geocoding the ServiceAddress text.
         /// </summary>
@@ -93,20 +99,30 @@ namespace Application.DTOs
     }
 
     /// <summary>
-    /// Optional request body for client contract approval.
-    /// If the client is at the service address, frontend sends their device GPS.
+    /// Request body for client contract approval.
+    /// Client must confirm or update the service address where care will be rendered.
     /// </summary>
     public class ClientContractApprovalRequest
     {
         /// <summary>
-        /// Client's device latitude captured via navigator.geolocation.
-        /// If provided, overrides any previously geocoded service coordinates.
+        /// Updated service address if client wants to change it. If null, the existing contract service address is kept.
+        /// Must be a valid address in Nigeria.
+        /// </summary>
+        public string? ServiceAddress { get; set; }
+
+        /// <summary>
+        /// If true, client confirms they are currently at the service address and their device GPS
+        /// (ServiceLatitude/ServiceLongitude) should be used as the precise location.
+        /// </summary>
+        public bool ConfirmAtServiceAddress { get; set; }
+
+        /// <summary>
+        /// Client's device latitude — only used when ConfirmAtServiceAddress is true.
         /// </summary>
         public double? ServiceLatitude { get; set; }
 
         /// <summary>
-        /// Client's device longitude captured via navigator.geolocation.
-        /// If provided, overrides any previously geocoded service coordinates.
+        /// Client's device longitude — only used when ConfirmAtServiceAddress is true.
         /// </summary>
         public double? ServiceLongitude { get; set; }
     }
@@ -118,6 +134,12 @@ namespace Application.DTOs
     {
         public string Comments { get; set; } = string.Empty;
         public string? PreferredScheduleNotes { get; set; } // Optional: suggest alternative times
+
+        /// <summary>
+        /// Tasks the client wants to propose during contract review.
+        /// These are stored as ProposedTasks on the contract and must be accepted by the caregiver.
+        /// </summary>
+        public List<ProposedTaskDTO>? ProposedTasks { get; set; }
     }
 
     /// <summary>
@@ -138,6 +160,16 @@ namespace Application.DTOs
         
         // Explanation of changes
         public string RevisionNotes { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Responses to client-proposed tasks. Each entry maps a proposed task ID to accept/reject.
+        /// </summary>
+        public List<ProposedTaskResponseDTO>? ProposedTaskResponses { get; set; }
+
+        /// <summary>
+        /// Additional tasks the caregiver wants to propose during revision.
+        /// </summary>
+        public List<ProposedTaskDTO>? AdditionalTasks { get; set; }
     }
 
     /// <summary>
@@ -146,6 +178,45 @@ namespace Application.DTOs
     public class ClientContractRejectionDTO
     {
         public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for proposing a task during contract negotiation (used by both client and caregiver)
+    /// </summary>
+    public class ProposedTaskDTO
+    {
+        public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string? Category { get; set; }
+        public string? Priority { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for caregiver to accept/reject a client-proposed task during contract revision
+    /// </summary>
+    public class ProposedTaskResponseDTO
+    {
+        public string ProposedTaskId { get; set; } = string.Empty;
+        public bool Accepted { get; set; }
+        public string? Note { get; set; }
+    }
+
+    /// <summary>
+    /// Response DTO for a proposed task on a contract
+    /// </summary>
+    public class ContractProposedTaskDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string Priority { get; set; } = string.Empty;
+        public string ProposedBy { get; set; } = string.Empty;
+        public string ProposedByRole { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string? ResponseNote { get; set; }
+        public DateTime ProposedAt { get; set; }
+        public DateTime? RespondedAt { get; set; }
     }
 
     /// <summary>
@@ -232,6 +303,7 @@ namespace Application.DTOs
         public string CaregiverId { get; set; }
         public PackageSelectionDTO SelectedPackage { get; set; }
         public List<ClientTaskDTO> Tasks { get; set; }
+        public List<ContractProposedTaskDTO> ProposedTasks { get; set; } = new List<ContractProposedTaskDTO>();
         public string GeneratedTerms { get; set; }
         public decimal TotalAmount { get; set; }
         public string Status { get; set; }

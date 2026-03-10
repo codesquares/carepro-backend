@@ -172,6 +172,8 @@ builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
 builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 
+builder.Services.AddScoped<IDisputeService, DisputeService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();

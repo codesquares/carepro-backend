@@ -14,6 +14,7 @@ namespace Application.DTOs
         public string City { get; set; } = null!;
         public string? State { get; set; }
         public string? Country { get; set; }
+        public string? PostalCode { get; set; }
         public double Latitude { get; set; }
         public double Longitude { get; set; }
         public bool IsActive { get; set; }
@@ -90,6 +91,7 @@ namespace Application.DTOs
         public string City { get; set; } = null!;
         public string? State { get; set; }
         public string? Country { get; set; }
+        public string? PostalCode { get; set; }
         public string FormattedAddress { get; set; } = null!;
     }
 

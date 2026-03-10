@@ -74,7 +74,14 @@ namespace Infrastructure.Content.Services
             {
                 for (int i = 0; i < request.Photos.Count; i++)
                 {
-                    var photoBytes = Convert.FromBase64String(request.Photos[i]);
+                    var base64Data = request.Photos[i];
+                    // Strip data URL prefix if present (e.g., "data:image/png;base64,...")
+                    var commaIndex = base64Data.IndexOf(',');
+                    if (commaIndex >= 0)
+                    {
+                        base64Data = base64Data[(commaIndex + 1)..];
+                    }
+                    var photoBytes = Convert.FromBase64String(base64Data);
                     var url = await _cloudinaryService.UploadImageAsync(photoBytes, $"obs_report_{caregiverId}_{DateTime.UtcNow:yyyyMMddHHmmss}_{i}");
                     photoUrls.Add(url);
                 }
@@ -103,7 +110,7 @@ namespace Infrastructure.Content.Services
             return MapToDTO(report);
         }
 
-        public async Task<List<ObservationReportDTO>> GetByOrderAsync(string orderId, string? taskSheetId, string caregiverId, bool isAdmin)
+        public async Task<List<ObservationReportDTO>> GetByOrderAsync(string orderId, string? taskSheetId, string userId, bool isAdmin, bool isClient = false)
         {
             // Validate order access
             if (!ObjectId.TryParse(orderId, out var orderObjectId))
@@ -113,7 +120,7 @@ namespace Infrastructure.Content.Services
             if (order == null)
                 throw new KeyNotFoundException($"Order '{orderId}' not found.");
 
-            if (!isAdmin && order.CaregiverId != caregiverId)
+            if (!isAdmin && !(isClient && order.ClientId == userId) && order.CaregiverId != userId)
                 throw new UnauthorizedAccessException("You are not authorized to view observation reports for this order.");
 
             var query = _dbContext.ObservationReports.Where(r => r.OrderId == orderId);

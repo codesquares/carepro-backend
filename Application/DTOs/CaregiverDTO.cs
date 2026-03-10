@@ -112,6 +112,10 @@ namespace Application.DTOs
 
         public string? HomeAddress { get; set; }
 
+        public string? ServiceAddress { get; set; }
+        public string? ServiceCity { get; set; }
+        public string? ServiceState { get; set; }
+
         public string? AboutMe { get; set; }
         public string? AboutMeIntro { get; set; }
 
@@ -210,6 +214,10 @@ namespace Application.DTOs
     {
         [Required]
         public string Address { get; set; } = null!;
+
+        public double? Latitude { get; set; }
+
+        public double? Longitude { get; set; }
     }
 
 

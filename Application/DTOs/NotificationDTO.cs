@@ -84,6 +84,14 @@ namespace Application.DTOs
         public const string OrderCancelled = "order_cancelled";
         public const string OrderDisputed = "order_disputed";
 
+        // ── Disputes ──
+        public const string DisputeRaised = "dispute_raised";
+        public const string DisputeUnderReview = "dispute_under_review";
+        public const string DisputeResolved = "dispute_resolved";
+        public const string DisputeDismissed = "dispute_dismissed";
+        public const string VisitApproved = "visit_approved";
+        public const string VisitDisputed = "visit_disputed";
+
         // ── Booking ──
         public const string BookingConfirmed = "booking_confirmed";
 
@@ -154,6 +162,16 @@ namespace Application.DTOs
         public const string CareRequestNoMatch = "care_request_no_match";
         public const string CareRequestAdminMatchUpdate = "care_request_admin_match_update";
         public const string CareRequestAdminNoMatch = "care_request_admin_no_match";
+
+        // ── Visit Task Proposals ──
+        public const string TaskProposedByClient = "task_proposed_by_client";
+        public const string TaskProposalAccepted = "task_proposal_accepted";
+        public const string TaskProposalRejected = "task_proposal_rejected";
+
+        // ── Contract Task Proposals ──
+        public const string ContractTaskProposedByClient = "contract_task_proposed_by_client";
+        public const string ContractTaskProposalAccepted = "contract_task_proposal_accepted";
+        public const string ContractTaskProposalRejected = "contract_task_proposal_rejected";
 
         // ── Broadcast ──
         public const string Broadcast = "broadcast";

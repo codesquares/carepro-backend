@@ -331,8 +331,20 @@ namespace Infrastructure.Content.Services
                 var caregiverName = $"{caregiver.FirstName} {caregiver.LastName}";
                 var isRevision = contract.NegotiationRound > 1;
 
+                // Check for proposed task responses in revision
+                var acceptedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Accepted") ?? 0;
+                var rejectedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Rejected") ?? 0;
+                var taskResponseInfo = "";
+                if (isRevision && (acceptedCount > 0 || rejectedCount > 0))
+                {
+                    var parts = new List<string>();
+                    if (acceptedCount > 0) parts.Add($"accepted {acceptedCount}");
+                    if (rejectedCount > 0) parts.Add($"rejected {rejectedCount}");
+                    taskResponseInfo = $" They {string.Join(" and ", parts)} of your proposed task(s).";
+                }
+
                 var notificationMessage = isRevision
-                    ? $"{caregiverName} has revised the care contract based on your feedback. Please review and approve or reject."
+                    ? $"{caregiverName} has revised the care contract based on your feedback.{taskResponseInfo} Please review and approve or reject."
                     : $"{caregiverName} has sent you a care contract for approval. Package: {contract.SelectedPackage.VisitsPerWeek} visits/week. Total: ${contract.TotalAmount:F2}";
 
                 var notificationType = isRevision ? NotificationTypes.ContractRevised : NotificationTypes.ContractPendingApproval;
@@ -432,9 +444,13 @@ namespace Infrastructure.Content.Services
                         title = "Contract Approved";
                         break;
                     case "review_requested":
-                        notificationMessage = $"{clientName} has requested changes to the contract. Please review their feedback and submit a revised schedule.";
+                        var proposedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Proposed") ?? 0;
+                        var taskInfo = proposedCount > 0
+                            ? $" They also proposed {proposedCount} new task(s) for your review."
+                            : "";
+                        notificationMessage = $"{clientName} has requested changes to the contract.{taskInfo} Please review their feedback and submit a revised schedule.";
                         notificationType = NotificationTypes.ContractReviewRequested;
-                        title = "Contract Review Requested";
+                        title = proposedCount > 0 ? "Contract Review Requested with Task Proposals" : "Contract Review Requested";
                         break;
                     case "rejected":
                         notificationMessage = $"{clientName} has rejected the revised contract. They may be looking for a different caregiver.";

@@ -5,6 +5,7 @@ using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
 using MongoDB.Bson;
 using System;
 using System.Threading.Tasks;
@@ -16,17 +17,20 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IGeocodingService _geocodingService;
         private readonly IConfiguration _configuration;
+        private readonly IHostEnvironment _environment;
         private readonly ILogger<VisitCheckinService> _logger;
 
         public VisitCheckinService(
             CareProDbContext dbContext,
             IGeocodingService geocodingService,
             IConfiguration configuration,
+            IHostEnvironment environment,
             ILogger<VisitCheckinService> logger)
         {
             _dbContext = dbContext;
             _geocodingService = geocodingService;
             _configuration = configuration;
+            _environment = environment;
             _logger = logger;
         }
 
@@ -73,6 +77,14 @@ namespace Infrastructure.Content.Services
 
             if (taskSheet.Status == "submitted")
                 throw new InvalidOperationException("Cannot check in to an already submitted task sheet.");
+
+            // Verify the client has approved the contract before allowing check-in
+            var approvedContract = await _dbContext.Contracts
+                .FirstOrDefaultAsync(c => c.OrderId == request.OrderId &&
+                    (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
+
+            if (approvedContract == null)
+                throw new InvalidOperationException("Cannot check in until the client has approved the contract for this order.");
 
             // GPS proximity validation
             double? distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
@@ -167,22 +179,13 @@ namespace Infrastructure.Content.Services
                 }
             }
 
-            // Priority 2: Client's stored coordinates
+            // No fallback to client's personal address — it may differ from the service address.
+            // If the contract has no geocoded service coordinates, reject the check-in.
             if (!serviceLat.HasValue || !serviceLng.HasValue)
             {
-                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
-                if (client?.Latitude != null && client?.Longitude != null)
-                {
-                    serviceLat = client.Latitude;
-                    serviceLng = client.Longitude;
-                }
-            }
-
-            // If we have no reference coordinates, allow check-in but log warning
-            if (!serviceLat.HasValue || !serviceLng.HasValue)
-            {
-                _logger.LogWarning("No service location coordinates available for order {OrderId}. Allowing check-in without proximity validation.", order.Id);
-                return null;
+                _logger.LogWarning("No geocoded service address on contract for order {OrderId}. Cannot validate proximity.", order.Id);
+                throw new InvalidOperationException(
+                    "The service address for this order has not been geocoded yet. Please contact support or ask the client to confirm the service address.");
             }
 
             // Calculate distance using Haversine
@@ -191,9 +194,19 @@ namespace Infrastructure.Content.Services
 
             if (distanceMeters > maxDistanceMeters)
             {
-                throw new InvalidOperationException(
-                    $"You are approximately {distanceMeters:F0}m away from the service address. " +
-                    $"You must be within {maxDistanceMeters}m to check in.");
+                if (_environment.IsDevelopment())
+                {
+                    _logger.LogWarning(
+                        "[DEV] Proximity check SKIPPED for caregiver {CaregiverId} on order {OrderId}. " +
+                        "Distance: {Distance:F0}m (limit: {Limit}m). Allowing check-in in Development.",
+                        caregiverId, order.Id, distanceMeters, maxDistanceMeters);
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"You are approximately {distanceMeters:F0}m away from the service address. " +
+                        $"You must be within {maxDistanceMeters}m to check in.");
+                }
             }
 
             return Math.Round(distanceMeters, 1);

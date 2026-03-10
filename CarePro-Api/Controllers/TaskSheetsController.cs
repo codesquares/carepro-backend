@@ -146,6 +146,7 @@ namespace CarePro_Api.Controllers
         /// <summary>
         /// Mark a task sheet as submitted. This finalizes the sheet.
         /// Requires a prior check-in. Optionally accepts a client signature (base64 PNG).
+        /// All client-proposed tasks must be accepted or rejected before submission.
         /// </summary>
         [HttpPut("{taskSheetId}/submit")]
         public async Task<IActionResult> SubmitTaskSheet(string taskSheetId, [FromBody] SubmitTaskSheetRequest? request)
@@ -175,6 +176,88 @@ namespace CarePro_Api.Controllers
             {
                 _logger.LogError(ex, "Error submitting task sheet {TaskSheetId}", taskSheetId);
                 return StatusCode(500, new { error = "An error occurred while submitting the task sheet." });
+            }
+        }
+
+        /// <summary>
+        /// Client proposes tasks on a task sheet. These tasks require caregiver acceptance before
+        /// they become part of the confirmable tasks during visit submission.
+        /// </summary>
+        [HttpPost("{taskSheetId}/client-propose-tasks")]
+        public async Task<IActionResult> ClientProposeTasks(string taskSheetId, [FromBody] ClientProposeTasksRequest request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { error = "Client authorization required." });
+
+                var result = await _taskSheetService.ClientProposeTasksAsync(taskSheetId, request, userId);
+
+                _logger.LogInformation("Client {ClientId} proposed tasks on TaskSheet {TaskSheetId}", userId, taskSheetId);
+
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error proposing tasks on task sheet {TaskSheetId}", taskSheetId);
+                return StatusCode(500, new { error = "An error occurred while proposing tasks." });
+            }
+        }
+
+        /// <summary>
+        /// Caregiver accepts or rejects client-proposed tasks on a task sheet.
+        /// Accepted tasks become part of the task list; rejected tasks are marked accordingly.
+        /// All pending tasks must be resolved before the task sheet can be submitted.
+        /// </summary>
+        [HttpPut("{taskSheetId}/respond-to-proposed-tasks")]
+        public async Task<IActionResult> RespondToProposedTasks(string taskSheetId, [FromBody] RespondToProposedTasksRequest request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { error = "Caregiver authorization required." });
+
+                var result = await _taskSheetService.RespondToProposedTasksAsync(taskSheetId, request, userId);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error responding to proposed tasks on task sheet {TaskSheetId}", taskSheetId);
+                return StatusCode(500, new { error = "An error occurred while responding to proposed tasks." });
             }
         }
 

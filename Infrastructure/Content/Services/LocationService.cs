@@ -57,6 +57,7 @@ namespace Infrastructure.Content.Services
                     existingLocation.City = geocodeResult.City;
                     existingLocation.State = geocodeResult.State;
                     existingLocation.Country = geocodeResult.Country;
+                    existingLocation.PostalCode = geocodeResult.PostalCode;
                     existingLocation.Latitude = geocodeResult.Latitude;
                     existingLocation.Longitude = geocodeResult.Longitude;
                     existingLocation.UpdatedAt = DateTime.UtcNow;
@@ -77,6 +78,7 @@ namespace Infrastructure.Content.Services
                         City = geocodeResult.City,
                         State = geocodeResult.State,
                         Country = geocodeResult.Country,
+                        PostalCode = geocodeResult.PostalCode,
                         Latitude = geocodeResult.Latitude,
                         Longitude = geocodeResult.Longitude,
                         IsActive = true,
@@ -103,6 +105,7 @@ namespace Infrastructure.Content.Services
                     City = location.City,
                     State = location.State,
                     Country = location.Country,
+                    PostalCode = location.PostalCode,
                     Latitude = location.Latitude,
                     Longitude = location.Longitude,
                     IsActive = location.IsActive,
@@ -135,6 +138,7 @@ namespace Infrastructure.Content.Services
                 City = location.City,
                 State = location.State,
                 Country = location.Country,
+                PostalCode = location.PostalCode,
                 Latitude = location.Latitude,
                 Longitude = location.Longitude,
                 IsActive = location.IsActive,
@@ -170,8 +174,14 @@ namespace Infrastructure.Content.Services
                 location.Address = request.Address;
                 location.City = geocodeResult.City;
                 location.State = geocodeResult.State;
-                location.Latitude = geocodeResult.Latitude;
-                location.Longitude = geocodeResult.Longitude;
+                location.Country = geocodeResult.Country;
+                location.PostalCode = geocodeResult.PostalCode;
+                // Use frontend-provided coordinates if available, otherwise use geocoded ones
+                location.Latitude = request.Latitude ?? geocodeResult.Latitude;
+                location.Longitude = request.Longitude ?? geocodeResult.Longitude;
+
+                // Sync Client/Caregiver entity fields (PreferredCity, Address, Lat, Lng, etc.)
+                await UpdateUserEntityLocation(request.UserId, request.UserType, geocodeResult);
             }
             else
             {
@@ -201,6 +211,7 @@ namespace Infrastructure.Content.Services
                 City = location.City,
                 State = location.State,
                 Country = location.Country,
+                PostalCode = location.PostalCode,
                 Latitude = location.Latitude,
                 Longitude = location.Longitude,
                 IsActive = location.IsActive,
@@ -402,6 +413,7 @@ namespace Infrastructure.Content.Services
                 City = l.City,
                 State = l.State,
                 Country = l.Country,
+                PostalCode = l.PostalCode,
                 Latitude = l.Latitude,
                 Longitude = l.Longitude,
                 IsActive = l.IsActive,

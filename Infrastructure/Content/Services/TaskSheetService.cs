@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
@@ -16,12 +17,21 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly CloudinaryService _cloudinaryService;
+        private readonly INotificationService _notificationService;
+        private readonly IEmailService _emailService;
         private readonly ILogger<TaskSheetService> _logger;
 
-        public TaskSheetService(CareProDbContext dbContext, CloudinaryService cloudinaryService, ILogger<TaskSheetService> logger)
+        public TaskSheetService(
+            CareProDbContext dbContext,
+            CloudinaryService cloudinaryService,
+            INotificationService notificationService,
+            IEmailService emailService,
+            ILogger<TaskSheetService> logger)
         {
             _dbContext = dbContext;
             _cloudinaryService = cloudinaryService;
+            _notificationService = notificationService;
+            _emailService = emailService;
             _logger = logger;
         }
 
@@ -311,6 +321,14 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("This task sheet has already been submitted.");
             }
 
+            // Block submission if there are still pending client-proposed tasks
+            var pendingTasks = taskSheet.Tasks.Where(t => t.ProposalStatus == "Pending").ToList();
+            if (pendingTasks.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot submit: {pendingTasks.Count} client-proposed task(s) still pending. Please accept or reject all proposed tasks first.");
+            }
+
             // Require check-in before submission
             var checkin = await _dbContext.VisitCheckins
                 .FirstOrDefaultAsync(vc => vc.TaskSheetId == taskSheetId);
@@ -322,7 +340,14 @@ namespace Infrastructure.Content.Services
             // Handle client signature upload
             if (!string.IsNullOrEmpty(request.ClientSignature))
             {
-                var signatureBytes = Convert.FromBase64String(request.ClientSignature);
+                var base64Data = request.ClientSignature;
+                // Strip data URL prefix if present (e.g., "data:image/png;base64,...")
+                var commaIndex = base64Data.IndexOf(',');
+                if (commaIndex >= 0)
+                {
+                    base64Data = base64Data[(commaIndex + 1)..];
+                }
+                var signatureBytes = Convert.FromBase64String(base64Data);
                 var signatureUrl = await _cloudinaryService.UploadImageAsync(
                     signatureBytes,
                     $"client_signature_{taskSheetId}_{DateTime.UtcNow:yyyyMMddHHmmss}");
@@ -402,13 +427,210 @@ namespace Infrastructure.Content.Services
                     Id = t.Id,
                     Text = t.Text,
                     Completed = t.Completed,
-                    AddedByCaregiver = t.AddedByCaregiver
+                    AddedByCaregiver = t.AddedByCaregiver,
+                    AddedByClient = t.AddedByClient ?? false,
+                    ProposalStatus = t.ProposalStatus ?? "Accepted"
                 }).ToList(),
                 Status = entity.Status,
                 SubmittedAt = entity.SubmittedAt,
+                ClientReviewStatus = entity.ClientReviewStatus,
+                ClientReviewedAt = entity.ClientReviewedAt,
+                ClientDisputeReason = entity.ClientDisputeReason,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt
             };
+        }
+
+        /// <summary>
+        /// Client proposes tasks on a task sheet. Tasks are stored as "Pending" until the caregiver accepts.
+        /// </summary>
+        public async Task<TaskSheetDTO> ClientProposeTasksAsync(string taskSheetId, ClientProposeTasksRequest request, string clientId)
+        {
+            var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
+
+            var order = await GetOrderOrThrow(taskSheet.OrderId);
+
+            // Block completed orders
+            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This order has been completed. Tasks can no longer be proposed.");
+
+            // Verify the caller is the client for this order
+            if (order.ClientId != clientId)
+                throw new UnauthorizedAccessException("You are not authorized to propose tasks on this task sheet.");
+
+            // Cannot propose on a submitted sheet
+            if (taskSheet.Status == "submitted")
+                throw new InvalidOperationException("Cannot propose tasks on a submitted task sheet.");
+
+            if (request.Tasks == null || request.Tasks.Count == 0)
+                throw new ArgumentException("At least one task must be proposed.");
+
+            // Add client-proposed tasks as Pending
+            foreach (var proposedTask in request.Tasks)
+            {
+                if (string.IsNullOrWhiteSpace(proposedTask.Text))
+                    continue;
+
+                taskSheet.Tasks.Add(new TaskSheetItem
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    Text = proposedTask.Text.Trim(),
+                    Completed = false,
+                    AddedByCaregiver = false,
+                    AddedByClient = true,
+                    ProposalStatus = "Pending"
+                });
+            }
+
+            taskSheet.UpdatedAt = DateTime.UtcNow;
+            _dbContext.TaskSheets.Update(taskSheet);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Client {ClientId} proposed {Count} tasks on TaskSheet {TaskSheetId}",
+                clientId, request.Tasks.Count, taskSheetId);
+
+            // Notify the caregiver about client's proposed tasks
+            var taskNames = string.Join(", ", request.Tasks.Where(t => !string.IsNullOrWhiteSpace(t.Text)).Select(t => t.Text.Trim()));
+            try
+            {
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == clientId);
+                var clientName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Your client";
+
+                await _notificationService.CreateNotificationAsync(
+                    recipientId: taskSheet.CaregiverId,
+                    senderId: clientId,
+                    type: NotificationTypes.TaskProposedByClient,
+                    content: $"{clientName} has proposed {request.Tasks.Count} new task(s) on visit #{taskSheet.SheetNumber}: {taskNames}. Please review and accept or reject them before your next submission.",
+                    Title: "New Task Proposal from Client",
+                    relatedEntityId: taskSheetId,
+                    orderId: taskSheet.OrderId
+                );
+
+                // Send email to caregiver
+                var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == taskSheet.CaregiverId);
+                if (caregiver?.Email != null)
+                {
+                    await _emailService.SendGenericNotificationEmailAsync(
+                        caregiver.Email,
+                        caregiver.FirstName ?? "Caregiver",
+                        "New Task Proposal from Client",
+                        $"{clientName} has proposed {request.Tasks.Count} new task(s) on visit #{taskSheet.SheetNumber}: {taskNames}. Please log in to review and accept or reject them before your next visit submission."
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send task proposal notifications for TaskSheet {TaskSheetId}", taskSheetId);
+            }
+
+            return MapToDTO(taskSheet);
+        }
+
+        /// <summary>
+        /// Caregiver accepts or rejects client-proposed tasks on a task sheet.
+        /// </summary>
+        public async Task<TaskSheetDTO> RespondToProposedTasksAsync(string taskSheetId, RespondToProposedTasksRequest request, string caregiverId)
+        {
+            var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
+
+            var order = await GetOrderOrThrow(taskSheet.OrderId);
+
+            // Block completed orders
+            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This order has been completed. Task proposals can no longer be responded to.");
+
+            // Verify the caller is the assigned caregiver
+            if (taskSheet.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("You are not authorized to respond to task proposals on this task sheet.");
+
+            // Cannot respond on a submitted sheet
+            if (taskSheet.Status == "submitted")
+                throw new InvalidOperationException("Cannot respond to task proposals on a submitted task sheet.");
+
+            if (request.Responses == null || request.Responses.Count == 0)
+                throw new ArgumentException("At least one response must be provided.");
+
+            var responseMap = request.Responses.ToDictionary(r => r.TaskId, r => r.Accepted);
+
+            var acceptedTasks = new List<string>();
+            var rejectedTasks = new List<string>();
+
+            foreach (var task in taskSheet.Tasks)
+            {
+                if (task.ProposalStatus != "Pending") continue;
+                if (!responseMap.TryGetValue(task.Id, out var accepted)) continue;
+
+                task.ProposalStatus = accepted ? "Accepted" : "Rejected";
+                if (accepted) acceptedTasks.Add(task.Text);
+                else rejectedTasks.Add(task.Text);
+            }
+
+            taskSheet.UpdatedAt = DateTime.UtcNow;
+            _dbContext.TaskSheets.Update(taskSheet);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Caregiver {CaregiverId} responded to {Count} proposed tasks on TaskSheet {TaskSheetId}",
+                caregiverId, request.Responses.Count, taskSheetId);
+
+            // Notify the client about the caregiver's response
+            try
+            {
+                var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
+                var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Your caregiver";
+
+                // Build message parts
+                var messageParts = new List<string>();
+                if (acceptedTasks.Count > 0)
+                    messageParts.Add($"Accepted: {string.Join(", ", acceptedTasks)}");
+                if (rejectedTasks.Count > 0)
+                    messageParts.Add($"Rejected: {string.Join(", ", rejectedTasks)}");
+                var details = string.Join(". ", messageParts);
+
+                // Send notification per accepted/rejected type
+                if (acceptedTasks.Count > 0)
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        recipientId: order.ClientId,
+                        senderId: caregiverId,
+                        type: NotificationTypes.TaskProposalAccepted,
+                        content: $"{caregiverName} accepted {acceptedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", acceptedTasks)}.",
+                        Title: "Task Proposal Accepted",
+                        relatedEntityId: taskSheetId,
+                        orderId: taskSheet.OrderId
+                    );
+                }
+
+                if (rejectedTasks.Count > 0)
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        recipientId: order.ClientId,
+                        senderId: caregiverId,
+                        type: NotificationTypes.TaskProposalRejected,
+                        content: $"{caregiverName} rejected {rejectedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", rejectedTasks)}.",
+                        Title: "Task Proposal Rejected",
+                        relatedEntityId: taskSheetId,
+                        orderId: taskSheet.OrderId
+                    );
+                }
+
+                // Send email to client
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                if (client?.Email != null)
+                {
+                    await _emailService.SendGenericNotificationEmailAsync(
+                        client.Email,
+                        client.FirstName ?? "Client",
+                        "Update on Your Proposed Tasks",
+                        $"{caregiverName} has responded to your proposed tasks on visit #{taskSheet.SheetNumber}. {details}. Log in to view the updated task sheet."
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send task proposal response notifications for TaskSheet {TaskSheetId}", taskSheetId);
+            }
+
+            return MapToDTO(taskSheet);
         }
     }
 }

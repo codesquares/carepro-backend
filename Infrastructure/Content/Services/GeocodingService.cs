@@ -59,6 +59,7 @@ namespace Infrastructure.Content.Services
                     var city = ExtractCityFromComponents(result.AddressComponents);
                     var state = ExtractStateFromComponents(result.AddressComponents);
                     var country = ExtractCountryFromComponents(result.AddressComponents);
+                    var postalCode = ExtractPostalCodeFromComponents(result.AddressComponents);
 
                     return new GeocodeResponse
                     {
@@ -67,6 +68,7 @@ namespace Infrastructure.Content.Services
                         City = city,
                         State = state,
                         Country = country,
+                        PostalCode = postalCode,
                         FormattedAddress = result.FormattedAddress ?? address
                     };
                 }
@@ -111,6 +113,7 @@ namespace Infrastructure.Content.Services
                     var city = ExtractCityFromComponents(result.AddressComponents);
                     var state = ExtractStateFromComponents(result.AddressComponents);
                     var country = ExtractCountryFromComponents(result.AddressComponents);
+                    var postalCode = ExtractPostalCodeFromComponents(result.AddressComponents);
 
                     return new GeocodeResponse
                     {
@@ -119,6 +122,7 @@ namespace Infrastructure.Content.Services
                         City = city,
                         State = state,
                         Country = country,
+                        PostalCode = postalCode,
                         FormattedAddress = result.FormattedAddress ?? $"{latitude}, {longitude}"
                     };
                 }
@@ -195,6 +199,16 @@ namespace Infrastructure.Content.Services
             return countryComponent?.LongName ?? "";
         }
 
+        private string? ExtractPostalCodeFromComponents(IEnumerable<AddressComponent>? components)
+        {
+            if (components == null) return null;
+
+            var postalComponent = components.FirstOrDefault(c =>
+                c.Types?.Contains("postal_code") == true);
+
+            return postalComponent?.LongName;
+        }
+
         private async Task<GeocodeResponse> MockGeocodeAsync(string address)
         {
             // Mock implementation for development/testing
@@ -209,6 +223,7 @@ namespace Infrastructure.Content.Services
                 City = city,
                 State = "Lagos",
                 Country = "Nigeria",
+                PostalCode = "100001",
                 FormattedAddress = address
             };
         }
@@ -224,6 +239,7 @@ namespace Infrastructure.Content.Services
                 City = "Lagos",
                 State = "Lagos",
                 Country = "Nigeria",
+                PostalCode = "100001",
                 FormattedAddress = $"Near {latitude:F4}, {longitude:F4}"
             };
         }

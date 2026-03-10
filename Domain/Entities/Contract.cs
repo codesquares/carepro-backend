@@ -19,6 +19,9 @@ namespace Domain.Entities
         public PackageSelection SelectedPackage { get; set; } = new PackageSelection();
         public List<ClientTask> Tasks { get; set; } = new List<ClientTask>();
 
+        // Proposed tasks during contract negotiation (client or caregiver can propose)
+        public List<ContractProposedTask> ProposedTasks { get; set; } = new List<ContractProposedTask>();
+
         // Contract Terms (LLM generated)
         public string GeneratedTerms { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
@@ -147,5 +150,24 @@ namespace Domain.Entities
         Medium,
         High,
         Critical
+    }
+
+    /// <summary>
+    /// A task proposed during contract negotiation by either client or caregiver.
+    /// Must be accepted by the other party before it becomes part of the contract.
+    /// </summary>
+    public class ContractProposedTask
+    {
+        public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public TaskCategory Category { get; set; } = TaskCategory.Other;
+        public TaskPriority Priority { get; set; } = TaskPriority.Medium;
+        public string ProposedBy { get; set; } = string.Empty;       // userId
+        public string ProposedByRole { get; set; } = string.Empty;   // "Client" or "Caregiver"
+        public string Status { get; set; } = "Proposed";              // "Proposed", "Accepted", "Rejected"
+        public string? ResponseNote { get; set; }
+        public DateTime ProposedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? RespondedAt { get; set; }
     }
 }

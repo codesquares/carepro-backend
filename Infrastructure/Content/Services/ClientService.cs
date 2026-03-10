@@ -788,13 +788,12 @@ namespace Infrastructure.Content.Services
             {
                 UserId = clientId,
                 UserType = "Client",
-                Address = request.Address
+                Address = request.Address,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude
             };
 
             var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
-
-            // The location service automatically updates the client entity's location fields
-            // through its UpdateUserEntityLocation method, so we don't need to manually update here
 
             return locationResult;
         }

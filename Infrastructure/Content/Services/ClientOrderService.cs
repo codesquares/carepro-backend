@@ -980,6 +980,32 @@ namespace Infrastructure.Content.Services
                     logger.LogError(walletEx, "Error recording dispute hold for order {OrderId}", orderId);
                 }
 
+                // ── Create a Dispute record for tracking & resolution ──
+                try
+                {
+                    var dispute = new Domain.Entities.Dispute
+                    {
+                        OrderId = orderId,
+                        DisputeType = Domain.Entities.DisputeType.Order,
+                        Category = Domain.Entities.DisputeCategory.Other,
+                        Reason = updateClientOrderStatusHasDisputeRequest.DisputeReason ?? "No reason provided",
+                        RaisedBy = updateClientOrderStatusHasDisputeRequest.UserId ?? string.Empty,
+                        ClientId = existingOrder.ClientId,
+                        CaregiverId = existingOrder.CaregiverId,
+                        Status = Domain.Entities.DisputeStatus.Open
+                    };
+
+                    careProDbContext.Disputes.Add(dispute);
+                    await careProDbContext.SaveChangesAsync();
+
+                    // ── Notify admins, caregiver, and client ──
+                    await NotifyDisputeParticipantsAsync(dispute, existingOrder);
+                }
+                catch (Exception disputeEx)
+                {
+                    logger.LogError(disputeEx, "Error creating dispute record for order {OrderId}", orderId);
+                }
+
                 LogAuditEvent($"Order Status updated (ID: {orderId})", updateClientOrderStatusHasDisputeRequest.UserId);
                 return $"Order with ID '{orderId}' updated successfully.";
             }
@@ -987,6 +1013,61 @@ namespace Infrastructure.Content.Services
             {
                 LogException(ex);
                 throw new Exception(ex.Message);
+            }
+        }
+
+        private async System.Threading.Tasks.Task NotifyDisputeParticipantsAsync(Domain.Entities.Dispute dispute, ClientOrder order)
+        {
+            try
+            {
+                var client = await careProDbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                var clientName = client != null ? $"{client.FirstName} {client.LastName}" : "A client";
+
+                var title = "Order Dispute Raised";
+                var content = $"{clientName} has raised a dispute on Order {order.Id}. Reason: {dispute.Reason}";
+
+                // Notify all admins
+                var admins = await careProDbContext.AdminUsers
+                    .Where(a => !a.IsDeleted)
+                    .ToListAsync();
+
+                foreach (var admin in admins)
+                {
+                    await notificationService.CreateNotificationAsync(
+                        recipientId: admin.Id.ToString(),
+                        senderId: dispute.RaisedBy,
+                        type: Application.DTOs.NotificationTypes.DisputeRaised,
+                        content: $"[ACTION REQUIRED] {content}",
+                        Title: title,
+                        relatedEntityId: dispute.Id.ToString(),
+                        orderId: dispute.OrderId);
+                }
+
+                // Notify caregiver
+                await notificationService.CreateNotificationAsync(
+                    recipientId: order.CaregiverId,
+                    senderId: dispute.RaisedBy,
+                    type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    content: $"A dispute has been raised on Order {order.Id}. An admin will review this shortly.",
+                    Title: title,
+                    relatedEntityId: dispute.Id.ToString(),
+                    orderId: dispute.OrderId);
+
+                // Confirm to client
+                await notificationService.CreateNotificationAsync(
+                    recipientId: order.ClientId,
+                    senderId: dispute.RaisedBy,
+                    type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    content: $"Your dispute on Order {order.Id} has been submitted. An admin will review it shortly.",
+                    Title: "Dispute Submitted",
+                    relatedEntityId: dispute.Id.ToString(),
+                    orderId: dispute.OrderId);
+
+                logger.LogInformation("Dispute notifications sent for order {OrderId} to {AdminCount} admins, caregiver, and client", order.Id, admins.Count);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send dispute notifications for order {OrderId}", order.Id);
             }
         }
 

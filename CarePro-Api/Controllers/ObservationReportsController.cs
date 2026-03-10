@@ -8,7 +8,6 @@ namespace CarePro_Api.Controllers
 {
     [ApiController]
     [Route("api/observation-reports")]
-    [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
     public class ObservationReportsController : ControllerBase
     {
         private readonly IObservationReportService _observationReportService;
@@ -24,6 +23,7 @@ namespace CarePro_Api.Controllers
         /// Create an observation report. Only the assigned caregiver can create. Immutable after creation.
         /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
         public async Task<IActionResult> Create([FromBody] CreateObservationReportRequest request)
         {
             try
@@ -63,17 +63,19 @@ namespace CarePro_Api.Controllers
         /// Get observation reports by order. Optionally filter by taskSheetId.
         /// </summary>
         [HttpGet]
+        [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetByOrder([FromQuery] string orderId, [FromQuery] string? taskSheetId)
         {
             try
             {
                 var userId = GetCurrentUserId();
                 bool isAdmin = IsAdminOrSuperAdmin();
+                bool isClient = IsClient();
 
                 if (string.IsNullOrEmpty(userId) && !isAdmin)
                     return Unauthorized(new { error = "Authorization required." });
 
-                var result = await _observationReportService.GetByOrderAsync(orderId, taskSheetId, userId ?? "", isAdmin);
+                var result = await _observationReportService.GetByOrderAsync(orderId, taskSheetId, userId ?? "", isAdmin, isClient);
                 return Ok(result);
             }
             catch (UnauthorizedAccessException ex)
@@ -104,6 +106,12 @@ namespace CarePro_Api.Controllers
         {
             var role = User.FindFirstValue(ClaimTypes.Role);
             return role == "Admin" || role == "SuperAdmin";
+        }
+
+        private bool IsClient()
+        {
+            var role = User.FindFirstValue(ClaimTypes.Role);
+            return role == "Client";
         }
     }
 }

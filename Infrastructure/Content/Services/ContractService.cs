@@ -830,6 +830,24 @@ namespace Infrastructure.Content.Services
                     SpecialRequirements = t.SpecialRequirements
                 }).ToList() ?? new List<ClientTask>();
 
+                // Add caregiver's additional tasks during contract generation
+                if (request.AdditionalTasks != null && request.AdditionalTasks.Count > 0)
+                {
+                    foreach (var additionalTask in request.AdditionalTasks)
+                    {
+                        tasks.Add(new ClientTask
+                        {
+                            Id = ObjectId.GenerateNewId().ToString(),
+                            Title = additionalTask.Title,
+                            Description = additionalTask.Description ?? string.Empty,
+                            Category = Enum.TryParse<TaskCategory>(additionalTask.Category, true, out var cat) ? cat : TaskCategory.Other,
+                            Priority = Enum.TryParse<TaskPriority>(additionalTask.Priority, true, out var pri) ? pri : TaskPriority.Medium
+                        });
+                    }
+                    _logger.LogInformation("Caregiver {CaregiverId} added {Count} additional tasks during contract generation for order {OrderId}",
+                        caregiverId, request.AdditionalTasks.Count, request.OrderId);
+                }
+
                 // Convert schedule DTOs to entities
                 var scheduleEntities = request.Schedule.Select(s => new ScheduledVisit
                 {
@@ -991,13 +1009,39 @@ namespace Infrastructure.Content.Services
                     contract.Status != ContractStatus.Revised)
                     throw new InvalidOperationException($"Contract cannot be approved. Current status: {contract.Status}");
 
-                // Store client's device GPS if provided (most accurate source)
-                if (request?.ServiceLatitude.HasValue == true && request.ServiceLongitude.HasValue == true)
+                // Handle service address confirmation/update from client
+                if (request != null)
                 {
-                    contract.ServiceLatitude = request.ServiceLatitude.Value;
-                    contract.ServiceLongitude = request.ServiceLongitude.Value;
-                    _logger.LogInformation("Contract {ContractId} received client device GPS: {Lat}, {Lng}",
-                        contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
+                    // If client updated the service address, re-geocode it
+                    if (!string.IsNullOrWhiteSpace(request.ServiceAddress) && 
+                        request.ServiceAddress != contract.ServiceAddress)
+                    {
+                        contract.ServiceAddress = request.ServiceAddress;
+                        contract.ServiceLatitude = null;
+                        contract.ServiceLongitude = null;
+
+                        try
+                        {
+                            var geocode = await _geocodingService.GeocodeAsync(request.ServiceAddress);
+                            contract.ServiceLatitude = geocode.Latitude;
+                            contract.ServiceLongitude = geocode.Longitude;
+                            _logger.LogInformation("Contract {ContractId} service address updated and geocoded by client", contractId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to geocode updated service address for contract {ContractId}", contractId);
+                        }
+                    }
+
+                    // Only use device GPS if client explicitly confirms they are at the service address
+                    if (request.ConfirmAtServiceAddress && 
+                        request.ServiceLatitude.HasValue && request.ServiceLongitude.HasValue)
+                    {
+                        contract.ServiceLatitude = request.ServiceLatitude.Value;
+                        contract.ServiceLongitude = request.ServiceLongitude.Value;
+                        _logger.LogInformation("Contract {ContractId} received confirmed client device GPS at service address: {Lat}, {Lng}",
+                            contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
+                    }
                 }
 
                 // Update contract
@@ -1051,6 +1095,29 @@ namespace Infrastructure.Content.Services
                 {
                     contract.Comments.Add($"Client preferred schedule: {request.PreferredScheduleNotes}");
                 }
+
+                // Store client-proposed tasks
+                if (request.ProposedTasks != null && request.ProposedTasks.Count > 0)
+                {
+                    foreach (var proposedTask in request.ProposedTasks)
+                    {
+                        contract.ProposedTasks.Add(new ContractProposedTask
+                        {
+                            Id = ObjectId.GenerateNewId().ToString(),
+                            Title = proposedTask.Title,
+                            Description = proposedTask.Description ?? string.Empty,
+                            Category = Enum.TryParse<TaskCategory>(proposedTask.Category, true, out var cat) ? cat : TaskCategory.Other,
+                            Priority = Enum.TryParse<TaskPriority>(proposedTask.Priority, true, out var pri) ? pri : TaskPriority.Medium,
+                            ProposedBy = clientId,
+                            ProposedByRole = "Client",
+                            Status = "Proposed",
+                            ProposedAt = DateTime.UtcNow
+                        });
+                    }
+                    _logger.LogInformation("Client {ClientId} proposed {Count} tasks during contract review for contract {ContractId}",
+                        clientId, request.ProposedTasks.Count, contractId);
+                }
+
                 contract.UpdatedAt = DateTime.UtcNow;
 
                 // Record negotiation history
@@ -1137,6 +1204,65 @@ namespace Infrastructure.Content.Services
                     ContractStartDate = contract.ContractStartDate,
                     ContractEndDate = contract.ContractEndDate
                 };
+
+                // Process caregiver responses to client-proposed tasks
+                if (revision.ProposedTaskResponses != null && revision.ProposedTaskResponses.Count > 0)
+                {
+                    foreach (var response in revision.ProposedTaskResponses)
+                    {
+                        var proposedTask = contract.ProposedTasks
+                            .FirstOrDefault(pt => pt.Id == response.ProposedTaskId && pt.Status == "Proposed");
+                        
+                        if (proposedTask == null) continue;
+
+                        if (response.Accepted)
+                        {
+                            proposedTask.Status = "Accepted";
+                            proposedTask.RespondedAt = DateTime.UtcNow;
+                            proposedTask.ResponseNote = response.Note;
+
+                            // Move accepted task into the contract's main Tasks list
+                            contract.Tasks.Add(new ClientTask
+                            {
+                                Id = ObjectId.GenerateNewId().ToString(),
+                                Title = proposedTask.Title,
+                                Description = proposedTask.Description,
+                                Category = proposedTask.Category,
+                                Priority = proposedTask.Priority
+                            });
+                        }
+                        else
+                        {
+                            proposedTask.Status = "Rejected";
+                            proposedTask.RespondedAt = DateTime.UtcNow;
+                            proposedTask.ResponseNote = response.Note;
+                        }
+                    }
+
+                    _logger.LogInformation("Caregiver {CaregiverId} responded to {Count} proposed tasks on contract {ContractId}",
+                        caregiverId, revision.ProposedTaskResponses.Count, revision.ContractId);
+                }
+
+                // Add caregiver's additional tasks during revision
+                if (revision.AdditionalTasks != null && revision.AdditionalTasks.Count > 0)
+                {
+                    foreach (var additionalTask in revision.AdditionalTasks)
+                    {
+                        contract.Tasks.Add(new ClientTask
+                        {
+                            Id = ObjectId.GenerateNewId().ToString(),
+                            Title = additionalTask.Title,
+                            Description = additionalTask.Description ?? string.Empty,
+                            Category = Enum.TryParse<TaskCategory>(additionalTask.Category, true, out var cat2) ? cat2 : TaskCategory.Other,
+                            Priority = Enum.TryParse<TaskPriority>(additionalTask.Priority, true, out var pri2) ? pri2 : TaskPriority.Medium
+                        });
+                    }
+                    _logger.LogInformation("Caregiver {CaregiverId} added {Count} additional tasks during revision of contract {ContractId}",
+                        caregiverId, revision.AdditionalTasks.Count, revision.ContractId);
+                }
+
+                // Update enriched data tasks to include newly accepted/added tasks
+                enrichedData.Tasks = contract.Tasks;
 
                 // Regenerate contract terms with enriched data
                 var contractTerms = await _llmService.GenerateContractWithScheduleAsync(enrichedData);
@@ -1375,6 +1501,20 @@ namespace Infrastructure.Content.Services
                         ? (int)t.EstimatedDuration.Value.TotalMinutes
                         : null
                 }).ToList(),
+                ProposedTasks = contract.ProposedTasks?.Select(pt => new ContractProposedTaskDTO
+                {
+                    Id = pt.Id,
+                    Title = pt.Title,
+                    Description = pt.Description,
+                    Category = pt.Category.ToString(),
+                    Priority = pt.Priority.ToString(),
+                    ProposedBy = pt.ProposedBy,
+                    ProposedByRole = pt.ProposedByRole,
+                    Status = pt.Status,
+                    ResponseNote = pt.ResponseNote,
+                    ProposedAt = pt.ProposedAt,
+                    RespondedAt = pt.RespondedAt
+                }).ToList() ?? new List<ContractProposedTaskDTO>(),
                 GeneratedTerms = contract.GeneratedTerms,
                 TotalAmount = contract.TotalAmount,
                 Status = contract.Status.ToString(),

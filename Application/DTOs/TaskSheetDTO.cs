@@ -24,6 +24,11 @@ namespace Application.DTOs
         // Client signature data (null if not yet signed)
         public ClientSignatureDTO? ClientSignature { get; set; }
 
+        // Client visit review fields
+        public string? ClientReviewStatus { get; set; }
+        public DateTime? ClientReviewedAt { get; set; }
+        public string? ClientDisputeReason { get; set; }
+
         // Report counts for UI badges
         public int ObservationReportCount { get; set; }
         public int IncidentReportCount { get; set; }
@@ -35,6 +40,11 @@ namespace Application.DTOs
         public string Text { get; set; } = string.Empty;
         public bool Completed { get; set; }
         public bool AddedByCaregiver { get; set; }
+        public bool AddedByClient { get; set; }
+        /// <summary>
+        /// "Accepted", "Pending", or "Rejected". Client-proposed tasks start as "Pending".
+        /// </summary>
+        public string ProposalStatus { get; set; } = "Accepted";
     }
 
     public class ClientSignatureDTO
@@ -66,5 +76,33 @@ namespace Application.DTOs
     {
         public string? ClientSignature { get; set; }
         public DateTime? SignedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Request for client to propose tasks on a task sheet during a visit.
+    /// These tasks start as "Pending" and must be accepted by the caregiver.
+    /// </summary>
+    public class ClientProposeTasksRequest
+    {
+        public List<ClientProposedTaskItemDTO> Tasks { get; set; } = new List<ClientProposedTaskItemDTO>();
+    }
+
+    public class ClientProposedTaskItemDTO
+    {
+        public string Text { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Request for caregiver to accept or reject client-proposed tasks on a task sheet.
+    /// </summary>
+    public class RespondToProposedTasksRequest
+    {
+        public List<TaskProposalResponseDTO> Responses { get; set; } = new List<TaskProposalResponseDTO>();
+    }
+
+    public class TaskProposalResponseDTO
+    {
+        public string TaskId { get; set; } = string.Empty;
+        public bool Accepted { get; set; }
     }
 }
