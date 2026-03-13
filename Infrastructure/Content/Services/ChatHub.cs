@@ -1,6 +1,7 @@
 ﻿using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Common;
+using Application.Interfaces.Content;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -21,13 +22,15 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<ChatHub> _logger;
         private readonly IContentSanitizer _contentSanitizer;
         private readonly IBookingCommitmentService _bookingCommitmentService;
+        private readonly IChatComplianceService _chatComplianceService;
 
-        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer, IBookingCommitmentService bookingCommitmentService)
+        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer, IBookingCommitmentService bookingCommitmentService, IChatComplianceService chatComplianceService)
         {
             _chatRepository = chatRepository;
             _logger = logger;
             _contentSanitizer = contentSanitizer;
             _bookingCommitmentService = bookingCommitmentService;
+            _chatComplianceService = chatComplianceService;
         }
 
         /// <summary>
@@ -152,6 +155,14 @@ namespace Infrastructure.Content.Services
             // ── END BOOKING COMMITMENT GATE ──────────────────────────────────
 
             _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", currentUserId, receiverId);
+
+            // ── CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────────
+            var complianceResult = await _chatComplianceService.EvaluateMessageAsync(currentUserId, receiverId, message);
+            if (!complianceResult.Allowed)
+            {
+                throw new HubException(complianceResult.Warning ?? "Your message was not sent because it contains contact information. All communication must stay on CarePro.");
+            }
+            // ── END CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────
 
             // Sanitize message content to prevent XSS attacks
             var sanitizedMessage = _contentSanitizer.SanitizeText(message);

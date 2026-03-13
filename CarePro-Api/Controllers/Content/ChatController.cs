@@ -6,6 +6,7 @@ using MongoDB.Bson;
 using System;
 using Microsoft.AspNetCore.Authorization;
 using Application.Interfaces.Common;
+using Application.Interfaces.Content;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
@@ -18,11 +19,13 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly ChatRepository _chatRepository;
         private readonly IContentSanitizer _contentSanitizer;
+        private readonly IChatComplianceService _chatComplianceService;
 
-        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer)
+        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer, IChatComplianceService chatComplianceService)
         {
             _chatRepository = chatRepository;
             _contentSanitizer = contentSanitizer;
+            _chatComplianceService = chatComplianceService;
         }
 
         /// <summary>
@@ -97,6 +100,14 @@ namespace CarePro_Api.Controllers.Content
                 {
                     return BadRequest(new { error = "Cannot send messages to yourself" });
                 }
+
+                // ── CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────────
+                var complianceResult = await _chatComplianceService.EvaluateMessageAsync(currentUserId, request.ReceiverId, request.Message);
+                if (!complianceResult.Allowed)
+                {
+                    return BadRequest(new { error = complianceResult.Warning ?? "Your message was not sent because it contains contact information." });
+                }
+                // ── END CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────
 
                 // Sanitize message content to prevent XSS attacks
                 var sanitizedMessage = _contentSanitizer.SanitizeText(request.Message);

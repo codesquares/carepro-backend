@@ -151,6 +151,10 @@ builder.Services.AddHostedService<RecurringBillingService>();
 // Content sanitization (XSS prevention)
 builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 
+// Contact pattern detection & chat compliance (off-platform leakage prevention)
+builder.Services.AddSingleton<IContactPatternDetector, ContactPatternDetector>();
+builder.Services.AddScoped<IChatComplianceService, ChatComplianceService>();
+
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
 builder.Services.AddScoped<IGeocodingService, GeocodingService>();

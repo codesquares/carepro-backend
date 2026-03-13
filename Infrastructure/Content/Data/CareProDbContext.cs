@@ -147,6 +147,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Dispute>().HasKey(d => d.Id);
             modelBuilder.Entity<Dispute>().Property(d => d.Id).HasElementName("_id");
 
+            modelBuilder.Entity<ChatViolation>().ToCollection("ChatViolations");
+            modelBuilder.Entity<ChatViolation>().HasKey(cv => cv.Id);
+            modelBuilder.Entity<ChatViolation>().Property(cv => cv.Id).HasElementName("_id");
+
         }
 
 
@@ -190,5 +194,6 @@ namespace Infrastructure.Content.Data
         public DbSet<ObservationReport> ObservationReports { get; set; }
         public DbSet<IncidentReport> IncidentReports { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
+        public DbSet<ChatViolation> ChatViolations { get; set; }
     }
 }
