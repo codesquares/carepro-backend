@@ -641,6 +641,8 @@ namespace Infrastructure.Content.Services
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
                 AuthProvider = caregiver.AuthProvider,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
 
                 CreatedAt = caregiver.CreatedAt,
             };
@@ -680,6 +682,8 @@ namespace Infrastructure.Content.Services
                     Location = caregiver.Location,
                     IntroVideo = caregiver.IntroVideo,
                     ProfileImage = caregiver.ProfileImage,
+                    Latitude = caregiver.Latitude,
+                    Longitude = caregiver.Longitude,
                     CreatedAt = caregiver.CreatedAt,
                 };
 
@@ -742,6 +746,8 @@ namespace Infrastructure.Content.Services
                 TotalEarning = totalEarning,
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
                 CreatedAt = caregiver.CreatedAt,
             };
 

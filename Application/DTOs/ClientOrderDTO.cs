@@ -50,7 +50,8 @@ namespace Application.DTOs
         public bool? IsDeclined { get; set; }
 
         // Recurring service tracking
-        public int? FrequencyPerWeek { get; set; }
+        public int FrequencyPerWeek { get; set; } = 1;
+        public string ServiceType { get; set; } = "one-time";
         public int? BillingCycleNumber { get; set; }
         public string? SubscriptionId { get; set; }
 
@@ -76,6 +77,8 @@ namespace Application.DTOs
         public int Amount { get; set; }
         public string? TransactionId { get; set; }
         public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
+        public int? FrequencyPerWeek { get; set; }
+        public string? ServiceType { get; set; }
     }
 
     public class UpdateClientOrderStatusRequest

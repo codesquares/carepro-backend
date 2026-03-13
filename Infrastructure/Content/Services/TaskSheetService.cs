@@ -155,18 +155,67 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("Maximum task sheets reached for this order.");
             }
 
-            // Get gigPackageDetails from the gig
-            var gig = await _dbContext.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
-            var packageDetails = gig?.PackageDetails ?? new List<string>();
-
-            // Create task items from package details
-            var tasks = packageDetails.Select(detail => new TaskSheetItem
+            // Previous sheet must be approved by client before a new one can be created
+            if (existingCount > 0)
             {
-                Id = ObjectId.GenerateNewId().ToString(),
-                Text = detail,
-                Completed = false,
-                AddedByCaregiver = false
-            }).ToList();
+                var previousSheet = await _dbContext.TaskSheets
+                    .Where(ts => ts.OrderId == orderId && ts.BillingCycleNumber == currentBillingCycle)
+                    .OrderByDescending(ts => ts.SheetNumber)
+                    .FirstOrDefaultAsync();
+
+                if (previousSheet != null)
+                {
+                    if (previousSheet.Status != "submitted")
+                    {
+                        throw new InvalidOperationException(
+                            $"Visit #{previousSheet.SheetNumber} has not been submitted yet. Please submit it before creating a new visit.");
+                    }
+
+                    if (previousSheet.ClientReviewStatus != "Approved")
+                    {
+                        throw new InvalidOperationException(
+                            $"Visit #{previousSheet.SheetNumber} has not been approved by the client yet. The client must approve the previous visit before a new one can start.");
+                    }
+                }
+            }
+
+            // Prefer tasks from approved contract; fall back to gig package details
+            var approvedContract = await _dbContext.Contracts
+                .FirstOrDefaultAsync(c => c.OrderId == orderId
+                    && c.Status == ContractStatus.Approved);
+
+            List<TaskSheetItem> tasks;
+
+            if (approvedContract?.Tasks != null && approvedContract.Tasks.Count > 0)
+            {
+                // Use the detailed tasks from the approved contract
+                tasks = approvedContract.Tasks.Select(t => new TaskSheetItem
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    Text = !string.IsNullOrEmpty(t.Description)
+                        ? $"{t.Title} — {t.Description}"
+                        : t.Title,
+                    Completed = false,
+                    AddedByCaregiver = false
+                }).ToList();
+
+                _logger.LogInformation("TaskSheet for order {OrderId} using {Count} tasks from approved contract {ContractId}",
+                    orderId, tasks.Count, approvedContract.Id);
+            }
+            else
+            {
+                // No approved contract — fall back to gig package details
+                var gig = await _dbContext.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
+                var packageDetails = gig?.PackageDetails ?? new List<string>();
+
+                tasks = packageDetails.Select(detail => new TaskSheetItem
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    Text = detail,
+                    Completed = false,
+                    AddedByCaregiver = false
+                }).ToList();
+            }
 
             var taskSheet = new TaskSheet
             {
@@ -359,10 +408,71 @@ namespace Infrastructure.Content.Services
             taskSheet.SubmittedAt = DateTime.UtcNow;
             taskSheet.UpdatedAt = DateTime.UtcNow;
 
+            // Calculate visit duration from check-in to submission
+            taskSheet.VisitDurationMinutes = Math.Round((taskSheet.SubmittedAt.Value - checkin.CheckinTimestamp).TotalMinutes, 1);
+
             _dbContext.TaskSheets.Update(taskSheet);
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation("TaskSheet submitted: {TaskSheetId}", taskSheetId);
+
+            // Notify both client and caregiver about submission
+            try
+            {
+                var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == taskSheet.CaregiverId);
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Your caregiver";
+                var clientName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Your client";
+                var durationText = taskSheet.VisitDurationMinutes.HasValue
+                    ? $" Duration: {taskSheet.VisitDurationMinutes:F0} minutes."
+                    : "";
+
+                // Notify client
+                await _notificationService.CreateNotificationAsync(
+                    recipientId: order.ClientId,
+                    senderId: taskSheet.CaregiverId,
+                    type: NotificationTypes.VisitSubmitted,
+                    content: $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber}.{durationText} Please review and approve the visit.",
+                    Title: "Visit Submitted for Review",
+                    relatedEntityId: taskSheetId,
+                    orderId: taskSheet.OrderId
+                );
+
+                if (client?.Email != null)
+                {
+                    await _emailService.SendGenericNotificationEmailAsync(
+                        client.Email,
+                        client.FirstName ?? "Client",
+                        "Visit Submitted for Review",
+                        $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber} for your order.{durationText} Please log in to review the completed tasks and approve the visit."
+                    );
+                }
+
+                // Notify caregiver (confirmation)
+                await _notificationService.CreateNotificationAsync(
+                    recipientId: taskSheet.CaregiverId,
+                    senderId: order.ClientId,
+                    type: NotificationTypes.VisitSubmitted,
+                    content: $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} Waiting for client approval.",
+                    Title: "Visit Submitted Successfully",
+                    relatedEntityId: taskSheetId,
+                    orderId: taskSheet.OrderId
+                );
+
+                if (caregiver?.Email != null)
+                {
+                    await _emailService.SendGenericNotificationEmailAsync(
+                        caregiver.Email,
+                        caregiver.FirstName ?? "Caregiver",
+                        "Visit Submitted Successfully",
+                        $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} You will be notified once the client reviews and approves your visit."
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send submission notifications for TaskSheet {TaskSheetId}", taskSheetId);
+            }
 
             return MapToDTO(taskSheet);
         }
@@ -436,6 +546,7 @@ namespace Infrastructure.Content.Services
                 ClientReviewStatus = entity.ClientReviewStatus,
                 ClientReviewedAt = entity.ClientReviewedAt,
                 ClientDisputeReason = entity.ClientDisputeReason,
+                VisitDurationMinutes = entity.VisitDurationMinutes,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt
             };

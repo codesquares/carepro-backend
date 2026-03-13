@@ -25,6 +25,11 @@ namespace Domain.Entities
         public DateTime? ClientReviewedAt { get; set; }
         public string? ClientDisputeReason { get; set; }
 
+        /// <summary>
+        /// Duration of the visit in minutes, calculated from check-in to submission.
+        /// </summary>
+        public double? VisitDurationMinutes { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

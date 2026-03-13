@@ -29,6 +29,9 @@ namespace Application.DTOs
         public DateTime? ClientReviewedAt { get; set; }
         public string? ClientDisputeReason { get; set; }
 
+        // Visit duration (minutes from check-in to submission)
+        public double? VisitDurationMinutes { get; set; }
+
         // Report counts for UI badges
         public int ObservationReportCount { get; set; }
         public int IncidentReportCount { get; set; }

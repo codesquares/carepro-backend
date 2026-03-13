@@ -78,6 +78,7 @@ namespace Application.DTOs
         public string? Role { get; set; }
 
         public string? HomeAddress { get; set; }
+        public string? Address { get; set; }
         public string? ProfileImage { get; set; }
 
         public string? PhoneNo { get; set; }
@@ -87,6 +88,9 @@ namespace Application.DTOs
         public bool Status { get; set; }
 
         public string? AuthProvider { get; set; }
+
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
 
         public DateTime CreatedAt { get; set; }
     }

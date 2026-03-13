@@ -104,7 +104,7 @@ namespace Application.Interfaces.Content
         Task<bool> SendContractReminderToCaregiverAsync(string contractId);
         Task<bool> NotifyClientOfExpiryAsync(string contractId);
         Task<bool> SendResponseEmailToClientAsync(string contractId, string response);
-        Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId);
+        Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId, string? orderId = null);
     }
 
     public interface IContractLLMService

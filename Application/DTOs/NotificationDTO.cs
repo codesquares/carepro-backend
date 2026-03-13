@@ -91,6 +91,7 @@ namespace Application.DTOs
         public const string DisputeDismissed = "dispute_dismissed";
         public const string VisitApproved = "visit_approved";
         public const string VisitDisputed = "visit_disputed";
+        public const string VisitSubmitted = "visit_submitted";
 
         // ── Booking ──
         public const string BookingConfirmed = "booking_confirmed";

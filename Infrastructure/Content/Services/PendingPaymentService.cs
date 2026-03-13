@@ -160,7 +160,7 @@ namespace Infrastructure.Content.Services
                             FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
                             TotalAmount = existingPendingPayment.TotalAmount,
                             Currency = existingPendingPayment.Currency,
-                            CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted
+                            CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted ?? 0m
                         }
                     });
                 }
@@ -338,7 +338,9 @@ namespace Infrastructure.Content.Services
                 GigId = pendingPayment.GigId,
                 PaymentOption = pendingPayment.ServiceType,
                 Amount = (int)pendingPayment.TotalAmount,
-                TransactionId = flutterwaveTransactionId
+                TransactionId = flutterwaveTransactionId,
+                FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
+                ServiceType = pendingPayment.ServiceType
             });
 
             if (!orderResult.IsSuccess)
@@ -468,7 +470,7 @@ namespace Infrastructure.Content.Services
                     FlutterwaveFees = pendingPayment.FlutterwaveFees,
                     TotalAmount = pendingPayment.TotalAmount,
                     Currency = pendingPayment.Currency,
-                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted
+                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted ?? 0m
                 },
                 ErrorMessage = pendingPayment.ErrorMessage
             });

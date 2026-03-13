@@ -106,6 +106,8 @@ namespace Infrastructure.Content.Services
                 IsOrderStatusApproved = false,
                 HasDispute = false,
                 OrderCreatedAt = DateTime.Now,
+                FrequencyPerWeek = addClientOrderRequest.FrequencyPerWeek,
+                ServiceType = addClientOrderRequest.ServiceType,
             };
 
             await careProDbContext.ClientOrders.AddAsync(clientOrder);
@@ -301,6 +303,9 @@ namespace Infrastructure.Content.Services
                     IsOrderStatusApproved = caregiverOrder.IsOrderStatusApproved,
                     OrderCreatedOn = caregiverOrder.OrderCreatedAt,
 
+                    // Recurring service tracking (fallback for existing orders)
+                    FrequencyPerWeek = caregiverOrder.FrequencyPerWeek ?? 1,
+                    ServiceType = caregiverOrder.ServiceType ?? caregiverOrder.PaymentOption ?? "one-time",
                 };
 
                 caregiverOrders.Add(caregiverOrderDTO);
@@ -368,6 +373,9 @@ namespace Infrastructure.Content.Services
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
+                    // Recurring service tracking (fallback for existing orders)
+                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                 };
 
                 clientOrdersDTOs.Add(clientOrderDTO);
@@ -433,6 +441,10 @@ namespace Infrastructure.Content.Services
                         OrderCreatedOn = clientOrder.OrderCreatedAt,
                         DeclineReason = clientOrder.DisputeReason,
                         IsDeclined = clientOrder.HasDispute,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                     };
 
                     clientOrdersDTOs.Add(clientOrderDTO);
@@ -498,6 +510,10 @@ namespace Infrastructure.Content.Services
                         OrderCreatedOn = clientOrder.OrderCreatedAt,
                         DeclineReason = clientOrder.DisputeReason,
                         IsDeclined = clientOrder.HasDispute,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                     };
                     clientOrdersDTOs.Add(clientOrderDTO);
                 }
@@ -572,6 +588,9 @@ namespace Infrastructure.Content.Services
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
+                    // Recurring service tracking (fallback for existing orders)
+                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                 };
 
                 clientOrdersDTOs.Add(clientOrderDTO);
@@ -634,6 +653,9 @@ namespace Infrastructure.Content.Services
                     NoOfOrders = clientOrdersDTOs.Count(),
                     OrderCreatedOn = clientOrder.OrderCreatedAt,
 
+                    // Recurring service tracking (fallback for existing orders)
+                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                 };
 
                 clientOrdersDTOs.Add(clientOrderDTO);
@@ -759,8 +781,9 @@ namespace Infrastructure.Content.Services
                 IsOrderStatusApproved = order.IsOrderStatusApproved,
                 OrderCreatedOn = order.OrderCreatedAt,
 
-                // Recurring service tracking
-                FrequencyPerWeek = order.FrequencyPerWeek,
+                // Recurring service tracking (fallback for existing orders that predate these fields)
+                FrequencyPerWeek = order.FrequencyPerWeek ?? 1,
+                ServiceType = order.ServiceType ?? order.PaymentOption ?? "one-time",
                 BillingCycleNumber = order.BillingCycleNumber,
                 SubscriptionId = order.SubscriptionId,
 

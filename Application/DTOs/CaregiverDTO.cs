@@ -141,6 +141,9 @@ namespace Application.DTOs
 
         public string? AuthProvider { get; set; }
 
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
         public DateTime CreatedAt { get; set; }
 
 
@@ -168,6 +171,8 @@ namespace Application.DTOs
         public int NoOfHoursSpent { get; set; }
         public List<string>? Services { get; set; }
         public string? ProfileImage { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 

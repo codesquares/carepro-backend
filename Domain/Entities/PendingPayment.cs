@@ -119,7 +119,7 @@ namespace Domain.Entities
         /// <summary>
         /// The amount deducted from the order fee as a booking commitment credit (₦5,000 or 0)
         /// </summary>
-        public decimal CommitmentFeeDeducted { get; set; } = 0m;
+        public decimal? CommitmentFeeDeducted { get; set; }
     }
     
     public enum PendingPaymentStatus

@@ -806,15 +806,19 @@ namespace Infrastructure.Content.Services
                 var caregiver = await _context.CareGivers
                     .FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
 
-                // Validate schedule
-                ValidateSchedule(request.Schedule, orderTasks?.PackageSelection?.VisitsPerWeek ?? 1);
+                // Validate schedule — use order.FrequencyPerWeek as source of truth (same as TaskSheet),
+                // fall back to OrderTasks if available, then default to 1 for legacy orders
+                var expectedVisitsPerWeek = order.FrequencyPerWeek
+                    ?? orderTasks?.PackageSelection?.VisitsPerWeek
+                    ?? 1;
+                ValidateSchedule(request.Schedule, expectedVisitsPerWeek);
 
                 // Build package selection from order/gig
                 var packageSelection = orderTasks?.PackageSelection ?? new PackageSelection
                 {
                     PackageType = order.PaymentOption ?? "standard",
-                    VisitsPerWeek = request.Schedule.Count,
-                    PricePerVisit = order.Amount / request.Schedule.Count,
+                    VisitsPerWeek = expectedVisitsPerWeek,
+                    PricePerVisit = expectedVisitsPerWeek > 0 ? order.Amount / expectedVisitsPerWeek : order.Amount,
                     TotalWeeklyPrice = order.Amount,
                     DurationWeeks = 4 // Default
                 };
@@ -1012,33 +1016,48 @@ namespace Infrastructure.Content.Services
                 // Handle service address confirmation/update from client
                 if (request != null)
                 {
-                    // If client updated the service address, re-geocode it
+                    // Check if client is confirming location with device GPS
+                    bool hasDeviceGps = request.ConfirmAtServiceAddress &&
+                        request.ServiceLatitude.HasValue && request.ServiceLongitude.HasValue;
+
+                    // If client updated the service address text
                     if (!string.IsNullOrWhiteSpace(request.ServiceAddress) && 
                         request.ServiceAddress != contract.ServiceAddress)
                     {
                         contract.ServiceAddress = request.ServiceAddress;
-                        contract.ServiceLatitude = null;
-                        contract.ServiceLongitude = null;
 
-                        try
+                        if (hasDeviceGps)
                         {
-                            var geocode = await _geocodingService.GeocodeAsync(request.ServiceAddress);
-                            contract.ServiceLatitude = geocode.Latitude;
-                            contract.ServiceLongitude = geocode.Longitude;
-                            _logger.LogInformation("Contract {ContractId} service address updated and geocoded by client", contractId);
+                            // Client provided device GPS — use that directly, skip geocoding
+                            contract.ServiceLatitude = request.ServiceLatitude!.Value;
+                            contract.ServiceLongitude = request.ServiceLongitude!.Value;
+                            _logger.LogInformation("Contract {ContractId} service address updated by client with device GPS: {Lat}, {Lng}",
+                                contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            _logger.LogWarning(ex, "Failed to geocode updated service address for contract {ContractId}", contractId);
+                            // No device GPS — geocode the new address
+                            contract.ServiceLatitude = null;
+                            contract.ServiceLongitude = null;
+
+                            try
+                            {
+                                var geocode = await _geocodingService.GeocodeAsync(request.ServiceAddress);
+                                contract.ServiceLatitude = geocode.Latitude;
+                                contract.ServiceLongitude = geocode.Longitude;
+                                _logger.LogInformation("Contract {ContractId} service address updated and geocoded by client", contractId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to geocode updated service address for contract {ContractId}", contractId);
+                            }
                         }
                     }
-
-                    // Only use device GPS if client explicitly confirms they are at the service address
-                    if (request.ConfirmAtServiceAddress && 
-                        request.ServiceLatitude.HasValue && request.ServiceLongitude.HasValue)
+                    else if (hasDeviceGps)
                     {
-                        contract.ServiceLatitude = request.ServiceLatitude.Value;
-                        contract.ServiceLongitude = request.ServiceLongitude.Value;
+                        // Same address but client confirmed with device GPS — update coordinates
+                        contract.ServiceLatitude = request.ServiceLatitude!.Value;
+                        contract.ServiceLongitude = request.ServiceLongitude!.Value;
                         _logger.LogInformation("Contract {ContractId} received confirmed client device GPS at service address: {Lat}, {Lng}",
                             contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
                     }
@@ -1269,11 +1288,14 @@ namespace Infrastructure.Content.Services
 
                 // Update contract
                 contract.Schedule = scheduleEntities;
-                contract.ServiceAddress = revision.ServiceAddress ?? contract.ServiceAddress;
 
-                // Re-geocode if service address changed
+                // Re-geocode if caregiver changed the service address
                 if (!string.IsNullOrWhiteSpace(revision.ServiceAddress) && revision.ServiceAddress != contract.ServiceAddress)
                 {
+                    contract.ServiceAddress = revision.ServiceAddress;
+                    contract.ServiceLatitude = null;
+                    contract.ServiceLongitude = null;
+
                     try
                     {
                         var geocode = await _geocodingService.GeocodeAsync(revision.ServiceAddress);

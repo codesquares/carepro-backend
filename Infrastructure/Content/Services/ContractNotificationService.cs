@@ -59,7 +59,8 @@ namespace Infrastructure.Content.Services
                     type: NotificationTypes.ContractReceived,
                     content: notificationMessage,
                     Title: "New Care Contract",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 // Create dashboard notification for contract response
@@ -67,7 +68,8 @@ namespace Infrastructure.Content.Services
                     contract.CaregiverId,
                     "You have received a new care contract. Please review and respond.",
                     NotificationTypes.ContractPending,
-                    contractId
+                    contractId,
+                    contract.OrderId
                 );
 
                 _logger.LogInformation("Contract notification sent to caregiver {CaregiverId} for contract {ContractId}",
@@ -164,7 +166,8 @@ namespace Infrastructure.Content.Services
                     type: notificationType,
                     content: notificationMessage,
                     Title: "Care Contract Response",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 // Send email notification
@@ -208,7 +211,8 @@ namespace Infrastructure.Content.Services
                     type: NotificationTypes.ContractReminder,
                     content: reminderMessage,
                     Title: "Contract Response Reminder",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 return true;
@@ -239,7 +243,8 @@ namespace Infrastructure.Content.Services
                     type: NotificationTypes.ContractExpired,
                     content: expiryMessage,
                     Title: "Contract Expired",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 return true;
@@ -282,7 +287,7 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        public async Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId)
+        public async Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId, string? orderId = null)
         {
             try
             {
@@ -292,7 +297,8 @@ namespace Infrastructure.Content.Services
                     type: type,
                     content: message,
                     Title: "Contract Update",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: orderId
                 );
 
                 return true;
@@ -356,7 +362,8 @@ namespace Infrastructure.Content.Services
                     type: notificationType,
                     content: notificationMessage,
                     Title: title,
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 // Create dashboard notification
@@ -366,7 +373,8 @@ namespace Infrastructure.Content.Services
                         ? "A revised care contract is awaiting your approval." 
                         : "You have a new care contract to review and approve.",
                     NotificationTypes.ContractPendingClientApproval,
-                    contractId
+                    contractId,
+                    contract.OrderId
                 );
 
                 _logger.LogInformation("Contract notification sent to client {ClientId} for contract {ContractId} (Round {Round})",
@@ -470,7 +478,8 @@ namespace Infrastructure.Content.Services
                     type: notificationType,
                     content: notificationMessage,
                     Title: title,
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 // Create dashboard notification
@@ -478,7 +487,8 @@ namespace Infrastructure.Content.Services
                     contract.CaregiverId,
                     notificationMessage,
                     notificationType,
-                    contractId
+                    contractId,
+                    contract.OrderId
                 );
 
                 // Send email if caregiver has email
@@ -522,7 +532,8 @@ namespace Infrastructure.Content.Services
                     type: NotificationTypes.ContractClientReminder,
                     content: reminderMessage,
                     Title: "Contract Approval Reminder",
-                    relatedEntityId: contractId
+                    relatedEntityId: contractId,
+                    orderId: contract.OrderId
                 );
 
                 return true;

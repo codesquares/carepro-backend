@@ -33,9 +33,9 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation($"Geocoding address: {address}");
 
                 var apiKey = _configuration["GoogleMaps:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
+                if (string.IsNullOrEmpty(apiKey) || IsPlaceholderKey(apiKey))
                 {
-                    _logger.LogWarning("Google Maps API key not configured, using mock geocoding");
+                    _logger.LogWarning("Google Maps API key not configured or is a placeholder, using mock geocoding");
                     return await MockGeocodeAsync(address);
                 }
 
@@ -92,9 +92,9 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation($"Reverse geocoding coordinates: {latitude}, {longitude}");
 
                 var apiKey = _configuration["GoogleMaps:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
+                if (string.IsNullOrEmpty(apiKey) || IsPlaceholderKey(apiKey))
                 {
-                    _logger.LogWarning("Google Maps API key not configured, using mock reverse geocoding");
+                    _logger.LogWarning("Google Maps API key not configured or is a placeholder, using mock reverse geocoding");
                     return await MockReverseGeocodeAsync(latitude, longitude);
                 }
 
@@ -256,6 +256,12 @@ namespace Infrastructure.Content.Services
             }
 
             return "Lagos"; // Default city
+        }
+
+        private static bool IsPlaceholderKey(string apiKey)
+        {
+            var lower = apiKey.ToLowerInvariant();
+            return lower.Contains("local-dev") || lower.Contains("placeholder") || lower.Contains("your-") || lower.Contains("changeme") || lower.Contains("replace");
         }
 
         #endregion

@@ -39,10 +39,33 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogInformation($"Setting location for user {request.UserId} of type {request.UserType}");
 
-                // 1. Geocode address to get coordinates and city
-                var geocodeResult = await _geocodingService.GeocodeAsync(request.Address);
+                // Resolve coordinates and address components
+                double latitude;
+                double longitude;
+                string? city, state, country, postalCode;
 
-                // 2. Check if user already has a location
+                if (request.Latitude.HasValue && request.Longitude.HasValue)
+                {
+                    // Frontend already provided coordinates — skip geocoding
+                    _logger.LogInformation($"Using frontend-provided coordinates for user {request.UserId}");
+                    latitude = request.Latitude.Value;
+                    longitude = request.Longitude.Value;
+                    (city, state, country) = ParseAddressComponents(request.Address);
+                    postalCode = null;
+                }
+                else
+                {
+                    // No coordinates provided — geocode to get them
+                    var geocodeResult = await _geocodingService.GeocodeAsync(request.Address);
+                    latitude = geocodeResult.Latitude;
+                    longitude = geocodeResult.Longitude;
+                    city = geocodeResult.City;
+                    state = geocodeResult.State;
+                    country = geocodeResult.Country;
+                    postalCode = geocodeResult.PostalCode;
+                }
+
+                // Check if user already has a location
                 var existingLocation = await _context.Locations
                     .FirstOrDefaultAsync(l => l.UserId == request.UserId &&
                                             l.UserType == request.UserType &&
@@ -54,12 +77,12 @@ namespace Infrastructure.Content.Services
                 {
                     // Update existing
                     existingLocation.Address = request.Address;
-                    existingLocation.City = geocodeResult.City;
-                    existingLocation.State = geocodeResult.State;
-                    existingLocation.Country = geocodeResult.Country;
-                    existingLocation.PostalCode = geocodeResult.PostalCode;
-                    existingLocation.Latitude = geocodeResult.Latitude;
-                    existingLocation.Longitude = geocodeResult.Longitude;
+                    existingLocation.City = city ?? "";
+                    existingLocation.State = state;
+                    existingLocation.Country = country;
+                    existingLocation.PostalCode = postalCode;
+                    existingLocation.Latitude = latitude;
+                    existingLocation.Longitude = longitude;
                     existingLocation.UpdatedAt = DateTime.UtcNow;
                     existingLocation.IsActive = true;
 
@@ -75,12 +98,12 @@ namespace Infrastructure.Content.Services
                         UserId = request.UserId,
                         UserType = request.UserType,
                         Address = request.Address,
-                        City = geocodeResult.City,
-                        State = geocodeResult.State,
-                        Country = geocodeResult.Country,
-                        PostalCode = geocodeResult.PostalCode,
-                        Latitude = geocodeResult.Latitude,
-                        Longitude = geocodeResult.Longitude,
+                        City = city ?? "",
+                        State = state,
+                        Country = country,
+                        PostalCode = postalCode,
+                        Latitude = latitude,
+                        Longitude = longitude,
                         IsActive = true,
                         IsDeleted = false,
                         CreatedAt = DateTime.UtcNow
@@ -90,12 +113,13 @@ namespace Infrastructure.Content.Services
                     _logger.LogInformation($"Created new location for user {request.UserId}");
                 }
 
-                // 3. Update user entity with location data
-                await UpdateUserEntityLocation(request.UserId, request.UserType, geocodeResult);
+                // Update user entity with location data
+                await UpdateUserEntityLocation(request.UserId, request.UserType,
+                    request.Address, city, state, latitude, longitude);
 
                 await _context.SaveChangesAsync();
 
-                // 4. Also update HomeAddress field to keep it in sync
+                // Also update HomeAddress field to keep it in sync
                 await UpdateUserEntityHomeAddressAsync(request.UserId, request.UserType, request.Address);
 
                 return new LocationDTO
@@ -161,7 +185,9 @@ namespace Infrastructure.Content.Services
                 {
                     UserId = request.UserId,
                     UserType = request.UserType,
-                    Address = request.Address ?? throw new ArgumentException("Address is required when creating a new location")
+                    Address = request.Address ?? throw new ArgumentException("Address is required when creating a new location"),
+                    Latitude = request.Latitude,
+                    Longitude = request.Longitude
                 };
 
                 return await SetUserLocationAsync(createRequest);
@@ -170,18 +196,36 @@ namespace Infrastructure.Content.Services
             // Update provided fields
             if (!string.IsNullOrEmpty(request.Address))
             {
-                var geocodeResult = await _geocodingService.GeocodeAsync(request.Address);
                 location.Address = request.Address;
-                location.City = geocodeResult.City;
-                location.State = geocodeResult.State;
-                location.Country = geocodeResult.Country;
-                location.PostalCode = geocodeResult.PostalCode;
-                // Use frontend-provided coordinates if available, otherwise use geocoded ones
-                location.Latitude = request.Latitude ?? geocodeResult.Latitude;
-                location.Longitude = request.Longitude ?? geocodeResult.Longitude;
 
-                // Sync Client/Caregiver entity fields (PreferredCity, Address, Lat, Lng, etc.)
-                await UpdateUserEntityLocation(request.UserId, request.UserType, geocodeResult);
+                if (request.Latitude.HasValue && request.Longitude.HasValue)
+                {
+                    // Frontend provided coordinates — skip geocoding
+                    _logger.LogInformation($"Using frontend-provided coordinates for user {request.UserId}");
+                    location.Latitude = request.Latitude.Value;
+                    location.Longitude = request.Longitude.Value;
+                    var (city, state, country) = ParseAddressComponents(request.Address);
+                    location.City = city ?? "";
+                    location.State = state;
+                    location.Country = country;
+                    location.PostalCode = null;
+                }
+                else
+                {
+                    // No coordinates — geocode to get them
+                    var geocodeResult = await _geocodingService.GeocodeAsync(request.Address);
+                    location.City = geocodeResult.City;
+                    location.State = geocodeResult.State;
+                    location.Country = geocodeResult.Country;
+                    location.PostalCode = geocodeResult.PostalCode;
+                    location.Latitude = geocodeResult.Latitude;
+                    location.Longitude = geocodeResult.Longitude;
+                }
+
+                // Sync Caregiver/Client entity fields
+                await UpdateUserEntityLocation(request.UserId, request.UserType,
+                    request.Address, location.City, location.State,
+                    location.Latitude, location.Longitude);
             }
             else
             {
@@ -424,7 +468,8 @@ namespace Infrastructure.Content.Services
 
         #region Private Helper Methods
 
-        private async Task UpdateUserEntityLocation(string userId, string userType, GeocodeResponse geocodeResult)
+        private async Task UpdateUserEntityLocation(string userId, string userType,
+            string address, string? city, string? state, double latitude, double longitude)
         {
             if (userType == "Caregiver")
             {
@@ -433,11 +478,12 @@ namespace Infrastructure.Content.Services
 
                 if (caregiver != null)
                 {
-                    caregiver.ServiceCity = geocodeResult.City;
-                    caregiver.ServiceState = geocodeResult.State;
-                    caregiver.ServiceAddress = geocodeResult.FormattedAddress;
-                    caregiver.Latitude = geocodeResult.Latitude;
-                    caregiver.Longitude = geocodeResult.Longitude;
+                    caregiver.ServiceCity = city;
+                    caregiver.ServiceState = state;
+                    caregiver.ServiceAddress = address;
+                    caregiver.Location = address; // Keep Location field in sync for GET responses
+                    caregiver.Latitude = latitude;
+                    caregiver.Longitude = longitude;
                     
                     _context.CareGivers.Update(caregiver);
                     // Note: SaveChangesAsync is called by the caller method
@@ -450,16 +496,36 @@ namespace Infrastructure.Content.Services
 
                 if (client != null)
                 {
-                    client.PreferredCity = geocodeResult.City;
-                    client.PreferredState = geocodeResult.State;
-                    client.Address = geocodeResult.FormattedAddress;
-                    client.Latitude = geocodeResult.Latitude;
-                    client.Longitude = geocodeResult.Longitude;
+                    client.PreferredCity = city;
+                    client.PreferredState = state;
+                    client.Address = address;
+                    client.Latitude = latitude;
+                    client.Longitude = longitude;
                     
                     _context.Clients.Update(client);
                     // Note: SaveChangesAsync is called by the caller method
                 }
             }
+        }
+
+        /// <summary>
+        /// Best-effort extraction of city, state, country from a comma-separated address string.
+        /// Used when the frontend already provided coordinates and we skip geocoding.
+        /// </summary>
+        private static (string? City, string? State, string? Country) ParseAddressComponents(string address)
+        {
+            var parts = address.Split(',')
+                .Select(p => p.Trim())
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToArray();
+
+            return parts.Length switch
+            {
+                >= 4 => (parts[^3], parts[^2], parts[^1]),  // street, city, state, country
+                3 => (parts[1], null, parts[2]),              // street, city, country
+                2 => (parts[1], null, null),                  // street, city
+                _ => (null, null, null)
+            };
         }
 
         private double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)

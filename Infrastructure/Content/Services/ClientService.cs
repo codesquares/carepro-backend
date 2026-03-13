@@ -441,8 +441,11 @@ namespace Infrastructure.Content.Services
                 Role = client.Role,
                 Status = client.Status,
                 HomeAddress = client.HomeAddress,
+                Address = client.Address,
                 ProfileImage = client.ProfileImage,
                 AuthProvider = client.AuthProvider,
+                Latitude = client.Latitude,
+                Longitude = client.Longitude,
 
                 CreatedAt = client.CreatedAt,
             };
@@ -474,8 +477,11 @@ namespace Infrastructure.Content.Services
                     IsDeleted = clientUser.IsDeleted,
                     Status = clientUser.Status,
                     HomeAddress = clientUser.HomeAddress,
+                    Address = clientUser.Address,
                     ProfileImage = clientUser.ProfileImage,
                     AuthProvider = clientUser.AuthProvider,
+                    Latitude = clientUser.Latitude,
+                    Longitude = clientUser.Longitude,
                     CreatedAt = clientUser.CreatedAt,
                 };
                 clientUsersDTOs.Add(clientUserDTO);
