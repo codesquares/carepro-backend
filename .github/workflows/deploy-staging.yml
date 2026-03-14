@@ -222,6 +222,7 @@ jobs:
           MailSettings__FromEmail=codesquareltd@gmail.com
           MailSettings__FromName=CarePro Staging
           MailSettings__SmtpServer=smtp.gmail.com
+          MailSettings__SmtpPort=587
           MailSettings__Port=587
           MailSettings__AppPassword=$MAIL_APP_PASSWORD
           MailSettings__EnableSsl=true
