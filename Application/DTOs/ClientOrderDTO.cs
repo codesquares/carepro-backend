@@ -75,6 +75,13 @@ namespace Application.DTOs
         public string? GigId { get; set; }
         public string? PaymentOption { get; set; }
         public int Amount { get; set; }
+
+        /// <summary>
+        /// The base service cost (caregiver's OrderFee) before platform/gateway fees.
+        /// Used for wallet crediting.
+        /// </summary>
+        public decimal OrderFee { get; set; }
+
         public string? TransactionId { get; set; }
         public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
         public int? FrequencyPerWeek { get; set; }

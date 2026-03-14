@@ -76,7 +76,7 @@ namespace Infrastructure.Content.Services
 
         public async Task RecordFundsReleasedAsync(string caregiverId, decimal amount, string clientOrderId,
             string? subscriptionId, int? billingCycleNumber, string serviceType,
-            string releaseReason, string description)
+            string releaseReason, string description, string? taskSheetId = null)
         {
             ValidateInput(caregiverId, amount);
 
@@ -100,6 +100,7 @@ namespace Infrastructure.Content.Services
                 Type = LedgerEntryType.FundsReleased,
                 Amount = amount,
                 ClientOrderId = clientOrderId,
+                TaskSheetId = taskSheetId,
                 SubscriptionId = subscriptionId,
                 BillingCycleNumber = billingCycleNumber,
                 ServiceType = serviceType,
@@ -114,6 +115,55 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Ledger: FundsReleased for caregiver {CaregiverId}, order {OrderId}, amount {Amount}, reason {Reason}",
                 caregiverId, clientOrderId, amount, releaseReason);
+        }
+
+        /// <summary>
+        /// Records a per-visit fund release when a client approves a TaskSheet.
+        /// </summary>
+        public async Task RecordVisitApprovedAsync(string caregiverId, decimal amount, string clientOrderId,
+            string taskSheetId, string? subscriptionId, int? billingCycleNumber,
+            string serviceType, string description)
+        {
+            ValidateInput(caregiverId, amount);
+
+            if (string.IsNullOrWhiteSpace(taskSheetId))
+                throw new ArgumentException("TaskSheetId cannot be null or empty for VisitApproved entries.");
+
+            // Idempotency: prevent double-credit for the same visit
+            var alreadyCredited = await _dbContext.EarningsLedger
+                .AnyAsync(e => e.TaskSheetId == taskSheetId && e.Type == LedgerEntryType.VisitApproved);
+            if (alreadyCredited)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Duplicate VisitApproved attempt for TaskSheetId {TaskSheetId}, CaregiverId {CaregiverId}. Blocked.",
+                    taskSheetId, caregiverId);
+                return;
+            }
+
+            var wallet = await _walletService.GetOrCreateWalletAsync(caregiverId);
+
+            var entry = new EarningsLedger
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                CaregiverId = caregiverId,
+                Type = LedgerEntryType.VisitApproved,
+                Amount = amount,
+                ClientOrderId = clientOrderId,
+                TaskSheetId = taskSheetId,
+                SubscriptionId = subscriptionId,
+                BillingCycleNumber = billingCycleNumber,
+                ServiceType = serviceType,
+                Description = description,
+                BalanceAfter = wallet.WithdrawableBalance,
+                ReleaseReason = FundsReleaseReason.VisitApproved,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.EarningsLedger.Add(entry);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Ledger: VisitApproved for caregiver {CaregiverId}, order {OrderId}, taskSheet {TaskSheetId}, amount {Amount}",
+                caregiverId, clientOrderId, taskSheetId, amount);
         }
 
         public async Task RecordWithdrawalAsync(string caregiverId, decimal amount, string withdrawalRequestId, string description)

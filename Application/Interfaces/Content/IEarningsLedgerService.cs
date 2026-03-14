@@ -17,7 +17,15 @@ namespace Application.Interfaces.Content
         /// </summary>
         Task RecordFundsReleasedAsync(string caregiverId, decimal amount, string clientOrderId,
             string? subscriptionId, int? billingCycleNumber, string serviceType,
-            string releaseReason, string description);
+            string releaseReason, string description, string? taskSheetId = null);
+
+        /// <summary>
+        /// Records a VisitApproved ledger entry when a client approves a TaskSheet,
+        /// releasing the per-visit share from Pending → Withdrawable.
+        /// </summary>
+        Task RecordVisitApprovedAsync(string caregiverId, decimal amount, string clientOrderId,
+            string taskSheetId, string? subscriptionId, int? billingCycleNumber,
+            string serviceType, string description);
 
         /// <summary>
         /// Records a WithdrawalCompleted ledger entry (negative amount).

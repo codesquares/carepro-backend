@@ -857,6 +857,7 @@ namespace Infrastructure.Content.Services
                     GigId = subscription.GigId,
                     PaymentOption = subscription.BillingCycle,
                     Amount = (int)Math.Round(subscription.RecurringAmount, 0), // Rounded to int for ClientOrder
+                    OrderFee = subscription.PriceBreakdown.OrderFee,
                     TransactionId = chargeResult.TransactionId
                 });
 

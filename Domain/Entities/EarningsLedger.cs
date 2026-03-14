@@ -31,6 +31,12 @@ namespace Domain.Entities
         public string? ClientOrderId { get; set; }
 
         /// <summary>
+        /// The TaskSheet (visit) this entry relates to — for per-visit fund releases.
+        /// Null for order-level entries (OrderReceived, etc.).
+        /// </summary>
+        public string? TaskSheetId { get; set; }
+
+        /// <summary>
         /// The contract governing this transaction (null if no contract yet).
         /// </summary>
         public string? ContractId { get; set; }
@@ -87,6 +93,7 @@ namespace Domain.Entities
         public const string Refund = "Refund";
         public const string DisputeHold = "DisputeHold";
         public const string Adjustment = "Adjustment";
+        public const string VisitApproved = "VisitApproved";
     }
 
     /// <summary>
@@ -98,5 +105,7 @@ namespace Domain.Entities
         public const string AutoReleased = "AutoReleased";
         public const string RecurringPayment = "RecurringPayment";
         public const string InitialSubscription = "InitialSubscription";
+        public const string VisitApproved = "VisitApproved";
+        public const string AutoReleasedVisit = "AutoReleasedVisit";
     }
 }

@@ -139,6 +139,9 @@ namespace Infrastructure.Content.Services
 
         public async Task<WithdrawalRequestResponse> CreateWithdrawalRequestAsync(CreateWithdrawalRequestRequest request)
         {
+            if (request.AmountRequested <= 0)
+                throw new ArgumentException("Withdrawal amount must be greater than zero.");
+
             // Check if there's already a pending withdrawal for this caregiver
             bool hasPending = await HasPendingRequest(request.CaregiverId);
             if (hasPending)
@@ -149,9 +152,10 @@ namespace Infrastructure.Content.Services
             if (!hasSufficientBalance)
                 throw new InvalidOperationException("Insufficient withdrawable funds, kindly check your Withdrawable Amount and stay within the limit");
 
-            // Calculate service charge and final amount
-            decimal serviceCharge = Math.Round(request.AmountRequested * 0.10m, 2);
-            decimal finalAmount = request.AmountRequested - serviceCharge;
+            // Platform commission is already deducted at credit time (20% on OrderFee).
+            // No additional fee at withdrawal.
+            decimal serviceCharge = 0m;
+            decimal finalAmount = request.AmountRequested;
 
             // Generate a unique token
             string token = GenerateUniqueToken();

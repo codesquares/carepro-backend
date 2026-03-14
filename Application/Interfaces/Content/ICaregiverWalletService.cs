@@ -17,10 +17,15 @@ namespace Application.Interfaces.Content
 
         /// <summary>
         /// Increments TotalEarned when any order is created for the caregiver's gig.
-        /// For recurring orders with billingCycleNumber > 1, funds go directly to WithdrawableBalance.
-        /// For all other orders (one-time, or cycle 1 of a subscription), funds go to PendingBalance.
+        /// All orders go to PendingBalance. Funds are released per-visit as TaskSheets are approved.
         /// </summary>
         Task CreditOrderReceivedAsync(string caregiverId, decimal amount, bool isRecurring, int? billingCycleNumber = null);
+
+        /// <summary>
+        /// Releases a per-visit share from PendingBalance to WithdrawableBalance
+        /// when a TaskSheet is approved by the client.
+        /// </summary>
+        Task CreditVisitApprovedAsync(string caregiverId, decimal perVisitAmount);
 
         /// <summary>
         /// Releases funds from PendingBalance to WithdrawableBalance (for one-time orders).

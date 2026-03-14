@@ -338,6 +338,7 @@ namespace Infrastructure.Content.Services
                 GigId = pendingPayment.GigId,
                 PaymentOption = pendingPayment.ServiceType,
                 Amount = (int)pendingPayment.TotalAmount,
+                OrderFee = pendingPayment.OrderFee,
                 TransactionId = flutterwaveTransactionId,
                 FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
                 ServiceType = pendingPayment.ServiceType

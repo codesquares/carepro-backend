@@ -15,6 +15,13 @@ namespace Domain.Entities
         public string CaregiverId { get; set; }
         public string PaymentOption { get; set; }
         public int Amount { get; set; }
+
+        /// <summary>
+        /// The caregiver's OrderFee (base service cost before platform/gateway fees).
+        /// Used for wallet crediting — caregiver receives OrderFee minus 20% platform commission.
+        /// </summary>
+        public decimal? OrderFee { get; set; }
+
         public string TransactionId { get; set; }
         public string? ClientOrderStatus { get; set; }
         public bool IsOrderStatusApproved { get; set; }

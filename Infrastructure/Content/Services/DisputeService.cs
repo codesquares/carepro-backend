@@ -17,17 +17,20 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly INotificationService _notificationService;
         private readonly IEarningsLedgerService _ledgerService;
+        private readonly ICaregiverWalletService _walletService;
         private readonly ILogger<DisputeService> _logger;
 
         public DisputeService(
             CareProDbContext dbContext,
             INotificationService notificationService,
             IEarningsLedgerService ledgerService,
+            ICaregiverWalletService walletService,
             ILogger<DisputeService> logger)
         {
             _dbContext = dbContext;
             _notificationService = notificationService;
             _ledgerService = ledgerService;
+            _walletService = walletService;
             _logger = logger;
         }
 
@@ -177,13 +180,15 @@ namespace Infrastructure.Content.Services
 
             if (!hasActiveDisputes)
             {
-                // Clear the order-level dispute flag if no more active disputes
+                // Clear the order-level dispute flag and restore status
                 if (ObjectId.TryParse(dispute.OrderId, out var orderObjectId))
                 {
                     var order = await _dbContext.ClientOrders.FindAsync(orderObjectId);
                     if (order != null)
                     {
                         order.HasDispute = false;
+                        if (order.ClientOrderStatus == "Disputed")
+                            order.ClientOrderStatus = "In Progress";
                         order.OrderUpdatedOn = DateTime.UtcNow;
                         _dbContext.ClientOrders.Update(order);
                     }
@@ -254,6 +259,8 @@ namespace Infrastructure.Content.Services
                     if (order != null)
                     {
                         order.HasDispute = false;
+                        if (order.ClientOrderStatus == "Disputed")
+                            order.ClientOrderStatus = "In Progress";
                         order.OrderUpdatedOn = DateTime.UtcNow;
                         _dbContext.ClientOrders.Update(order);
                     }
@@ -346,6 +353,14 @@ namespace Infrastructure.Content.Services
             if (taskSheet == null)
                 throw new KeyNotFoundException($"Task sheet with ID '{taskSheetId}' not found.");
 
+            // ── IDOR check: verify the calling client actually owns this order ──
+            var ownerOrder = await _dbContext.ClientOrders.FirstOrDefaultAsync(
+                o => o.Id.ToString() == taskSheet.OrderId);
+            if (ownerOrder == null)
+                throw new KeyNotFoundException($"Order '{taskSheet.OrderId}' not found.");
+            if (ownerOrder.ClientId != clientUserId)
+                throw new UnauthorizedAccessException("You are not authorized to review this visit.");
+
             // Update task sheet review fields
             taskSheet.ClientReviewStatus = request.ReviewStatus;
             taskSheet.ClientReviewedAt = DateTime.UtcNow;
@@ -387,6 +402,85 @@ namespace Infrastructure.Content.Services
             taskSheet.ClientDisputeReason = null;
             _dbContext.TaskSheets.Update(taskSheet);
             await _dbContext.SaveChangesAsync();
+
+            // ── Per-visit wallet credit: release this visit's share from PendingBalance → WithdrawableBalance ──
+            try
+            {
+                // ownerOrder already loaded during IDOR check above
+                var order = ownerOrder;
+
+                if (order != null)
+                {
+                    // Calculate max visits for this order/cycle
+                    int maxVisits = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase)
+                        ? 1
+                        : (order.FrequencyPerWeek ?? 1) * 4;
+
+                    // Per-visit amount = (OrderFee × 0.80) / totalVisits
+                    decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+                    decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+
+                    // Rounding remainder: adjust the last visit so total credits equal caregiverTotal exactly
+                    int currentBillingCycleForCalc = order.BillingCycleNumber ?? 1;
+                    int alreadyCreditedCount = await _dbContext.EarningsLedger
+                        .CountAsync(e => e.ClientOrderId == order.Id.ToString()
+                            && e.Type == LedgerEntryType.VisitApproved
+                            && e.BillingCycleNumber == currentBillingCycleForCalc);
+                    if (alreadyCreditedCount == maxVisits - 1)
+                    {
+                        // This is the last visit — absorb rounding remainder
+                        decimal alreadyCreditedTotal = perVisitAmount * alreadyCreditedCount;
+                        perVisitAmount = caregiverTotal - alreadyCreditedTotal;
+                    }
+
+                    // Idempotency: check if this visit was already credited
+                    bool alreadyCreditedVisit = await _dbContext.EarningsLedger
+                        .AnyAsync(e => e.TaskSheetId == taskSheetId && e.Type == LedgerEntryType.VisitApproved);
+
+                    if (!alreadyCreditedVisit && perVisitAmount > 0)
+                    {
+                        // Write ledger FIRST (idempotent) — prevents race condition with DailyEarningService
+                        string serviceType = string.IsNullOrEmpty(order.SubscriptionId) ? "one-time" : "monthly";
+                        await _ledgerService.RecordVisitApprovedAsync(
+                            order.CaregiverId, perVisitAmount, order.Id.ToString(), taskSheetId,
+                            order.SubscriptionId, order.BillingCycleNumber, serviceType,
+                            $"Visit #{taskSheet.SheetNumber} approved — ₦{perVisitAmount} released (visit {taskSheet.SheetNumber}/{maxVisits})");
+
+                        // Credit wallet AFTER ledger write succeeds
+                        await _walletService.CreditVisitApprovedAsync(order.CaregiverId, perVisitAmount);
+
+                        _logger.LogInformation(
+                            "Per-visit credit: ₦{Amount} released for caregiver {CaregiverId}, visit {SheetNumber}/{MaxVisits}, order {OrderId}",
+                            perVisitAmount, order.CaregiverId, taskSheet.SheetNumber, maxVisits, order.Id);
+                    }
+
+                    // ── Auto-complete order if ALL visits for this cycle are approved ──
+                    int currentBillingCycle = order.BillingCycleNumber ?? 1;
+                    int approvedCount = await _dbContext.TaskSheets
+                        .Where(ts => ts.OrderId == taskSheet.OrderId
+                            && ts.BillingCycleNumber == currentBillingCycle
+                            && ts.ClientReviewStatus == "Approved")
+                        .CountAsync();
+
+                    if (approvedCount >= maxVisits && order.ClientOrderStatus != "Completed")
+                    {
+                        order.ClientOrderStatus = "Completed";
+                        order.IsOrderStatusApproved = true;
+                        order.OrderUpdatedOn = DateTime.UtcNow;
+                        _dbContext.ClientOrders.Update(order);
+                        await _dbContext.SaveChangesAsync();
+
+                        _logger.LogInformation(
+                            "Order {OrderId} auto-completed: all {Max} visits approved for billing cycle {Cycle}.",
+                            order.Id, maxVisits, currentBillingCycle);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing per-visit credit for TaskSheet {TaskSheetId}", taskSheetId);
+                // Don't fail the approval — wallet can be reconciled later
+            }
 
             _logger.LogInformation("Visit {TaskSheetId} approved by client {ClientId}", taskSheetId, clientUserId);
             return null; // No dispute created for approvals

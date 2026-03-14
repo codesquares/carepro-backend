@@ -171,10 +171,10 @@ namespace Infrastructure.Content.Services
                             $"Visit #{previousSheet.SheetNumber} has not been submitted yet. Please submit it before creating a new visit.");
                     }
 
-                    if (previousSheet.ClientReviewStatus != "Approved")
+                    if (previousSheet.ClientReviewStatus != "Approved" && previousSheet.ClientReviewStatus != "Disputed")
                     {
                         throw new InvalidOperationException(
-                            $"Visit #{previousSheet.SheetNumber} has not been approved by the client yet. The client must approve the previous visit before a new one can start.");
+                            $"Visit #{previousSheet.SheetNumber} has not been reviewed by the client yet. The client must approve or review the previous visit before a new one can start.");
                     }
                 }
             }

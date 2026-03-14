@@ -73,6 +73,13 @@ namespace Infrastructure.Content.Services
                 return Result<ClientOrderDTO>.Failure(errors);
             }
 
+            // Validate OrderFee: must be positive
+            if (addClientOrderRequest.OrderFee <= 0)
+            {
+                errors.Add("OrderFee must be greater than zero.");
+                return Result<ClientOrderDTO>.Failure(errors);
+            }
+
             var client = await clientService.GetClientUserAsync(addClientOrderRequest.ClientId!);
             if (client == null)
             {
@@ -97,6 +104,7 @@ namespace Infrastructure.Content.Services
                 GigId = gig!.Id,
                 PaymentOption = addClientOrderRequest.PaymentOption ?? string.Empty,
                 Amount = addClientOrderRequest.Amount,
+                OrderFee = addClientOrderRequest.OrderFee,
                 TransactionId = addClientOrderRequest.TransactionId ?? string.Empty,
 
                 // Assign new ID
@@ -158,33 +166,28 @@ namespace Infrastructure.Content.Services
             }
 
             // ── EVENT: Credit caregiver wallet on order creation ──
+            // Caregiver receives OrderFee minus 20% platform commission → PendingBalance.
+            // Funds are released per-visit as each TaskSheet is approved by the client.
             try
             {
                 bool isRecurring = clientOrder.PaymentOption == "monthly";
                 int cycleNumber = clientOrder.BillingCycleNumber ?? 1;
                 string serviceType = isRecurring ? "monthly" : "one-time";
+
+                // Platform takes 20% commission from OrderFee
+                decimal caregiverAmount = Math.Round((clientOrder.OrderFee ?? 0m) * 0.80m, 2);
+
                 string description = isRecurring
-                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber}"
-                    : $"One-time service payment received for {gig!.Title}";
+                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber} (₦{caregiverAmount} after 20% platform fee)"
+                    : $"One-time service payment received for {gig!.Title} (₦{caregiverAmount} after 20% platform fee)";
 
                 await walletService.CreditOrderReceivedAsync(
-                    clientOrder.CaregiverId, clientOrder.Amount, isRecurring, cycleNumber);
+                    clientOrder.CaregiverId, caregiverAmount, isRecurring, cycleNumber);
 
                 await ledgerService.RecordOrderReceivedAsync(
-                    clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
+                    clientOrder.CaregiverId, caregiverAmount, clientOrder.Id.ToString(),
                     clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
                     serviceType, description);
-
-                // For recurring orders cycle 2+, record immediate funds release in the ledger
-                // (cycle 1 and one-time orders require client release or 7-day auto-release)
-                if (isRecurring && cycleNumber > 1)
-                {
-                    await ledgerService.RecordFundsReleasedAsync(
-                        clientOrder.CaregiverId, clientOrder.Amount, clientOrder.Id.ToString(),
-                        clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
-                        serviceType, Domain.Entities.FundsReleaseReason.RecurringPayment,
-                        $"Funds auto-released for {gig!.Title} - cycle {cycleNumber} (trust established)");
-                }
             }
             catch (Exception ex)
             {
@@ -851,30 +854,9 @@ namespace Infrastructure.Content.Services
                 careProDbContext.ClientOrders.Update(existingOrder);
                 await careProDbContext.SaveChangesAsync();
 
-                // ── EVENT: Release pending funds to withdrawable on client approval ──
-                try
-                {
-                    bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
-                    if (!alreadyReleased)
-                    {
-                        string serviceType = string.IsNullOrEmpty(existingOrder.SubscriptionId) ? "one-time" : "monthly";
-
-                        await walletService.ReleasePendingFundsAsync(
-                            existingOrder.CaregiverId, existingOrder.Amount);
-
-                        await ledgerService.RecordFundsReleasedAsync(
-                            existingOrder.CaregiverId, existingOrder.Amount, orderId,
-                            existingOrder.SubscriptionId, existingOrder.BillingCycleNumber,
-                            serviceType,
-                            Domain.Entities.FundsReleaseReason.ClientApproved,
-                            $"Funds released - client approved order {orderId}");
-                    }
-                }
-                catch (Exception walletEx)
-                {
-                    logger.LogError(walletEx, "Error releasing funds for approved order {OrderId}", orderId);
-                    // Don't fail the approval — wallet can be reconciled
-                }
+                // Note: Funds are now released per-visit as each TaskSheet is approved by the client.
+                // This order-level approval no longer triggers a bulk wallet release.
+                logger.LogInformation("Order {OrderId} approved by client. Funds release is per-visit via TaskSheet approvals.", orderId);
 
                 return $"Order with ID '{orderId}' updated successfully.";
             }
@@ -911,49 +893,19 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException($"Funds can only be released for completed orders. Current status: {existingOrder.ClientOrderStatus}");
             }
 
-            // Block if order has an active dispute
-            if (existingOrder.HasDispute == true)
+            // Note: Funds are now released per-visit as each TaskSheet is approved.
+            // This endpoint marks the order as approved if not already.
+            if (!existingOrder.IsOrderStatusApproved)
             {
-                throw new InvalidOperationException("Cannot release funds for an order with an active dispute.");
+                existingOrder.IsOrderStatusApproved = true;
+                existingOrder.OrderUpdatedOn = DateTime.Now;
+                careProDbContext.ClientOrders.Update(existingOrder);
+                await careProDbContext.SaveChangesAsync();
             }
 
-            // Idempotency: check if funds were already released
-            bool alreadyReleased = await ledgerService.HasFundsBeenReleasedForOrderAsync(orderId);
-            if (alreadyReleased)
-            {
-                // Self-heal: ensure IsOrderStatusApproved is in sync with ledger
-                if (!existingOrder.IsOrderStatusApproved)
-                {
-                    existingOrder.IsOrderStatusApproved = true;
-                    existingOrder.OrderUpdatedOn = DateTime.Now;
-                    careProDbContext.ClientOrders.Update(existingOrder);
-                    await careProDbContext.SaveChangesAsync();
-                    logger.LogWarning("Self-healed IsOrderStatusApproved for order {OrderId} — was false despite funds already released.", orderId);
-                }
-                return $"Funds for order '{orderId}' have already been released.";
-            }
+            logger.LogInformation("ReleaseFunds called for order {OrderId} by client {ClientId}. Funds are released per-visit.", orderId, clientUserId);
 
-            string serviceType = string.IsNullOrEmpty(existingOrder.SubscriptionId) ? "one-time" : "monthly";
-
-            await walletService.ReleasePendingFundsAsync(
-                existingOrder.CaregiverId, existingOrder.Amount);
-
-            await ledgerService.RecordFundsReleasedAsync(
-                existingOrder.CaregiverId, existingOrder.Amount, orderId,
-                existingOrder.SubscriptionId, existingOrder.BillingCycleNumber,
-                serviceType,
-                Domain.Entities.FundsReleaseReason.ClientApproved,
-                $"Funds released by client for order {orderId}");
-
-            // Mark order as approved
-            existingOrder.IsOrderStatusApproved = true;
-            existingOrder.OrderUpdatedOn = DateTime.Now;
-            careProDbContext.ClientOrders.Update(existingOrder);
-            await careProDbContext.SaveChangesAsync();
-
-            logger.LogInformation("Funds released for order {OrderId} by client {ClientId}.", orderId, clientUserId);
-
-            return $"Funds for order '{orderId}' released successfully.";
+            return $"Order '{orderId}' approved. Funds are released per visit as each task sheet is approved.";
         }
 
         public async Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)

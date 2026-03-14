@@ -112,18 +112,9 @@ namespace Infrastructure.Content.Services
 
                 wallet.TotalEarned = SafeRound(wallet.TotalEarned + amount);
 
-                // Recurring orders cycle 2+ go straight to withdrawable (trust established in cycle 1).
-                // Everything else (one-time, or cycle 1 of a subscription) goes to pending.
-                bool autoRelease = isRecurring && (billingCycleNumber ?? 1) > 1;
-
-                if (autoRelease)
-                {
-                    wallet.WithdrawableBalance = SafeRound(wallet.WithdrawableBalance + amount);
-                }
-                else
-                {
-                    wallet.PendingBalance = SafeRound(wallet.PendingBalance + amount);
-                }
+                // All orders (one-time, cycle 1, and cycle 2+) go to PendingBalance.
+                // Funds are released per-visit as each TaskSheet is approved by the client.
+                wallet.PendingBalance = SafeRound(wallet.PendingBalance + amount);
 
                 wallet.Version++;
                 wallet.UpdatedAt = DateTime.UtcNow;
@@ -132,8 +123,46 @@ namespace Infrastructure.Content.Services
                 await _dbContext.SaveChangesAsync();
 
                 _logger.LogInformation(
-                    "Wallet credited for caregiver {CaregiverId}: +{Amount} (Recurring: {IsRecurring}, Cycle: {Cycle}, AutoRelease: {AutoRelease}). TotalEarned: {TotalEarned}, Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
-                    caregiverId, amount, isRecurring, billingCycleNumber ?? 1, autoRelease, wallet.TotalEarned, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
+                    "Wallet credited for caregiver {CaregiverId}: +{Amount} (Recurring: {IsRecurring}, Cycle: {Cycle}). TotalEarned: {TotalEarned}, Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
+                    caregiverId, amount, isRecurring, billingCycleNumber ?? 1, wallet.TotalEarned, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
+            });
+        }
+
+        /// <summary>
+        /// Releases a per-visit share of pending funds when a TaskSheet is approved by the client.
+        /// Amount = (OrderFee × 0.80) / totalVisitsInCycle, already calculated by caller.
+        /// </summary>
+        public async Task CreditVisitApprovedAsync(string caregiverId, decimal perVisitAmount)
+        {
+            ValidateCaregiverId(caregiverId);
+            ValidateAmount(perVisitAmount, "CreditVisitApproved");
+            perVisitAmount = SafeRound(perVisitAmount);
+
+            await _lockManager.ExecuteWithLockAsync(caregiverId, async () =>
+            {
+                var wallet = await GetOrCreateWalletEntityAsync(caregiverId);
+
+                // Release from pending to withdrawable
+                var releaseAmount = Math.Min(perVisitAmount, wallet.PendingBalance);
+                if (releaseAmount <= 0)
+                {
+                    _logger.LogWarning(
+                        "Attempted to release per-visit {Amount} for caregiver {CaregiverId} but PendingBalance is {Pending}",
+                        perVisitAmount, caregiverId, wallet.PendingBalance);
+                    return;
+                }
+
+                wallet.PendingBalance = SafeRound(wallet.PendingBalance - releaseAmount);
+                wallet.WithdrawableBalance = SafeRound(wallet.WithdrawableBalance + releaseAmount);
+                wallet.Version++;
+                wallet.UpdatedAt = DateTime.UtcNow;
+
+                _dbContext.CaregiverWallets.Update(wallet);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Visit approved — released {Amount} for caregiver {CaregiverId}. Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
+                    releaseAmount, caregiverId, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
             });
         }
 
