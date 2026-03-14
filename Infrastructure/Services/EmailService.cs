@@ -25,12 +25,14 @@ namespace Infrastructure.Services
         private readonly MailSettings emailSettings;
         private readonly CareProDbContext careProDbContext;
         private readonly ITokenHandler tokenHandler;
+        private readonly ILogger<EmailService> _logger;
 
-        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler)
+        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler, ILogger<EmailService> logger)
         {
             this.emailSettings = emailSettingsOptions.Value;
             this.careProDbContext = careProDbContext;
             this.tokenHandler = tokenHandler;
+            this._logger = logger;
         }
 
         public async Task SendNotificationEmailAsync(string toEmail, string firstName, int messageCount)
@@ -58,11 +60,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         public async Task SendPasswordResetEmailAsync(string toEmail, string resetLink, string firstName)
@@ -88,15 +86,8 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-
-            using var client = new MailKit.Net.Smtp.SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
-
-
 
         public async Task SendSignUpVerificationEmailAsync(string toEmail, string verificationLink, string firstName)
         {
@@ -120,11 +111,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         public async Task SendCaregiverWelcomeEmailAsync(string toEmail, string firstName)
@@ -198,11 +185,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         // New immediate notification methods
@@ -647,14 +630,35 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
-        // Helper method to reduce code duplication
+        // Centralized SMTP send with full logging
         private async Task SendEmailAsync(MimeMessage message)
         {
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            var to = message.To.ToString();
+            var subject = message.Subject;
+            _logger.LogInformation("SMTP: Preparing to send email to {To}, Subject: {Subject}", to, subject);
+            _logger.LogInformation("SMTP: Server={Server}, Port={Port}, From={From}", emailSettings.SmtpServer, emailSettings.SmtpPort, emailSettings.FromEmail);
+
+            try
+            {
+                using var client = new SmtpClient();
+                _logger.LogInformation("SMTP: Connecting to {Server}:{Port} with StartTls...", emailSettings.SmtpServer, emailSettings.SmtpPort);
+                await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+                _logger.LogInformation("SMTP: Connected successfully. Authenticating as {User}...", emailSettings.FromEmail);
+
+                await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
+                _logger.LogInformation("SMTP: Authenticated successfully. Sending email to {To}...", to);
+
+                await client.SendAsync(message);
+                _logger.LogInformation("SMTP: Email sent successfully to {To}, Subject: {Subject}", to, subject);
+
+                await client.DisconnectAsync(true);
+                _logger.LogInformation("SMTP: Disconnected from server.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SMTP: Failed to send email to {To}, Subject: {Subject}. Error: {Error}", to, subject, ex.Message);
+                throw;
+            }
         }
 
         // Admin custom email methods
