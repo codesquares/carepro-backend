@@ -219,7 +219,7 @@ jobs:
           Flutterwave__SecretKey=$FLUTTERWAVE_SECRET_KEY
           Flutterwave__EncryptionKey=$FLUTTERWAVE_ENCRYPTION_KEY
           Flutterwave__WebhookSecretHash=$FLUTTERWAVE_WEBHOOK_SECRET_HASH
-          MailSettings__FromEmail=staging@carepro.com
+          MailSettings__FromEmail=codesquareltd@gmail.com
           MailSettings__FromName=CarePro Staging
           MailSettings__SmtpServer=smtp.gmail.com
           MailSettings__Port=587
