@@ -99,9 +99,8 @@ namespace Infrastructure.Content.Services
                 };
             }
 
-            // Suppress and warn — first/second offense
-            // Message is NOT delivered to receiver — redaction still leaks intent
-            var suppressedViolation = new ChatViolation
+            // Redact and deliver — strip contact info but send the cleaned message
+            var redactedViolation = new ChatViolation
             {
                 Id = ObjectId.GenerateNewId(),
                 UserId = senderId,
@@ -109,23 +108,37 @@ namespace Infrastructure.Content.Services
                 OriginalMessage = rawMessage,
                 DetectedPatterns = patternDescriptions,
                 ViolationType = primaryCategory,
-                Action = "Suppressed",
+                Action = "Redacted",
                 CreatedAt = DateTime.UtcNow
             };
 
-            await _dbContext.ChatViolations.AddAsync(suppressedViolation);
+            await _dbContext.ChatViolations.AddAsync(redactedViolation);
             await _dbContext.SaveChangesAsync();
 
             _logger.LogWarning(
-                "Chat SUPPRESSED: User {SenderId} violation #{ViolationCount}. Patterns: {Patterns}",
+                "Chat REDACTED: User {SenderId} violation #{ViolationCount}. Patterns: {Patterns}",
                 senderId, recentViolationCount + 1, string.Join(", ", patternDescriptions));
+
+            // If redacted message is empty after stripping, block it entirely
+            if (string.IsNullOrWhiteSpace(detection.RedactedMessage))
+            {
+                return new ComplianceResult
+                {
+                    Allowed = false,
+                    Message = string.Empty,
+                    Warning = "Your message could not be sent because it contained only contact information.",
+                    ViolationLogged = true,
+                    WasRedacted = false
+                };
+            }
 
             return new ComplianceResult
             {
-                Allowed = false,
-                Message = string.Empty,
-                Warning = "Your message was not sent because it appears to contain contact information such as a phone number, email, or social media link. All communication must stay on CarePro.",
-                ViolationLogged = true
+                Allowed = true,
+                Message = detection.RedactedMessage,
+                Warning = "Some contact information was removed from your message. All communication must stay on CarePro.",
+                ViolationLogged = true,
+                WasRedacted = true
             };
         }
 

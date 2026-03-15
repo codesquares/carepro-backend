@@ -669,7 +669,7 @@ namespace Infrastructure.Content.Services
 
             var existingGig = await careProDbContext.Gigs.FindAsync(objectId);
 
-            if (existingGig == null)
+            if (existingGig == null || existingGig.IsDeleted == true)
             {
                 throw new KeyNotFoundException($"Gig with ID '{gigId}' not found.");
             }
@@ -791,13 +791,97 @@ namespace Infrastructure.Content.Services
                     throw new InvalidOperationException($"Gig with ID '{gigId}' is already deleted.");
                 }
 
+                // ── GDPR Phase 2: Block deletion if active obligations exist ──
+
+                // Block if any active contracts exist for this gig
+                var activeContractStatuses = new[]
+                {
+                    ContractStatus.Draft, ContractStatus.PendingClientApproval,
+                    ContractStatus.ClientReviewRequested, ContractStatus.Revised,
+                    ContractStatus.Approved, ContractStatus.Generated,
+                    ContractStatus.Sent, ContractStatus.Pending,
+                    ContractStatus.Accepted, ContractStatus.ReviewRequested,
+                    ContractStatus.UnderReview
+                };
+                var hasActiveContracts = await careProDbContext.Contracts
+                    .AnyAsync(c => c.GigId == gigId && activeContractStatuses.Contains(c.Status));
+                if (hasActiveContracts)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot delete gig '{gigId}' because it has active contracts. Please complete or terminate all contracts first.");
+                }
+
+                // Block if any active subscriptions exist
+                var activeSubStatuses = new[]
+                {
+                    SubscriptionStatus.Active, SubscriptionStatus.PendingCancellation,
+                    SubscriptionStatus.PastDue, SubscriptionStatus.Charging,
+                    SubscriptionStatus.Paused
+                };
+                var hasActiveSubscriptions = await careProDbContext.Subscriptions
+                    .AnyAsync(s => s.GigId == gigId && activeSubStatuses.Contains(s.Status));
+                if (hasActiveSubscriptions)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot delete gig '{gigId}' because it has active subscriptions. Please cancel all subscriptions first.");
+                }
+
+                // Block if any in-progress or disputed orders exist
+                var hasActiveOrders = await careProDbContext.ClientOrders
+                    .AnyAsync(o => o.GigId == gigId
+                        && o.ClientOrderStatus != null
+                        && o.ClientOrderStatus != "Completed");
+                if (hasActiveOrders)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot delete gig '{gigId}' because it has active orders. Please complete or resolve all orders first.");
+                }
+
+                // ── Cascade: Cancel draft/pending OrderTasks ──
+                var pendingOrderTasks = await careProDbContext.OrderTasks
+                    .Where(ot => ot.GigId == gigId
+                        && ot.Status != OrderTasksStatus.Completed
+                        && ot.Status != OrderTasksStatus.Cancelled
+                        && ot.Status != OrderTasksStatus.Expired)
+                    .ToListAsync();
+                foreach (var ot in pendingOrderTasks)
+                {
+                    ot.Status = OrderTasksStatus.Cancelled;
+                    careProDbContext.OrderTasks.Update(ot);
+                }
+
+                // ── Cascade: Expire pending PendingPayments ──
+                var pendingPayments = await careProDbContext.PendingPayments
+                    .Where(pp => pp.GigId == gigId && pp.Status == PendingPaymentStatus.Pending)
+                    .ToListAsync();
+                foreach (var pp in pendingPayments)
+                {
+                    pp.Status = PendingPaymentStatus.Expired;
+                    careProDbContext.PendingPayments.Update(pp);
+                }
+
+                // ── Cascade: Expire pending BookingCommitments ──
+                var pendingCommitments = await careProDbContext.BookingCommitments
+                    .Where(bc => bc.GigId == gigId && bc.Status == BookingCommitmentStatus.Pending)
+                    .ToListAsync();
+                foreach (var bc in pendingCommitments)
+                {
+                    bc.Status = BookingCommitmentStatus.Expired;
+                    careProDbContext.BookingCommitments.Update(bc);
+                }
+
+                // ── Soft-delete the gig ──
                 gig.IsDeleted = true;
                 gig.DeletedOn = DateTime.UtcNow;
-
                 careProDbContext.Gigs.Update(gig);
+
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Gig soft deleted (ID: {gigId})", caregiverId);
+                logger.LogInformation(
+                    "Gig {GigId} soft-deleted by caregiver {CaregiverId}. Cascaded: {OrderTasksCancelled} order tasks cancelled, {PaymentsExpired} pending payments expired, {CommitmentsExpired} booking commitments expired",
+                    gigId, caregiverId, pendingOrderTasks.Count, pendingPayments.Count, pendingCommitments.Count);
+
+                LogAuditEvent($"Gig soft deleted (ID: {gigId}). Cascaded: {pendingOrderTasks.Count} order tasks cancelled, {pendingPayments.Count} payments expired, {pendingCommitments.Count} commitments expired", caregiverId);
                 return $"Gig with ID '{gigId}' has been successfully deleted.";
             }
             catch (Exception ex)
@@ -805,6 +889,334 @@ namespace Infrastructure.Content.Services
                 LogException(ex);
                 throw;
             }
+        }
+
+        public async Task<AdminBulkDeleteResult> AdminBulkSoftDeleteGigsAsync(List<string>? gigIds, bool deleteAll, string adminUserId)
+        {
+            var result = new AdminBulkDeleteResult();
+
+            // Fetch target gigs using IgnoreQueryFilters to include all records,
+            // then filter to only non-deleted gigs (handles existing records where IsDeleted is null or false)
+            List<Gig> targetGigs;
+            if (deleteAll)
+            {
+                targetGigs = await careProDbContext.Gigs
+                    .Where(g => g.IsDeleted != true)
+                    .ToListAsync();
+            }
+            else
+            {
+                if (gigIds == null || !gigIds.Any())
+                {
+                    throw new ArgumentException("No gig IDs provided.");
+                }
+
+                // Validate all IDs are valid ObjectId format before querying
+                var validIds = new List<string>();
+                foreach (var id in gigIds)
+                {
+                    if (!ObjectId.TryParse(id, out _))
+                    {
+                        result.SkippedCount++;
+                        result.SkippedGigIds.Add(id);
+                        result.SkippedReasons.Add($"Invalid ID format: {id}");
+                        continue;
+                    }
+                    validIds.Add(id);
+                }
+
+                targetGigs = await careProDbContext.Gigs
+                    .Where(g => validIds.Contains(g.Id.ToString()) && g.IsDeleted != true)
+                    .ToListAsync();
+
+                // Track IDs that weren't found (already deleted or never existed)
+                var foundIds = targetGigs.Select(g => g.Id.ToString()).ToHashSet();
+                foreach (var id in validIds.Where(id => !foundIds.Contains(id)))
+                {
+                    result.SkippedCount++;
+                    result.SkippedGigIds.Add(id);
+                    result.SkippedReasons.Add($"Not found or already deleted: {id}");
+                }
+            }
+
+            if (!targetGigs.Any())
+            {
+                result.Message = "No eligible gigs found to delete.";
+                return result;
+            }
+
+            logger.LogWarning(
+                "ADMIN BULK DELETE initiated by {AdminUserId}: {Count} gigs targeted",
+                adminUserId, targetGigs.Count);
+
+            foreach (var gig in targetGigs)
+            {
+                var gigId = gig.Id.ToString();
+
+                try
+                {
+                    // Check for active obligations — skip gigs that cannot be safely deleted
+                    var activeContractStatuses = new[]
+                    {
+                        ContractStatus.Draft, ContractStatus.PendingClientApproval,
+                        ContractStatus.ClientReviewRequested, ContractStatus.Revised,
+                        ContractStatus.Approved, ContractStatus.Generated,
+                        ContractStatus.Sent, ContractStatus.Pending,
+                        ContractStatus.Accepted, ContractStatus.ReviewRequested,
+                        ContractStatus.UnderReview
+                    };
+                    var hasActiveContracts = await careProDbContext.Contracts
+                        .AnyAsync(c => c.GigId == gigId && activeContractStatuses.Contains(c.Status));
+
+                    var activeSubStatuses = new[]
+                    {
+                        SubscriptionStatus.Active, SubscriptionStatus.PendingCancellation,
+                        SubscriptionStatus.PastDue, SubscriptionStatus.Charging,
+                        SubscriptionStatus.Paused
+                    };
+                    var hasActiveSubscriptions = await careProDbContext.Subscriptions
+                        .AnyAsync(s => s.GigId == gigId && activeSubStatuses.Contains(s.Status));
+
+                    var hasActiveOrders = await careProDbContext.ClientOrders
+                        .AnyAsync(o => o.GigId == gigId
+                            && o.ClientOrderStatus != null
+                            && o.ClientOrderStatus != "Completed");
+
+                    if (hasActiveContracts || hasActiveSubscriptions || hasActiveOrders)
+                    {
+                        result.SkippedCount++;
+                        result.SkippedGigIds.Add(gigId);
+                        var reason = hasActiveContracts ? "active contracts"
+                            : hasActiveSubscriptions ? "active subscriptions"
+                            : "active orders";
+                        result.SkippedReasons.Add($"Skipped {gigId}: has {reason}");
+                        continue;
+                    }
+
+                    // Cascade: Cancel pending OrderTasks
+                    var pendingOrderTasks = await careProDbContext.OrderTasks
+                        .Where(ot => ot.GigId == gigId
+                            && ot.Status != OrderTasksStatus.Completed
+                            && ot.Status != OrderTasksStatus.Cancelled
+                            && ot.Status != OrderTasksStatus.Expired)
+                        .ToListAsync();
+                    foreach (var ot in pendingOrderTasks)
+                    {
+                        ot.Status = OrderTasksStatus.Cancelled;
+                        careProDbContext.OrderTasks.Update(ot);
+                    }
+
+                    // Cascade: Expire pending PendingPayments
+                    var pendingPayments = await careProDbContext.PendingPayments
+                        .Where(pp => pp.GigId == gigId && pp.Status == PendingPaymentStatus.Pending)
+                        .ToListAsync();
+                    foreach (var pp in pendingPayments)
+                    {
+                        pp.Status = PendingPaymentStatus.Expired;
+                        careProDbContext.PendingPayments.Update(pp);
+                    }
+
+                    // Cascade: Expire pending BookingCommitments
+                    var pendingCommitments = await careProDbContext.BookingCommitments
+                        .Where(bc => bc.GigId == gigId && bc.Status == BookingCommitmentStatus.Pending)
+                        .ToListAsync();
+                    foreach (var bc in pendingCommitments)
+                    {
+                        bc.Status = BookingCommitmentStatus.Expired;
+                        careProDbContext.BookingCommitments.Update(bc);
+                    }
+
+                    // Soft-delete the gig
+                    gig.IsDeleted = true;
+                    gig.DeletedOn = DateTime.UtcNow;
+                    careProDbContext.Gigs.Update(gig);
+
+                    result.DeletedCount++;
+                }
+                catch (Exception ex)
+                {
+                    result.FailedCount++;
+                    logger.LogError(ex, "Admin bulk delete: Failed to process gig {GigId}", gigId);
+                }
+            }
+
+            await careProDbContext.SaveChangesAsync();
+
+            result.Message = $"Bulk delete complete. Deleted: {result.DeletedCount}, Skipped: {result.SkippedCount}, Failed: {result.FailedCount}";
+
+            LogAuditEvent(
+                $"ADMIN BULK SOFT-DELETE: {result.DeletedCount} gigs deleted, {result.SkippedCount} skipped, {result.FailedCount} failed. DeleteAll={deleteAll}",
+                adminUserId);
+
+            return result;
+        }
+
+        public async Task<string> RestoreGigAsync(string gigId, string caregiverId)
+        {
+            if (!ObjectId.TryParse(gigId, out var objectId))
+            {
+                throw new ArgumentException("Invalid Gig ID format.");
+            }
+
+            // Must use IgnoreQueryFilters — the MongoDB EF Core provider may apply
+            // global query filters even on FindAsync, unlike the relational providers.
+            var gig = await careProDbContext.Gigs
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(g => g.Id == objectId);
+
+            if (gig == null)
+            {
+                throw new KeyNotFoundException($"Gig with ID '{gigId}' not found.");
+            }
+
+            // Verify ownership
+            if (gig.CaregiverId != caregiverId)
+            {
+                throw new UnauthorizedAccessException($"Caregiver with ID '{caregiverId}' is not authorized to restore this gig.");
+            }
+
+            // Must actually be deleted to restore
+            if (gig.IsDeleted != true)
+            {
+                throw new InvalidOperationException($"Gig with ID '{gigId}' is not deleted.");
+            }
+
+            // Enforce 30-day grace period — cannot restore after hard-delete window
+            if (gig.DeletedOn.HasValue && gig.DeletedOn.Value.AddDays(30) < DateTime.UtcNow)
+            {
+                throw new InvalidOperationException(
+                    $"Gig with ID '{gigId}' was deleted more than 30 days ago and can no longer be restored. Please contact support.");
+            }
+
+            // Restore the gig — set to Draft so caregiver must explicitly re-publish
+            gig.IsDeleted = false;
+            gig.DeletedOn = null;
+            gig.Status = "Draft";
+            gig.UpdatedOn = DateTime.UtcNow;
+
+            careProDbContext.Gigs.Update(gig);
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Gig {GigId} restored by caregiver {CaregiverId}. Status set to Draft.",
+                gigId, caregiverId);
+
+            LogAuditEvent($"Gig restored (ID: {gigId}). Status set to Draft for review.", caregiverId);
+            return $"Gig with ID '{gigId}' has been restored successfully. It has been set to Draft status — please review and republish.";
+        }
+
+        public async Task<IEnumerable<DeletedGigDTO>> GetDeletedGigsByCaregiverAsync(string caregiverId)
+        {
+            var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
+            if (caregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            var deletedGigs = await careProDbContext.Gigs
+                .IgnoreQueryFilters()
+                .Where(g => g.CaregiverId == caregiverId && g.IsDeleted == true && g.DeletedOn != null)
+                .OrderByDescending(g => g.DeletedOn)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var dtos = new List<DeletedGigDTO>();
+
+            foreach (var gig in deletedGigs)
+            {
+                var daysSinceDeletion = (now - gig.DeletedOn!.Value).Days;
+                var daysRemaining = Math.Max(0, 30 - daysSinceDeletion);
+
+                dtos.Add(new DeletedGigDTO
+                {
+                    Id = gig.Id.ToString(),
+                    Title = gig.Title,
+                    Category = gig.Category,
+                    SubCategory = gig.SubCategory
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(x => x.Trim())
+                        .ToList(),
+                    PackageType = gig.PackageType,
+                    PackageName = gig.PackageName,
+                    Price = gig.Price,
+                    Image1 = gig.Image1,
+                    CaregiverId = gig.CaregiverId,
+                    CaregiverName = $"{caregiver.FirstName} {caregiver.LastName}".Trim(),
+                    CreatedAt = gig.CreatedAt,
+                    DeletedOn = gig.DeletedOn,
+                    DaysRemaining = daysRemaining,
+                    CanRestore = daysRemaining > 0,
+                });
+            }
+
+            return dtos;
+        }
+
+        public async Task<PaginatedResponse<DeletedGigDTO>> GetAllDeletedGigsPaginatedAsync(int page = 1, int pageSize = 20, string? caregiverId = null)
+        {
+            var query = careProDbContext.Gigs
+                .IgnoreQueryFilters()
+                .Where(g => g.IsDeleted == true && g.DeletedOn != null);
+
+            if (!string.IsNullOrWhiteSpace(caregiverId))
+            {
+                query = query.Where(g => g.CaregiverId == caregiverId);
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var deletedGigs = await query
+                .OrderByDescending(g => g.DeletedOn)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var dtos = new List<DeletedGigDTO>();
+
+            foreach (var gig in deletedGigs)
+            {
+                var daysSinceDeletion = (now - gig.DeletedOn!.Value).Days;
+                var daysRemaining = Math.Max(0, 30 - daysSinceDeletion);
+
+                string caregiverName = "";
+                try
+                {
+                    var cg = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    caregiverName = cg != null ? $"{cg.FirstName} {cg.LastName}".Trim() : "";
+                }
+                catch { }
+
+                dtos.Add(new DeletedGigDTO
+                {
+                    Id = gig.Id.ToString(),
+                    Title = gig.Title,
+                    Category = gig.Category,
+                    SubCategory = gig.SubCategory
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(x => x.Trim())
+                        .ToList(),
+                    PackageType = gig.PackageType,
+                    PackageName = gig.PackageName,
+                    Price = gig.Price,
+                    Image1 = gig.Image1,
+                    CaregiverId = gig.CaregiverId,
+                    CaregiverName = caregiverName,
+                    CreatedAt = gig.CreatedAt,
+                    DeletedOn = gig.DeletedOn,
+                    DaysRemaining = daysRemaining,
+                    CanRestore = daysRemaining > 0,
+                });
+            }
+
+            return new PaginatedResponse<DeletedGigDTO>
+            {
+                Items = dtos,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize,
+                HasMore = (page * pageSize) < totalCount,
+            };
         }
 
         public string GetImageFormat(byte[] imageData)

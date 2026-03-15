@@ -407,6 +407,25 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            // ── EXPIRE BOOKING COMMITMENT ────────────────────────────────────
+            // When an order is terminated, expire the booking commitment that was
+            // applied to it so the client must pay a new commitment fee to re-engage.
+            if (!string.IsNullOrEmpty(subscription.OriginalOrderId))
+            {
+                var linkedCommitment = await _dbContext.BookingCommitments
+                    .FirstOrDefaultAsync(bc => bc.AppliedToOrderId == subscription.OriginalOrderId
+                                            && bc.Status == BookingCommitmentStatus.Completed);
+                if (linkedCommitment != null)
+                {
+                    linkedCommitment.Status = BookingCommitmentStatus.Expired;
+                    await _dbContext.SaveChangesAsync();
+                    _logger.LogInformation(
+                        "Booking commitment {CommitmentId} expired due to subscription termination. Client {ClientId} must pay again to re-engage caregiver {CaregiverId}",
+                        linkedCommitment.Id, subscription.ClientId, subscription.CaregiverId);
+                }
+            }
+            // ── END EXPIRE BOOKING COMMITMENT ────────────────────────────────
+
             // Notify both parties
             var refundMsg = subscription.RefundAmount > 0
                 ? $" A pro-rated refund of {subscription.Currency} {subscription.RefundAmount:N2} will be processed."

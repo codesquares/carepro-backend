@@ -162,10 +162,13 @@ namespace Infrastructure.Content.Services
             {
                 throw new HubException(complianceResult.Warning ?? "Your message was not sent because it contains contact information. All communication must stay on CarePro.");
             }
+
+            // Use redacted message if contact info was stripped, otherwise use original
+            var messageToSend = complianceResult.WasRedacted ? complianceResult.Message : message;
             // ── END CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────
 
             // Sanitize message content to prevent XSS attacks
-            var sanitizedMessage = _contentSanitizer.SanitizeText(message);
+            var sanitizedMessage = _contentSanitizer.SanitizeText(messageToSend);
 
             // Enforce message length limit
             if (sanitizedMessage.Length > 5000)
@@ -187,6 +190,12 @@ namespace Infrastructure.Content.Services
 
             // SECURITY: Send SANITIZED message over SignalR (not raw input)
             await Clients.Group(receiverId).SendAsync("ReceiveMessage", currentUserId, sanitizedMessage, chatMessage.MessageId.ToString(), "sent");
+
+            // If message was redacted, notify sender so they see what was actually delivered
+            if (complianceResult.WasRedacted)
+            {
+                await Clients.Caller.SendAsync("MessageRedacted", chatMessage.MessageId.ToString(), sanitizedMessage, complianceResult.Warning);
+            }
 
             _logger.LogInformation("Message {MessageId} sent successfully from {SenderId} to {ReceiverId}", chatMessage.MessageId.ToString(), currentUserId, receiverId);
 

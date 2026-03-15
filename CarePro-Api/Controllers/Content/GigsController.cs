@@ -467,6 +467,155 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        /// <summary>
+        /// Admin-only endpoint to bulk soft-delete gigs.
+        /// Requires SuperAdmin role for elevated security.
+        /// </summary>
+        [HttpDelete]
+        [Route("admin/BulkSoftDelete")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> AdminBulkSoftDeleteGigsAsync([FromBody] AdminBulkDeleteGigsRequest request)
+        {
+            try
+            {
+                if (request == null)
+                {
+                    return BadRequest(new { message = "Request body is required." });
+                }
+
+                if (!request.DeleteAll && (request.GigIds == null || !request.GigIds.Any()))
+                {
+                    return BadRequest(new { message = "Either provide a list of gig IDs or set deleteAll to true." });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.AdminUserId))
+                {
+                    return BadRequest(new { message = "Admin user ID is required for audit purposes." });
+                }
+
+                var result = await gigServices.AdminBulkSoftDeleteGigsAsync(request.GigIds, request.DeleteAll, request.AdminUserId);
+
+                logger.LogWarning(
+                    "Admin bulk soft-delete executed by {AdminUserId}. Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}",
+                    request.AdminUserId, result.DeletedCount, result.SkippedCount, result.FailedCount);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during admin bulk soft-delete");
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Restore a soft-deleted gig within the 30-day grace period.
+        /// Gig is restored to Draft status so the caregiver must review and republish.
+        /// </summary>
+        [HttpPut]
+        [Route("RestoreGig/{gigId}")]
+        public async Task<IActionResult> RestoreGigAsync(string gigId, [FromQuery] string caregiverId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { message = "Caregiver ID is required." });
+                }
+
+                var result = await gigServices.RestoreGigAsync(gigId, caregiverId);
+                logger.LogInformation("Gig {GigId} restored by caregiver {CaregiverId}", gigId, caregiverId);
+                return Ok(new { message = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during gig restore");
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
+
+        /// <summary>
+        /// Get all soft-deleted gigs for a specific caregiver.
+        /// Returns deletion date and days remaining to restore.
+        /// </summary>
+        [HttpGet]
+        [Route("deleted")]
+        public async Task<IActionResult> GetDeletedGigsByCaregiverAsync([FromQuery] string caregiverId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { message = "Caregiver ID is required." });
+                }
+
+                var deletedGigs = await gigServices.GetDeletedGigsByCaregiverAsync(caregiverId);
+                return Ok(deletedGigs);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred while fetching deleted gigs");
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Admin endpoint to view all soft-deleted gigs across the platform.
+        /// Supports pagination and optional filtering by caregiver.
+        /// </summary>
+        [HttpGet]
+        [Route("admin/deleted")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> GetAllDeletedGigsPaginatedAsync(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string? caregiverId = null)
+        {
+            try
+            {
+                var result = await gigServices.GetAllDeletedGigsPaginatedAsync(page, pageSize, caregiverId);
+                return Ok(new
+                {
+                    success = true,
+                    data = result.Items,
+                    totalCount = result.TotalCount,
+                    page = result.Page,
+                    pageSize = result.PageSize,
+                    hasMore = result.HasMore,
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred while fetching admin deleted gigs");
+                return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
 
         #region Validation
 

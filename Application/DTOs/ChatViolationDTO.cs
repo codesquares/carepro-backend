@@ -19,6 +19,7 @@ namespace Application.DTOs
         public string Message { get; set; } = string.Empty;
         public string? Warning { get; set; }
         public bool ViolationLogged { get; set; }
+        public bool WasRedacted { get; set; }
     }
 
     public class ChatViolationDTO

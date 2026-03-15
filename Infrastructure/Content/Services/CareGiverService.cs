@@ -794,7 +794,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -825,7 +825,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -883,7 +883,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -932,7 +932,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -966,7 +966,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingCaregiver = await careProDbContext.CareGivers.FindAsync(objectId);
-            if (existingCaregiver == null)
+            if (existingCaregiver == null || existingCaregiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }

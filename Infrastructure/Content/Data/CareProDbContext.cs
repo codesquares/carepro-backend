@@ -151,6 +151,19 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ChatViolation>().HasKey(cv => cv.Id);
             modelBuilder.Entity<ChatViolation>().Property(cv => cv.Id).HasElementName("_id");
 
+            // ── GDPR Global Query Filters ──
+            // Automatically exclude soft-deleted records from all LINQ queries.
+            // Note: FindAsync() bypasses these filters by EF Core design.
+            // Gig uses bool? (nullable) — existing records may have null, so use != true
+            modelBuilder.Entity<Gig>().HasQueryFilter(g => g.IsDeleted != true);
+            // All other entities use non-nullable bool — defaults to false for existing records
+            modelBuilder.Entity<Caregiver>().HasQueryFilter(c => !c.IsDeleted);
+            modelBuilder.Entity<AppUser>().HasQueryFilter(u => !u.IsDeleted);
+            modelBuilder.Entity<Client>().HasQueryFilter(c => !c.IsDeleted);
+            modelBuilder.Entity<AdminUser>().HasQueryFilter(a => !a.IsDeleted);
+            modelBuilder.Entity<ChatMessage>().HasQueryFilter(m => !m.IsDeleted);
+            modelBuilder.Entity<Location>().HasQueryFilter(l => !l.IsDeleted);
+
         }
 
 

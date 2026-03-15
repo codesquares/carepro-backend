@@ -33,6 +33,13 @@ namespace Application.Interfaces
 
         Task<string> SoftDeleteGigAsync(string gigId, string caregiverId);
 
+        Task<AdminBulkDeleteResult> AdminBulkSoftDeleteGigsAsync(List<string>? gigIds, bool deleteAll, string adminUserId);
+
+        Task<string> RestoreGigAsync(string gigId, string caregiverId);
+
+        Task<IEnumerable<DeletedGigDTO>> GetDeletedGigsByCaregiverAsync(string caregiverId);
+
+        Task<PaginatedResponse<DeletedGigDTO>> GetAllDeletedGigsPaginatedAsync(int page = 1, int pageSize = 20, string? caregiverId = null);
 
     }
 }

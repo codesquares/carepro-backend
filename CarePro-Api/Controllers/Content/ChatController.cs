@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using System;
 using Microsoft.AspNetCore.Authorization;
+using Application.Interfaces;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using System.ComponentModel.DataAnnotations;
@@ -20,12 +21,14 @@ namespace CarePro_Api.Controllers.Content
         private readonly ChatRepository _chatRepository;
         private readonly IContentSanitizer _contentSanitizer;
         private readonly IChatComplianceService _chatComplianceService;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
 
-        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer, IChatComplianceService chatComplianceService)
+        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer, IChatComplianceService chatComplianceService, IBookingCommitmentService bookingCommitmentService)
         {
             _chatRepository = chatRepository;
             _contentSanitizer = contentSanitizer;
             _chatComplianceService = chatComplianceService;
+            _bookingCommitmentService = bookingCommitmentService;
         }
 
         /// <summary>
@@ -101,16 +104,32 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { error = "Cannot send messages to yourself" });
                 }
 
+                // ── BOOKING COMMITMENT GATE ──────────────────────────────────────
+                var senderRole = User.FindFirstValue(ClaimTypes.Role);
+                if (!string.IsNullOrEmpty(senderRole) &&
+                    senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
+                {
+                    var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, request.ReceiverId);
+                    if (!hasAccess)
+                    {
+                        return BadRequest(new { error = "You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page." });
+                    }
+                }
+                // ── END BOOKING COMMITMENT GATE ──────────────────────────────────
+
                 // ── CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────────
                 var complianceResult = await _chatComplianceService.EvaluateMessageAsync(currentUserId, request.ReceiverId, request.Message);
                 if (!complianceResult.Allowed)
                 {
                     return BadRequest(new { error = complianceResult.Warning ?? "Your message was not sent because it contains contact information." });
                 }
+
+                // Use redacted message if contact info was stripped, otherwise use original
+                var messageToSend = complianceResult.WasRedacted ? complianceResult.Message : request.Message;
                 // ── END CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────
 
                 // Sanitize message content to prevent XSS attacks
-                var sanitizedMessage = _contentSanitizer.SanitizeText(request.Message);
+                var sanitizedMessage = _contentSanitizer.SanitizeText(messageToSend);
 
                 // Enforce message length limit
                 if (sanitizedMessage.Length > 5000)
@@ -133,7 +152,13 @@ namespace CarePro_Api.Controllers.Content
                 await _chatRepository.SaveMessageAsync(chatMessage);
 
                 // Return the message ID for the frontend
-                return Ok(new { messageId = chatMessage.MessageId });
+                return Ok(new
+                {
+                    messageId = chatMessage.MessageId,
+                    wasRedacted = complianceResult.WasRedacted,
+                    redactionWarning = complianceResult.WasRedacted ? complianceResult.Warning : null,
+                    deliveredMessage = complianceResult.WasRedacted ? sanitizedMessage : null
+                });
             }
             catch (Exception)
             {

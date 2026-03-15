@@ -498,7 +498,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingClient = await careProDbContext.Clients.FindAsync(objectId);
-            if (existingClient == null)
+            if (existingClient == null || existingClient.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
@@ -554,7 +554,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.Clients.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
@@ -779,7 +779,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingClient = await careProDbContext.Clients.FindAsync(objectId);
-            if (existingClient == null)
+            if (existingClient == null || existingClient.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }

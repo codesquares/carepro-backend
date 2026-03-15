@@ -207,6 +207,12 @@ builder.Services.AddHostedService<ContractReminderProcessor>();
 // Care request matching background processor
 builder.Services.AddHostedService<CareRequestMatchingProcessor>();
 
+// GDPR: Hard-delete gigs past 30-day grace period (runs daily)
+builder.Services.AddHostedService<GigHardDeleteProcessor>();
+
+// GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
+builder.Services.AddHostedService<GigDeletionReminderProcessor>();
+
 
 
 builder.Services.AddScoped<ITokenHandler, Infrastructure.Content.Services.Authentication.TokenHandler>();

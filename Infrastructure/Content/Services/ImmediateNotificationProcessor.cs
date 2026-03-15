@@ -245,6 +245,8 @@ namespace Infrastructure.Content.Services
                 NotificationTypes.OrderPayment => "Payment Received - CarePro",
                 NotificationTypes.PaymentFailed => "Payment Failed - CarePro",
                 NotificationTypes.RefundProcessed => "Refund Processed - CarePro",
+                NotificationTypes.GigDeletionReminder => "Gig Deletion Reminder - CarePro",
+                NotificationTypes.GigPermanentlyDeleted => "Gig Permanently Deleted - CarePro",
                 _ => "Notification - CarePro"
             };
         }

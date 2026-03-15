@@ -180,22 +180,30 @@ namespace Infrastructure.Content.Services
             decimal basePrice = gig.Price;
             decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType?.ToLower() ?? "one-time", request.FrequencyPerWeek);
 
-            // ── BOOKING COMMITMENT FEE DEDUCTION ─────────────────────────────
-            // If the client already paid a ₦5,000 booking commitment for this gig,
-            // deduct it from the order fee before calculating service charge & gateway fees.
+            // ── BOOKING COMMITMENT FEE GATE + DEDUCTION ─────────────────────
+            // Client MUST have paid the ₦5,000 booking commitment for this gig
+            // before they can proceed to pay for the gig itself.
             decimal commitmentFeeDeducted = 0m;
             string? bookingCommitmentId = null;
             var applicableCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
-            if (applicableCommitment != null)
+            if (applicableCommitment == null)
             {
-                commitmentFeeDeducted = applicableCommitment.Amount; // ₦5,000
-                orderFee = Math.Max(0, orderFee - commitmentFeeDeducted);
-                bookingCommitmentId = applicableCommitment.Id.ToString();
-                _logger.LogInformation(
-                    "Booking commitment {CommitmentId} found. Deducting ₦{Amount} from order fee for GigId: {GigId}",
-                    bookingCommitmentId, commitmentFeeDeducted, request.GigId);
+                _logger.LogWarning(
+                    "Gig payment blocked — no booking commitment found. ClientId: {ClientId}, GigId: {GigId}",
+                    clientId, request.GigId);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
+                });
             }
-            // ── END BOOKING COMMITMENT FEE DEDUCTION ─────────────────────────
+
+            commitmentFeeDeducted = applicableCommitment.Amount; // ₦5,000
+            orderFee = Math.Max(0, orderFee - commitmentFeeDeducted);
+            bookingCommitmentId = applicableCommitment.Id.ToString();
+            _logger.LogInformation(
+                "Booking commitment {CommitmentId} found. Deducting ₦{Amount} from order fee for GigId: {GigId}",
+                bookingCommitmentId, commitmentFeeDeducted, request.GigId);
+            // ── END BOOKING COMMITMENT FEE GATE + DEDUCTION ─────────────────
 
             decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
             decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);

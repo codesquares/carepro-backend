@@ -174,6 +174,10 @@ namespace Application.DTOs
         public const string ContractTaskProposalAccepted = "contract_task_proposal_accepted";
         public const string ContractTaskProposalRejected = "contract_task_proposal_rejected";
 
+        // ── Gig Deletion ──
+        public const string GigDeletionReminder = "gig_deletion_reminder";
+        public const string GigPermanentlyDeleted = "gig_permanently_deleted";
+
         // ── Broadcast ──
         public const string Broadcast = "broadcast";
     }
