@@ -746,6 +746,7 @@ namespace Infrastructure.Content.Services
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 user.Password = hashedPassword;
+                user.EmailConfirmed = true;
 
                 var client = await careProDbContext.Clients.FirstOrDefaultAsync(c => c.Email == user.Email);
                 if (client != null)

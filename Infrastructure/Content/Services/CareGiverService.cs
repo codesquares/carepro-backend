@@ -1113,8 +1113,13 @@ namespace Infrastructure.Content.Services
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 user.Password = hashedPassword;
+                user.EmailConfirmed = true;
 
-
+                var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(c => c.Email == user.Email);
+                if (caregiver != null)
+                {
+                    caregiver.Password = hashedPassword;
+                }
 
                 await careProDbContext.SaveChangesAsync();
             }
