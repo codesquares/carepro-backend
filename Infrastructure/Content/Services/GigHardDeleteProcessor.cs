@@ -39,24 +39,37 @@ namespace Infrastructure.Content.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Let the app fully start before running
-            await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
-
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                _logger.LogInformation("GigHardDeleteProcessor: Starting GDPR hard-delete cycle");
+                // Let the app fully start before running
+                await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
 
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await ProcessExpiredGigsAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "GigHardDeleteProcessor: Unhandled error during hard-delete cycle");
-                }
+                    _logger.LogInformation("GigHardDeleteProcessor: Starting GDPR hard-delete cycle");
 
-                await Task.Delay(RunInterval, stoppingToken);
+                    try
+                    {
+                        await ProcessExpiredGigsAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "GigHardDeleteProcessor: Unhandled error during hard-delete cycle");
+                    }
+
+                    await Task.Delay(RunInterval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("GigHardDeleteProcessor: Stopped");
         }
 
         private async Task ProcessExpiredGigsAsync(CancellationToken stoppingToken)

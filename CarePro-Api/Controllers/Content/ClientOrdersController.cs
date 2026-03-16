@@ -16,11 +16,16 @@ namespace CarePro_Api.Controllers.Content
     public class ClientOrdersController : ControllerBase
     {
         private readonly IClientOrderService clientOrderService;
+        private readonly IBookingCommitmentService bookingCommitmentService;
         private readonly ILogger<ClientOrdersController> logger;
 
-        public ClientOrdersController(IClientOrderService clientOrderService, ILogger<ClientOrdersController> logger)
+        public ClientOrdersController(
+            IClientOrderService clientOrderService,
+            IBookingCommitmentService bookingCommitmentService,
+            ILogger<ClientOrdersController> logger)
         {
             this.clientOrderService = clientOrderService;
+            this.bookingCommitmentService = bookingCommitmentService;
             this.logger = logger;
         }
 
@@ -51,6 +56,17 @@ namespace CarePro_Api.Controllers.Content
         [Authorize(Roles = "Admin, SuperAdmin")]
         public async Task<IActionResult> AddClientOrderAsync([FromBody] AddClientOrderRequest addClientOrderRequest)
         {
+            // Verify booking commitment exists for this client+gig
+            var hasCommitment = await bookingCommitmentService.HasActiveCommitmentAsync(
+                addClientOrderRequest.ClientId, addClientOrderRequest.GigId);
+            if (!hasCommitment)
+            {
+                logger.LogWarning(
+                    "Admin order creation blocked — no booking commitment. ClientId: {ClientId}, GigId: {GigId}",
+                    addClientOrderRequest.ClientId, addClientOrderRequest.GigId);
+                return BadRequest(new { Errors = new[] { "Cannot create order: client has not paid the booking commitment fee for this gig." } });
+            }
+
             var result = await clientOrderService.CreateClientOrderAsync(addClientOrderRequest);
 
             if (!result.IsSuccess)

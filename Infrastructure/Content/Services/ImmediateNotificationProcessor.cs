@@ -30,20 +30,33 @@ namespace Infrastructure.Content.Services
         {
             _logger.LogInformation("ImmediateNotificationProcessor started.");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await ProcessImmediateNotificationsAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error occurred while processing immediate notifications.");
-                }
+                    try
+                    {
+                        await ProcessImmediateNotificationsAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred while processing immediate notifications.");
+                    }
 
-                // Wait for the next run (5 minutes)
-                await Task.Delay(_interval, stoppingToken);
+                    // Wait for the next run (5 minutes)
+                    await Task.Delay(_interval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("ImmediateNotificationProcessor: Stopped");
         }
 
         private async Task ProcessImmediateNotificationsAsync(CancellationToken stoppingToken)

@@ -35,24 +35,37 @@ namespace Infrastructure.Content.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Let the app fully start before running
-            await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken);
-
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                _logger.LogInformation("GigDeletionReminderProcessor: Starting reminder cycle");
+                // Let the app fully start before running
+                await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken);
 
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await ProcessRemindersAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "GigDeletionReminderProcessor: Unhandled error during reminder cycle");
-                }
+                    _logger.LogInformation("GigDeletionReminderProcessor: Starting reminder cycle");
 
-                await Task.Delay(RunInterval, stoppingToken);
+                    try
+                    {
+                        await ProcessRemindersAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "GigDeletionReminderProcessor: Unhandled error during reminder cycle");
+                    }
+
+                    await Task.Delay(RunInterval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("GigDeletionReminderProcessor: Stopped");
         }
 
         private async Task ProcessRemindersAsync(CancellationToken stoppingToken)

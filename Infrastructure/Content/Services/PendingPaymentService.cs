@@ -139,6 +139,24 @@ namespace Infrastructure.Content.Services
                 var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
                 if (age.TotalMinutes < 20 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
                 {
+                    // Verify the commitment is still valid before returning a cached link
+                    var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
+                    if (cachedCommitment == null)
+                    {
+                        // Commitment no longer valid — expire this pending payment and force re-initiation
+                        existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                        existingPendingPayment.ErrorMessage = "Expired: booking commitment no longer valid.";
+                        await _dbContext.SaveChangesAsync();
+
+                        _logger.LogWarning(
+                            "Expired cached pending payment — commitment invalid. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
+                            existingPendingPayment.TransactionReference, clientId, request.GigId);
+                        return Result<PendingPaymentResponse>.Failure(new List<string>
+                        {
+                            "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
+                        });
+                    }
+
                     // Payment link is still fresh — return it instead of creating a new one
                     _logger.LogInformation(
                         "Returning existing pending payment link. TxRef: {TxRef}, Age: {AgeMinutes}m",
@@ -412,25 +430,32 @@ namespace Infrastructure.Content.Services
                 await CreateSubscriptionForRecurringPaymentAsync(pendingPayment, flutterwaveTransactionId, orderResult.Value?.Id);
             }
 
-            // ── Mark booking commitment as applied if one was deducted ──
+            // ── Re-verify and mark booking commitment as applied ──
             if (!string.IsNullOrEmpty(pendingPayment.BookingCommitmentId))
             {
-                try
-                {
-                    await _bookingCommitmentService.MarkCommitmentAppliedAsync(
-                        pendingPayment.BookingCommitmentId,
-                        orderResult.Value?.Id ?? string.Empty);
+                var commitmentApplied = await _bookingCommitmentService.MarkCommitmentAppliedAsync(
+                    pendingPayment.BookingCommitmentId,
+                    orderResult.Value?.Id ?? string.Empty);
 
+                if (!commitmentApplied)
+                {
+                    _logger.LogError(
+                        "SECURITY: Failed to mark commitment {CommitmentId} as applied to order {OrderId}. " +
+                        "Commitment may be reused. Requires manual investigation.",
+                        pendingPayment.BookingCommitmentId, orderResult.Value?.Id);
+                }
+                else
+                {
                     _logger.LogInformation(
                         "Booking commitment {CommitmentId} applied to order {OrderId}",
                         pendingPayment.BookingCommitmentId, orderResult.Value?.Id);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "Failed to mark commitment {CommitmentId} as applied. Payment was successful.",
-                        pendingPayment.BookingCommitmentId);
-                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "SECURITY: Payment completed without a booking commitment. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
+                    transactionReference, pendingPayment.ClientId, pendingPayment.GigId);
             }
 
             return Result<PendingPayment>.Success(pendingPayment);

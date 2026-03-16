@@ -36,8 +36,9 @@ namespace Application.Interfaces
 
         /// <summary>
         /// Marks a commitment as applied to a specific order after full gig payment.
+        /// Returns false if the commitment ID is invalid, not found, or already applied.
         /// </summary>
-        Task MarkCommitmentAppliedAsync(string commitmentId, string orderId);
+        Task<bool> MarkCommitmentAppliedAsync(string commitmentId, string orderId);
 
         /// <summary>
         /// Gets the commitment status for a specific transaction reference.

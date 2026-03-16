@@ -31,29 +31,42 @@ namespace Infrastructure.Content.Services
         {
             _logger.LogInformation("DailyBatchNotificationProcessor started.");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    // Only process during optimal hours (8 AM to 8 PM UTC)
-                    var currentHour = DateTime.UtcNow.Hour;
-                    if (currentHour >= 8 && currentHour <= 20)
+                    try
                     {
-                        await ProcessDailyBatchNotificationsAsync(stoppingToken);
+                        // Only process during optimal hours (8 AM to 8 PM UTC)
+                        var currentHour = DateTime.UtcNow.Hour;
+                        if (currentHour >= 8 && currentHour <= 20)
+                        {
+                            await ProcessDailyBatchNotificationsAsync(stoppingToken);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Skipping batch processing outside optimal hours");
+                        }
                     }
-                    else
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
-                        _logger.LogDebug("Skipping batch processing outside optimal hours");
+                        break;
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error occurred while processing daily batch notifications.");
-                }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred while processing daily batch notifications.");
+                    }
 
-                // Wait for the next run (1 hour)
-                await Task.Delay(_interval, stoppingToken);
+                    // Wait for the next run (1 hour)
+                    await Task.Delay(_interval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("DailyBatchNotificationProcessor: Stopped");
         }
 
         private async Task ProcessDailyBatchNotificationsAsync(CancellationToken stoppingToken)

@@ -306,19 +306,27 @@ namespace Infrastructure.Content.Services
                                         && !bc.IsAppliedToOrder);
         }
 
-        public async Task MarkCommitmentAppliedAsync(string commitmentId, string orderId)
+        public async Task<bool> MarkCommitmentAppliedAsync(string commitmentId, string orderId)
         {
             if (!ObjectId.TryParse(commitmentId, out var objectId))
             {
-                _logger.LogWarning("Invalid commitment ID format: {CommitmentId}", commitmentId);
-                return;
+                _logger.LogError("SECURITY: Invalid commitment ID format: {CommitmentId}. Cannot mark as applied.", commitmentId);
+                return false;
             }
 
             var commitment = await _dbContext.BookingCommitments.FindAsync(objectId);
             if (commitment == null)
             {
-                _logger.LogWarning("Cannot mark commitment as applied — not found: {CommitmentId}", commitmentId);
-                return;
+                _logger.LogError("SECURITY: Cannot mark commitment as applied — not found: {CommitmentId}", commitmentId);
+                return false;
+            }
+
+            if (commitment.IsAppliedToOrder)
+            {
+                _logger.LogError(
+                    "SECURITY: Commitment {CommitmentId} already applied to order {ExistingOrderId}. Attempted reuse for order {NewOrderId}.",
+                    commitmentId, commitment.AppliedToOrderId, orderId);
+                return false;
             }
 
             commitment.IsAppliedToOrder = true;
@@ -328,6 +336,7 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation(
                 "Commitment {CommitmentId} marked as applied to order {OrderId}",
                 commitmentId, orderId);
+            return true;
         }
 
         public async Task<BookingCommitment?> GetByTransactionReferenceAsync(string transactionReference)

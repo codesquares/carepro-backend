@@ -29,19 +29,32 @@ namespace Infrastructure.Content.Services
         {
             _logger.LogInformation("CareRequestMatchingProcessor started. Polling every {Interval} minutes.", _pollingInterval.TotalMinutes);
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await ProcessPendingCareRequestsAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in CareRequestMatchingProcessor polling cycle");
-                }
+                    try
+                    {
+                        await ProcessPendingCareRequestsAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error in CareRequestMatchingProcessor polling cycle");
+                    }
 
-                await Task.Delay(_pollingInterval, stoppingToken);
+                    await Task.Delay(_pollingInterval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("CareRequestMatchingProcessor: Stopped");
         }
 
         private async Task ProcessPendingCareRequestsAsync(CancellationToken stoppingToken)
