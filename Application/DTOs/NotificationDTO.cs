@@ -95,6 +95,7 @@ namespace Application.DTOs
 
         // ── Booking ──
         public const string BookingConfirmed = "booking_confirmed";
+        public const string CommitmentConfirmed = "commitment_confirmed";
 
         // ── Contract lifecycle (caregiver-side) ──
         public const string ContractReceived = "contract_received";

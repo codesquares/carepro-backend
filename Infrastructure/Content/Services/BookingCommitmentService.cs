@@ -402,7 +402,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 recipientId: commitment.ClientId,
                 senderId: commitment.CaregiverId,
-                type: NotificationTypes.BookingConfirmed,
+                type: NotificationTypes.CommitmentConfirmed,
                 content: $"You've unlocked access to chat with {caregiverName} about their gig: {gigTitle}. You can now discuss care details before placing a full order.",
                 Title: "Gig Access Unlocked",
                 relatedEntityId: commitment.GigId
@@ -412,7 +412,7 @@ namespace Infrastructure.Content.Services
             await _notificationService.CreateNotificationAsync(
                 recipientId: commitment.CaregiverId,
                 senderId: commitment.ClientId,
-                type: NotificationTypes.BookingConfirmed,
+                type: NotificationTypes.CommitmentConfirmed,
                 content: $"{clientName} is interested in your gig: {gigTitle}. They have paid a booking commitment fee and can now message you to discuss care details.",
                 Title: "New Booking Interest",
                 relatedEntityId: commitment.GigId
