@@ -168,6 +168,9 @@ builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
 // Order Tasks services (Enhanced Contract Generation feature)
 builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
 
+// Order Negotiation services (Pre-Contract Negotiation Phase)
+builder.Services.AddScoped<IOrderNegotiationService, OrderNegotiationService>();
+
 // Task Sheets services (Caregiver visit session tracking)
 builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
 

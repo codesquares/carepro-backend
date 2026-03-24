@@ -14,7 +14,9 @@ namespace Domain.Entities
 
         public string Title { get; set; } = string.Empty;
 
-        public string Description { get; set; } = string.Empty;
+        public string? ServiceGroup { get; set; }
+
+        public string? Notes { get; set; }
 
         public string Urgency { get; set; } = string.Empty;
 
@@ -29,6 +31,14 @@ namespace Domain.Entities
         public string? Budget { get; set; }
 
         public string? SpecialRequirements { get; set; }
+
+        public List<string>? Tasks { get; set; }
+
+        public string? ExperiencePreference { get; set; }
+
+        public string? CertificationPreference { get; set; }
+
+        public string? LanguagePreference { get; set; }
 
         // Geocoded coordinates resolved from Location or Client's address
         public double? Latitude { get; set; }

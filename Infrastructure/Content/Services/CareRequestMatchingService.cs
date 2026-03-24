@@ -366,7 +366,7 @@ namespace Infrastructure.Content.Services
             double score = 0.7;
 
             // Bonus for subcategory/tag keyword overlap with request title/description
-            var requestKeywords = ExtractKeywords(request.Title + " " + request.Description);
+            var requestKeywords = ExtractKeywords(request.Title + " " + (request.Notes ?? string.Empty));
             foreach (var gig in matchingGigs)
             {
                 var gigKeywords = ExtractKeywords(gig.SubCategory + " " + gig.Tags + " " + gig.Title);

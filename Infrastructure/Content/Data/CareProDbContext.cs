@@ -151,6 +151,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ChatViolation>().HasKey(cv => cv.Id);
             modelBuilder.Entity<ChatViolation>().Property(cv => cv.Id).HasElementName("_id");
 
+            modelBuilder.Entity<OrderNegotiation>().ToCollection("OrderNegotiations");
+            modelBuilder.Entity<OrderNegotiation>().HasKey(n => n.Id);
+            modelBuilder.Entity<OrderNegotiation>().Property(n => n.Id).HasElementName("_id");
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -208,5 +212,6 @@ namespace Infrastructure.Content.Data
         public DbSet<IncidentReport> IncidentReports { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
+        public DbSet<OrderNegotiation> OrderNegotiations { get; set; }
     }
 }

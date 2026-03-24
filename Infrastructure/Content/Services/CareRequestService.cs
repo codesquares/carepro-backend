@@ -37,6 +37,12 @@ namespace Infrastructure.Content.Services
             "One-time", "Daily", "A few times a week", "Weekly", "As needed"
         };
 
+        // Valid service group values
+        private static readonly HashSet<string> ValidServiceGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Medical", "Non-Medical"
+        };
+
         // Valid status values
         private static readonly HashSet<string> ValidStatusValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -68,6 +74,12 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException($"Invalid service category. Valid values are: {string.Join(", ", ValidServiceCategories)}");
             }
 
+            // Validate service group
+            if (!ValidServiceGroups.Contains(createCareRequestDTO.ServiceGroup))
+            {
+                throw new ArgumentException($"Invalid service group. Valid values are: {string.Join(", ", ValidServiceGroups)}");
+            }
+
             // Validate urgency
             if (!ValidUrgencyValues.Contains(createCareRequestDTO.Urgency))
             {
@@ -87,7 +99,8 @@ namespace Infrastructure.Content.Services
                 ClientId = createCareRequestDTO.ClientId,
                 ServiceCategory = createCareRequestDTO.ServiceCategory,
                 Title = createCareRequestDTO.Title,
-                Description = createCareRequestDTO.Description,
+                ServiceGroup = createCareRequestDTO.ServiceGroup,
+                Notes = createCareRequestDTO.Notes,
                 Urgency = createCareRequestDTO.Urgency,
                 Schedule = createCareRequestDTO.Schedule ?? new List<string>(),
                 Frequency = createCareRequestDTO.Frequency,
@@ -95,6 +108,10 @@ namespace Infrastructure.Content.Services
                 Location = createCareRequestDTO.Location,
                 Budget = createCareRequestDTO.Budget,
                 SpecialRequirements = createCareRequestDTO.SpecialRequirements,
+                Tasks = createCareRequestDTO.Tasks ?? new List<string>(),
+                ExperiencePreference = createCareRequestDTO.ExperiencePreference,
+                CertificationPreference = createCareRequestDTO.CertificationPreference,
+                LanguagePreference = createCareRequestDTO.LanguagePreference,
                 Status = "pending",
                 CreatedAt = DateTime.UtcNow
             };
@@ -176,8 +193,17 @@ namespace Infrastructure.Content.Services
             if (!string.IsNullOrEmpty(updateCareRequestDTO.Title))
                 careRequest.Title = updateCareRequestDTO.Title;
 
-            if (!string.IsNullOrEmpty(updateCareRequestDTO.Description))
-                careRequest.Description = updateCareRequestDTO.Description;
+            if (!string.IsNullOrEmpty(updateCareRequestDTO.ServiceGroup))
+            {
+                if (!ValidServiceGroups.Contains(updateCareRequestDTO.ServiceGroup))
+                {
+                    throw new ArgumentException($"Invalid service group. Valid values are: {string.Join(", ", ValidServiceGroups)}");
+                }
+                careRequest.ServiceGroup = updateCareRequestDTO.ServiceGroup;
+            }
+
+            if (updateCareRequestDTO.Notes != null)
+                careRequest.Notes = updateCareRequestDTO.Notes;
 
             if (!string.IsNullOrEmpty(updateCareRequestDTO.Urgency))
             {
@@ -211,6 +237,18 @@ namespace Infrastructure.Content.Services
 
             if (updateCareRequestDTO.SpecialRequirements != null)
                 careRequest.SpecialRequirements = updateCareRequestDTO.SpecialRequirements;
+
+            if (updateCareRequestDTO.Tasks != null)
+                careRequest.Tasks = updateCareRequestDTO.Tasks;
+
+            if (updateCareRequestDTO.ExperiencePreference != null)
+                careRequest.ExperiencePreference = updateCareRequestDTO.ExperiencePreference;
+
+            if (updateCareRequestDTO.CertificationPreference != null)
+                careRequest.CertificationPreference = updateCareRequestDTO.CertificationPreference;
+
+            if (updateCareRequestDTO.LanguagePreference != null)
+                careRequest.LanguagePreference = updateCareRequestDTO.LanguagePreference;
 
             careRequest.UpdatedAt = DateTime.UtcNow;
 
@@ -309,7 +347,8 @@ namespace Infrastructure.Content.Services
                 ClientId = careRequest.ClientId,
                 ServiceCategory = careRequest.ServiceCategory,
                 Title = careRequest.Title,
-                Description = careRequest.Description,
+                ServiceGroup = careRequest.ServiceGroup ?? string.Empty,
+                Notes = careRequest.Notes,
                 Urgency = careRequest.Urgency,
                 Schedule = careRequest.Schedule,
                 Frequency = careRequest.Frequency,
@@ -317,6 +356,10 @@ namespace Infrastructure.Content.Services
                 Location = careRequest.Location,
                 Budget = careRequest.Budget,
                 SpecialRequirements = careRequest.SpecialRequirements,
+                Tasks = careRequest.Tasks ?? new List<string>(),
+                ExperiencePreference = careRequest.ExperiencePreference,
+                CertificationPreference = careRequest.CertificationPreference,
+                LanguagePreference = careRequest.LanguagePreference,
                 Status = careRequest.Status,
                 CreatedAt = careRequest.CreatedAt,
                 UpdatedAt = careRequest.UpdatedAt,

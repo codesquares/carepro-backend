@@ -9,6 +9,7 @@ namespace Application.DTOs
     /// <summary>
     /// DTO for caregiver to generate a contract after agreeing with client on schedule.
     /// Caregiver submits the agreed schedule and service details.
+    /// NOTE: Service address and access instructions are client-owned fields — only the client can provide these.
     /// </summary>
     public class CaregiverContractGenerationDTO
     {
@@ -17,10 +18,8 @@ namespace Application.DTOs
         // Agreed schedule (must match VisitsPerWeek from order)
         public List<ScheduledVisitDTO> Schedule { get; set; } = new List<ScheduledVisitDTO>();
         
-        // Service details from client-caregiver discussion
-        public string ServiceAddress { get; set; } = string.Empty;
+        // Caregiver notes
         public string? SpecialClientRequirements { get; set; }
-        public string? AccessInstructions { get; set; }
         public string? AdditionalNotes { get; set; }
 
         /// <summary>
@@ -28,13 +27,6 @@ namespace Application.DTOs
         /// These are added directly to the contract tasks.
         /// </summary>
         public List<ProposedTaskDTO>? AdditionalTasks { get; set; }
-
-        /// <summary>
-        /// Optional: Direct GPS coordinates for the service address.
-        /// If provided, these are stored directly instead of geocoding the ServiceAddress text.
-        /// </summary>
-        public double? ServiceLatitude { get; set; }
-        public double? ServiceLongitude { get; set; }
     }
 
     /// <summary>
@@ -152,10 +144,8 @@ namespace Application.DTOs
         // Revised schedule
         public List<ScheduledVisitDTO> RevisedSchedule { get; set; } = new List<ScheduledVisitDTO>();
         
-        // Updated service details (can be modified)
-        public string? ServiceAddress { get; set; }
+        // Updated details (caregiver cannot change address or access instructions)
         public string? SpecialClientRequirements { get; set; }
-        public string? AccessInstructions { get; set; }
         public string? AdditionalNotes { get; set; }
         
         // Explanation of changes
@@ -178,6 +168,117 @@ namespace Application.DTOs
     public class ClientContractRejectionDTO
     {
         public string? Reason { get; set; }
+    }
+
+    // ========================================
+    // CLIENT-INITIATED FLOW DTOs
+    // ========================================
+
+    /// <summary>
+    /// DTO for client to generate a contract.
+    /// Client provides service address, access instructions, optional tasks and schedule.
+    /// Caregiver must approve and confirm/set the schedule.
+    /// </summary>
+    public class ClientContractGenerationDTO
+    {
+        public string OrderId { get; set; } = string.Empty;
+
+        // Service location — only the client knows where care will be rendered
+        public string ServiceAddress { get; set; } = string.Empty;
+        public string? AccessInstructions { get; set; }
+
+        /// <summary>
+        /// If true, client is currently at the service address and device GPS should be used.
+        /// </summary>
+        public bool ConfirmAtServiceAddress { get; set; }
+        public double? ServiceLatitude { get; set; }
+        public double? ServiceLongitude { get; set; }
+
+        // Optional schedule preference — caregiver can edit/confirm during approval
+        public List<ScheduledVisitDTO>? Schedule { get; set; }
+
+        // Optional tasks the client wants to include
+        public List<ProposedTaskDTO>? Tasks { get; set; }
+
+        // Additional context
+        public string? SpecialClientRequirements { get; set; }
+        public string? AdditionalNotes { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for caregiver to approve a client-initiated contract.
+    /// Caregiver MUST confirm or provide the schedule.
+    /// </summary>
+    public class CaregiverContractApprovalRequest
+    {
+        /// <summary>
+        /// Confirmed/final schedule. Required — caregiver must set the exact visit times.
+        /// </summary>
+        public List<ScheduledVisitDTO> Schedule { get; set; } = new List<ScheduledVisitDTO>();
+
+        /// <summary>
+        /// Additional tasks the caregiver wants to add.
+        /// </summary>
+        public List<ProposedTaskDTO>? AdditionalTasks { get; set; }
+
+        public string? AdditionalNotes { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for caregiver to request changes on a client-initiated contract (Round 1 only).
+    /// </summary>
+    public class CaregiverContractReviewRequestDTO
+    {
+        public string Comments { get; set; } = string.Empty;
+        public string? PreferredScheduleNotes { get; set; }
+
+        /// <summary>
+        /// Tasks the caregiver wants to propose.
+        /// </summary>
+        public List<ProposedTaskDTO>? ProposedTasks { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for caregiver to reject a client-initiated contract (Round 2 only).
+    /// </summary>
+    public class CaregiverContractRejectionDTO
+    {
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// DTO for client to revise contract after caregiver review request (Round 2, client-initiated flow).
+    /// Client can update address, access instructions, schedule, and respond to caregiver-proposed tasks.
+    /// </summary>
+    public class ClientContractRevisionDTO
+    {
+        public string ContractId { get; set; } = string.Empty;
+
+        // Client can update service address and access instructions
+        public string? ServiceAddress { get; set; }
+        public string? AccessInstructions { get; set; }
+        public bool ConfirmAtServiceAddress { get; set; }
+        public double? ServiceLatitude { get; set; }
+        public double? ServiceLongitude { get; set; }
+
+        // Client can update schedule
+        public List<ScheduledVisitDTO>? RevisedSchedule { get; set; }
+
+        // Client can update requirements
+        public string? SpecialClientRequirements { get; set; }
+        public string? AdditionalNotes { get; set; }
+
+        public string RevisionNotes { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Responses to caregiver-proposed tasks.
+        /// </summary>
+        public List<ProposedTaskResponseDTO>? ProposedTaskResponses { get; set; }
+
+        /// <summary>
+        /// Additional tasks the client wants to add.
+        /// </summary>
+        public List<ProposedTaskDTO>? AdditionalTasks { get; set; }
     }
 
     /// <summary>
@@ -311,6 +412,8 @@ namespace Application.DTOs
         
         // NEW: Caregiver-initiated fields
         public string? SubmittedByCaregiverId { get; set; }
+        public string? SubmittedByClientId { get; set; }
+        public string? InitiatedByRole { get; set; } = "Caregiver";
         public DateTime? SubmittedAt { get; set; }
         public List<ScheduledVisitDTO> Schedule { get; set; } = new List<ScheduledVisitDTO>();
         public string? ServiceAddress { get; set; }

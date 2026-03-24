@@ -6,17 +6,18 @@ namespace Application.Interfaces.Content
     public interface IContractService
     {
         // ========================================
-        // NEW FLOW: Caregiver-Initiated Contract Generation
+        // CAREGIVER-INITIATED CONTRACT FLOW
         // ========================================
         
         /// <summary>
         /// Caregiver generates contract after agreeing on schedule with client.
-        /// Triggered when caregiver clicks "Generate Contract" on an order.
+        /// NOTE: Caregiver cannot set service address or access instructions — only the client can.
         /// </summary>
         Task<ContractDTO> CaregiverGenerateContractAsync(string caregiverId, CaregiverContractGenerationDTO request);
         
         /// <summary>
         /// Client approves the contract sent by caregiver.
+        /// Client MUST provide service address when approving a caregiver-initiated contract.
         /// </summary>
         Task<ContractDTO> ClientApproveContractAsync(string contractId, string clientId, ClientContractApprovalRequest? request = null);
         
@@ -34,6 +35,45 @@ namespace Application.Interfaces.Content
         /// Client rejects contract (only allowed in Round 2, triggers request for new caregiver).
         /// </summary>
         Task<ContractDTO> ClientRejectContractAsync(string contractId, string clientId, ClientContractRejectionDTO? request);
+
+        // ========================================
+        // CLIENT-INITIATED CONTRACT FLOW
+        // ========================================
+
+        /// <summary>
+        /// Client generates contract with service address, access instructions, optional schedule and tasks.
+        /// Caregiver must approve and confirm the schedule.
+        /// </summary>
+        Task<ContractDTO> ClientGenerateContractAsync(string clientId, ClientContractGenerationDTO request);
+
+        /// <summary>
+        /// Caregiver approves a client-initiated contract. Must provide/confirm the schedule.
+        /// </summary>
+        Task<ContractDTO> CaregiverApproveContractAsync(string contractId, string caregiverId, CaregiverContractApprovalRequest request);
+
+        /// <summary>
+        /// Caregiver requests review/changes on a client-initiated contract (Round 1 only).
+        /// </summary>
+        Task<ContractDTO> CaregiverRequestReviewAsync(string contractId, string caregiverId, CaregiverContractReviewRequestDTO request);
+
+        /// <summary>
+        /// Client revises contract after caregiver review request (Round 2, client-initiated flow).
+        /// </summary>
+        Task<ContractDTO> ClientReviseContractAsync(string clientId, ClientContractRevisionDTO revision);
+
+        /// <summary>
+        /// Caregiver rejects a client-initiated contract (Round 2 only).
+        /// </summary>
+        Task<ContractDTO> CaregiverRejectContractAsync(string contractId, string caregiverId, CaregiverContractRejectionDTO? request);
+
+        /// <summary>
+        /// Get contracts pending caregiver approval (client-initiated flow).
+        /// </summary>
+        Task<List<ContractDTO>> GetPendingContractsForCaregiverApprovalAsync(string caregiverId);
+
+        // ========================================
+        // SHARED: Negotiation & Queries
+        // ========================================
         
         /// <summary>
         /// Get negotiation history for a contract (for safety/audit).
@@ -87,15 +127,24 @@ namespace Application.Interfaces.Content
 
         // Client Contract Management
         Task<ContractDTO> SendContractToAlternativeCaregiverAsync(string originalContractId, string newCaregiverId);
+
+        /// <summary>
+        /// Admin: Cancel all non-terminal contracts (migration to negotiation flow).
+        /// </summary>
+        Task<int> CancelAllActiveContractsAsync();
     }
 
     public interface IContractNotificationService
     {
-        // NEW FLOW: Notifications for caregiver-initiated contracts
+        // Caregiver-initiated flow: Notifications to client
         Task<bool> SendContractNotificationToClientAsync(string contractId);
         Task<bool> SendContractEmailToClientAsync(string contractId);
         Task<bool> NotifyCaregiverOfClientResponseAsync(string contractId, string response);
         Task<bool> SendContractReminderToClientAsync(string contractId);
+
+        // Client-initiated flow: Notifications to caregiver
+        Task<bool> SendContractNotificationToCaregiverForApprovalAsync(string contractId);
+        Task<bool> NotifyClientOfCaregiverResponseAsync(string contractId, string response);
         
         // LEGACY: Notifications for client-initiated contracts
         Task<bool> SendContractNotificationToCaregiverAsync(string contractId);

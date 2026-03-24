@@ -31,6 +31,14 @@ namespace Domain.Entities
         public string? SubmittedByCaregiverId { get; set; }
         public DateTime? SubmittedAt { get; set; }
 
+        // NEW: Client-initiated contract generation
+        public string? SubmittedByClientId { get; set; }
+
+        /// <summary>
+        /// Which role created the contract: "Client" or "Caregiver". Null for legacy contracts (treated as "Caregiver").
+        /// </summary>
+        public string? InitiatedByRole { get; set; } = "Caregiver";
+
         // NEW: Agreed Schedule (caregiver submits after negotiation with client)
         public List<ScheduledVisit> Schedule { get; set; } = new List<ScheduledVisit>();
 
@@ -109,12 +117,17 @@ namespace Domain.Entities
     public enum ContractStatus
     {
         // NEW: Caregiver-initiated flow statuses
-        Draft,                    // Caregiver is preparing contract
-        PendingClientApproval,    // Contract sent to client for approval
-        ClientReviewRequested,    // Client requested changes (Round 1)
-        Revised,                  // Caregiver revised and resubmitted (Round 2)
-        Approved,                 // Client approved the contract - now active
+        Draft,                    // Someone is preparing contract
+        PendingClientApproval,    // Contract sent to client for approval (caregiver-initiated)
+        ClientReviewRequested,    // Client requested changes (Round 1, caregiver-initiated)
+        Revised,                  // Counterparty revised and resubmitted (Round 2)
+        Approved,                 // Contract approved - now active
         ClientRejected,           // Client rejected after Round 2 (requests new caregiver)
+
+        // NEW: Client-initiated flow statuses
+        PendingCaregiverApproval, // Contract sent to caregiver for approval (client-initiated)
+        CaregiverReviewRequested, // Caregiver requested changes (Round 1, client-initiated)
+        CaregiverRejected,        // Caregiver rejected after Round 2 (client-initiated)
 
         // LEGACY: Keeping for backward compatibility with existing contracts
         Generated,      // Contract created after payment (old flow)
@@ -128,7 +141,8 @@ namespace Domain.Entities
         // Lifecycle statuses (used by both flows)
         Expired,       // Contract expired without response
         Completed,     // Service completed
-        Terminated     // Contract terminated early
+        Terminated,    // Contract terminated early
+        Cancelled      // Auto-cancelled during migration to negotiation flow
     }
 
     public enum TaskCategory

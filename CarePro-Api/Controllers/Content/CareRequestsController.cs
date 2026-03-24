@@ -68,7 +68,22 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                _logger.LogInformation($"Retrieving care requests for ClientId: {clientId}");
+                // Enforce ownership: Clients can only fetch their own requests
+                var isAdmin = User.IsInRole("Admin");
+                if (!isAdmin)
+                {
+                    var authenticatedUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                                              ?? User.FindFirst("sub")?.Value
+                                              ?? User.FindFirst("userId")?.Value;
+
+                    if (string.IsNullOrEmpty(authenticatedUserId) || authenticatedUserId != clientId)
+                    {
+                        _logger.LogWarning("Client {AuthUserId} attempted to access requests for ClientId: {ClientId}", authenticatedUserId, clientId);
+                        return Forbid();
+                    }
+                }
+
+                _logger.LogInformation("Retrieving care requests for ClientId: {ClientId}", clientId);
 
                 var careRequests = await _careRequestService.GetCareRequestsByClientIdAsync(clientId);
 

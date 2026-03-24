@@ -74,12 +74,14 @@ namespace Infrastructure.Content.Services
                 return Result<BookingCommitmentResponse>.Failure(new List<string> { "You cannot pay a commitment fee for your own gig." });
 
             // ── EXISTING ORDER GUARD ─────────────────────────────────────────
-            // Block commitment if the client already has an active (non-completed) order for this gig,
-            // because the commitment fee would be pointless — they can't pay for the gig again.
+            // Block commitment only if the client has a genuinely active order (In Progress, Disputed).
+            // Cancelled, Terminated, and Completed orders are terminal — client can re-commit.
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
             var existingActiveOrder = await _dbContext.ClientOrders
                 .FirstOrDefaultAsync(o => o.ClientId == clientId
                                        && o.GigId == request.GigId
-                                       && o.ClientOrderStatus != "Completed");
+                                       && o.ClientOrderStatus != null
+                                       && !terminalStatuses.Contains(o.ClientOrderStatus));
 
             if (existingActiveOrder != null)
             {
@@ -92,11 +94,40 @@ namespace Infrastructure.Content.Services
                 });
             }
 
-            // Check if client already has an active (completed) commitment for this gig
+            // ── RECURRING SUBSCRIPTION GUARD ─────────────────────────────────
+            // For recurring orders, "Completed" means a billing cycle ended — block if the subscription is still active.
+            var completedRecurringOrder = await _dbContext.ClientOrders
+                .FirstOrDefaultAsync(o => o.ClientId == clientId
+                                       && o.GigId == request.GigId
+                                       && o.ClientOrderStatus == "Completed"
+                                       && o.SubscriptionId != null);
+
+            if (completedRecurringOrder != null)
+            {
+                var activeSubscription = await _dbContext.Subscriptions
+                    .FirstOrDefaultAsync(s => s.Id == completedRecurringOrder.SubscriptionId
+                                           && (s.Status == SubscriptionStatus.Active
+                                               || s.Status == SubscriptionStatus.PendingCancellation
+                                               || s.Status == SubscriptionStatus.Charging));
+
+                if (activeSubscription != null)
+                {
+                    _logger.LogWarning(
+                        "Commitment fee blocked — active recurring subscription exists. ClientId: {ClientId}, GigId: {GigId}, SubscriptionId: {SubscriptionId}",
+                        clientId, request.GigId, completedRecurringOrder.SubscriptionId);
+                    return Result<BookingCommitmentResponse>.Failure(new List<string>
+                    {
+                        "You have an active recurring subscription for this gig. A commitment fee is not required."
+                    });
+                }
+            }
+
+            // Check if client already has an unused (completed, not yet applied) commitment for this gig
             var existingCompleted = await _dbContext.BookingCommitments
                 .FirstOrDefaultAsync(bc => bc.ClientId == clientId
                                         && bc.GigId == request.GigId
-                                        && bc.Status == BookingCommitmentStatus.Completed);
+                                        && bc.Status == BookingCommitmentStatus.Completed
+                                        && !bc.IsAppliedToOrder);
 
             if (existingCompleted != null)
             {

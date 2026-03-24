@@ -91,11 +91,14 @@ namespace Infrastructure.Content.Services
             }
 
             // ── DUPLICATE PAYMENT GUARD ──────────────────────────────────────
-            // 1. Block if the client already has a non-completed order for this gig
+            // 1. Block if the client already has a genuinely active order for this gig.
+            //    Cancelled, Terminated, and Completed orders are terminal — client can re-purchase.
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
             var existingActiveOrder = await _dbContext.ClientOrders
                 .FirstOrDefaultAsync(o => o.ClientId == clientId
                                        && o.GigId == request.GigId
-                                       && o.ClientOrderStatus != "Completed");
+                                       && o.ClientOrderStatus != null
+                                       && !terminalStatuses.Contains(o.ClientOrderStatus));
 
             if (existingActiveOrder != null)
             {

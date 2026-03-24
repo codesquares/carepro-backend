@@ -181,6 +181,16 @@ namespace Application.DTOs
 
         // ── Broadcast ──
         public const string Broadcast = "broadcast";
+
+        // ── Order Negotiation ──
+        public const string NegotiationStarted = "negotiation_started";
+        public const string NegotiationClientSubmitted = "negotiation_client_submitted";
+        public const string NegotiationCaregiverSubmitted = "negotiation_caregiver_submitted";
+        public const string NegotiationClientAgreed = "negotiation_client_agreed";
+        public const string NegotiationCaregiverAgreed = "negotiation_caregiver_agreed";
+        public const string NegotiationBothAgreed = "negotiation_both_agreed";
+        public const string NegotiationAbandoned = "negotiation_abandoned";
+        public const string NegotiationConverted = "negotiation_converted";
     }
 
     public class BroadcastNotificationRequest

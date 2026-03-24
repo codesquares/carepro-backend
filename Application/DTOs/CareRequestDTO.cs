@@ -20,8 +20,10 @@ namespace Application.DTOs
         public string Title { get; set; } = string.Empty;
 
         [Required]
+        public string ServiceGroup { get; set; } = string.Empty;
+
         [MaxLength(2000)]
-        public string Description { get; set; } = string.Empty;
+        public string? Notes { get; set; }
 
         [Required]
         public string Urgency { get; set; } = string.Empty;
@@ -40,6 +42,14 @@ namespace Application.DTOs
 
         [MaxLength(1000)]
         public string? SpecialRequirements { get; set; }
+
+        public List<string>? Tasks { get; set; }
+
+        public string? ExperiencePreference { get; set; }
+
+        public string? CertificationPreference { get; set; }
+
+        public string? LanguagePreference { get; set; }
     }
 
     /// <summary>
@@ -52,8 +62,10 @@ namespace Application.DTOs
         [MaxLength(120)]
         public string? Title { get; set; }
 
+        public string? ServiceGroup { get; set; }
+
         [MaxLength(2000)]
-        public string? Description { get; set; }
+        public string? Notes { get; set; }
 
         public string? Urgency { get; set; }
 
@@ -69,6 +81,14 @@ namespace Application.DTOs
 
         [MaxLength(1000)]
         public string? SpecialRequirements { get; set; }
+
+        public List<string>? Tasks { get; set; }
+
+        public string? ExperiencePreference { get; set; }
+
+        public string? CertificationPreference { get; set; }
+
+        public string? LanguagePreference { get; set; }
     }
 
     /// <summary>
@@ -84,7 +104,9 @@ namespace Application.DTOs
 
         public string Title { get; set; } = string.Empty;
 
-        public string Description { get; set; } = string.Empty;
+        public string ServiceGroup { get; set; } = string.Empty;
+
+        public string? Notes { get; set; }
 
         public string Urgency { get; set; } = string.Empty;
 
@@ -99,6 +121,14 @@ namespace Application.DTOs
         public string? Budget { get; set; }
 
         public string? SpecialRequirements { get; set; }
+
+        public List<string> Tasks { get; set; } = new List<string>();
+
+        public string? ExperiencePreference { get; set; }
+
+        public string? CertificationPreference { get; set; }
+
+        public string? LanguagePreference { get; set; }
 
         public string Status { get; set; } = string.Empty;
 

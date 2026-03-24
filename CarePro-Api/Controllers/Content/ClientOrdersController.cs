@@ -262,7 +262,7 @@ namespace CarePro_Api.Controllers.Content
 
                 var result = await clientOrderService.UpdateClientOrderStatusAsync(orderId, updateClientOrderStatusRequest);
                 logger.LogInformation("Client Order Status with ID: {OrderId} updated by user {UserId}.", orderId, updateClientOrderStatusRequest.UserId);
-                return Ok(result);
+                return Ok(new { message = result, orderId = orderId, status = updateClientOrderStatusRequest.ClientOrderStatus });
             }
             catch (ArgumentException ex)
             {
