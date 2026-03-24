@@ -262,56 +262,66 @@ namespace Infrastructure.Content.Services
 
             foreach (var caregiverOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(caregiverOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(caregiverOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", caregiverOrder.GigId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", caregiverId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(caregiverOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", caregiverOrder.ClientId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    totalEarning += caregiverOrder.Amount;
+
+                    var caregiverOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = caregiverOrder.Id.ToString(),
+                        ClientId = caregiverOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = caregiverOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigImage = gig.Image1,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = caregiverOrder.PaymentOption,
+                        Amount = caregiverOrder.Amount,
+                        TransactionId = caregiverOrder.TransactionId,
+                        ClientOrderStatus = caregiverOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = caregiverOrder.IsOrderStatusApproved,
+                        OrderCreatedOn = caregiverOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = caregiverOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = caregiverOrder.ServiceType ?? caregiverOrder.PaymentOption ?? "one-time",
+                    };
+
+                    caregiverOrders.Add(caregiverOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", caregiverOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(caregiverOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(caregiverOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                totalEarning += caregiverOrder.Amount;
-
-                var caregiverOrderDTO = new ClientOrderResponse()
-                {
-                    Id = caregiverOrder.Id.ToString(),
-                    ClientId = caregiverOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = caregiverOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigImage = gig.Image1,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = caregiverOrder.PaymentOption,
-                    Amount = caregiverOrder.Amount,
-                    TransactionId = caregiverOrder.TransactionId,
-                    ClientOrderStatus = caregiverOrder.ClientOrderStatus,
-                    IsOrderStatusApproved = caregiverOrder.IsOrderStatusApproved,
-                    OrderCreatedOn = caregiverOrder.OrderCreatedAt,
-
-                    // Recurring service tracking (fallback for existing orders)
-                    FrequencyPerWeek = caregiverOrder.FrequencyPerWeek ?? 1,
-                    ServiceType = caregiverOrder.ServiceType ?? caregiverOrder.PaymentOption ?? "one-time",
-                };
-
-                caregiverOrders.Add(caregiverOrderDTO);
             }
 
             return new CaregiverClientOrdersSummaryResponse
@@ -333,55 +343,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                    // Recurring service tracking (fallback for existing orders)
-                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
-                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;
@@ -548,55 +568,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                    // Recurring service tracking (fallback for existing orders)
-                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
-                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;
@@ -613,55 +643,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                    // Recurring service tracking (fallback for existing orders)
-                    FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
-                    ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;

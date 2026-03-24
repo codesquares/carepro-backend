@@ -81,6 +81,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("clientUserId")]
+        [Route("by-client/{clientUserId}")]
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetAllClientOrdersAsync(string clientUserId)
         {
@@ -107,6 +108,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("CaregiverOrders/caregiverId")]
+        [Route("by-caregiver/{caregiverId}")]
         [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
         public async Task<IActionResult> GetCaregiverOrdersAsync(string caregiverId)
         {
@@ -183,6 +185,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("orderId")]
+        [Route("{orderId}")]
         [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
         public async Task<IActionResult> GetOrderAsync(string orderId)
         {
