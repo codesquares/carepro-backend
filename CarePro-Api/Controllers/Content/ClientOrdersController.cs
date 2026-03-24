@@ -81,9 +81,8 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("clientUserId")]
-        [Route("by-client/{clientUserId}")]
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetAllClientOrdersAsync(string clientUserId)
+        public async Task<IActionResult> GetAllClientOrdersAsync([FromQuery] string clientUserId)
         {
             if (!IsAuthorizedForUser(clientUserId))
                 return Forbid();
@@ -108,9 +107,8 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("CaregiverOrders/caregiverId")]
-        [Route("by-caregiver/{caregiverId}")]
         [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetCaregiverOrdersAsync(string caregiverId)
+        public async Task<IActionResult> GetCaregiverOrdersAsync([FromQuery] string caregiverId)
         {
             if (!IsAuthorizedForUser(caregiverId))
                 return Forbid();
@@ -136,7 +134,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpGet]
         [Route("gigId")]
         [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetAllClientOrdersByGigIdAsync(string gigId)
+        public async Task<IActionResult> GetAllClientOrdersByGigIdAsync([FromQuery] string gigId)
         {
             // Gig-based lookup is scoped by the gig — no direct user ID to check.
             // The service returns order records tied to the gig; acceptable for participants.
@@ -161,7 +159,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpGet]
         [Route("caregiverId")]
         [Authorize(Roles = "Caregiver, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetAllCaregiverOrdersAsync(string caregiverId)
+        public async Task<IActionResult> GetAllCaregiverOrdersAsync([FromQuery] string caregiverId)
         {
             if (!IsAuthorizedForUser(caregiverId))
                 return Forbid();
@@ -185,9 +183,8 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("orderId")]
-        [Route("{orderId}")]
         [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetOrderAsync(string orderId)
+        public async Task<IActionResult> GetOrderAsync([FromQuery] string orderId)
         {
             try
             {
@@ -239,7 +236,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateClientOrderStatus/orderId")]
         [Authorize(Roles = "Client, Caregiver, Admin, SuperAdmin")]
-        public async Task<ActionResult<string>> UpdateClientOrderStatusAsync(string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
+        public async Task<ActionResult<string>> UpdateClientOrderStatusAsync([FromQuery] string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
         {
             try
             {
@@ -287,7 +284,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("ClientApproveOrderStatus/orderId")]
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
-        public async Task<ActionResult<string>> UpdateOrderStatusToApproveApproveAsync(string orderId)
+        public async Task<ActionResult<string>> UpdateOrderStatusToApproveApproveAsync([FromQuery] string orderId)
         {
             try
             {
@@ -363,7 +360,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateClientOrderStatusHasDispute/orderId")]
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
-        public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
+        public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync([FromQuery] string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
         {
             try
             {
