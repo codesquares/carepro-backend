@@ -334,7 +334,7 @@ builder.Services.AddCors(options =>
     {
         builder.WithOrigins("https://oncarepro.com", "https://www.oncarepro.com", "http://oncarepro.com", "http://www.oncarepro.com",
             "https://api.oncarepro.com", "http://api.oncarepro.com",
-            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173",
+            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173", "https://staging.oncarepro.com", "http://staging.oncarepro.com",
             "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com",
             "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com",
             "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:3000")
