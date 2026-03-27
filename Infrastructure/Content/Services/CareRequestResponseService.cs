@@ -51,7 +51,8 @@ namespace Infrastructure.Content.Services
             if (careRequest == null)
                 throw new KeyNotFoundException("Care request not found.");
 
-            if (careRequest.Status != "pending" && careRequest.Status != "matched" && careRequest.Status != "active")
+            var statusLower = careRequest.Status?.ToLower();
+            if (statusLower != "pending" && statusLower != "matched" && statusLower != "active")
                 throw new InvalidOperationException($"Cannot respond to a request with status '{careRequest.Status}'.");
 
             // Check for duplicate response
@@ -320,8 +321,9 @@ namespace Infrastructure.Content.Services
             pageSize = Math.Clamp(pageSize, 1, 50);
 
             // Get all browsable care requests (any caregiver can see and respond)
+            // Use ToLower() for case-insensitive matching — existing DB records may vary in casing
             var query = _dbContext.CareRequests
-                .Where(cr => cr.Status == "pending" || cr.Status == "matched" || cr.Status == "active");
+                .Where(cr => cr.Status.ToLower() == "pending" || cr.Status.ToLower() == "matched" || cr.Status.ToLower() == "active");
 
             // Optional filters
             if (!string.IsNullOrEmpty(serviceType))
