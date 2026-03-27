@@ -27,7 +27,7 @@ namespace Application.Interfaces.Content
         Task<CareRequestDTO> UpdateCareRequestAsync(string requestId, UpdateCareRequestDTO updateCareRequestDTO);
 
         /// <summary>
-        /// Cancels a care request (sets status to cancelled)
+        /// Cancels a care request (sets status to cancelled). Notifies pending responders.
         /// </summary>
         Task<CareRequestDTO> CancelCareRequestAsync(string requestId);
 
@@ -40,5 +40,25 @@ namespace Application.Interfaces.Content
         /// Updates the status of a care request
         /// </summary>
         Task<CareRequestDTO> UpdateCareRequestStatusAsync(string requestId, string status);
+
+        /// <summary>
+        /// Pauses a care request — hides from caregiver browse, stops matching notifications.
+        /// </summary>
+        Task<CareRequestDTO> PauseCareRequestAsync(string requestId, string clientId);
+
+        /// <summary>
+        /// Re-opens a paused care request — makes it visible again.
+        /// </summary>
+        Task<CareRequestDTO> ReopenCareRequestAsync(string requestId, string clientId);
+
+        /// <summary>
+        /// Closes a care request — fulfilled/done. Notifies all pending responders.
+        /// </summary>
+        Task<CareRequestDTO> CloseCareRequestAsync(string requestId, string clientId);
+
+        /// <summary>
+        /// Soft-deletes a care request (sets DeletedAt). Only allowed if no active hires.
+        /// </summary>
+        Task SoftDeleteCareRequestAsync(string requestId, string clientId);
     }
 }

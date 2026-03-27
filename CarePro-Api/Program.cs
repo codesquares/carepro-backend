@@ -118,6 +118,7 @@ builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
+builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 

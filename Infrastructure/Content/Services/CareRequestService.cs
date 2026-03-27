@@ -16,6 +16,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly IClientService _clientService;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<CareRequestService> _logger;
 
         // Valid service categories
@@ -46,13 +47,14 @@ namespace Infrastructure.Content.Services
         // Valid status values
         private static readonly HashSet<string> ValidStatusValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "pending", "matched", "accepted", "completed", "cancelled"
+            "pending", "matched", "unmatched", "accepted", "completed", "cancelled", "paused", "closed"
         };
 
-        public CareRequestService(CareProDbContext dbContext, IClientService clientService, ILogger<CareRequestService> logger)
+        public CareRequestService(CareProDbContext dbContext, IClientService clientService, INotificationService notificationService, ILogger<CareRequestService> logger)
         {
             _dbContext = dbContext;
             _clientService = clientService;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -107,11 +109,16 @@ namespace Infrastructure.Content.Services
                 Duration = createCareRequestDTO.Duration,
                 Location = createCareRequestDTO.Location,
                 Budget = createCareRequestDTO.Budget,
+                BudgetMin = createCareRequestDTO.BudgetMin,
+                BudgetMax = createCareRequestDTO.BudgetMax,
+                BudgetType = createCareRequestDTO.BudgetType,
                 SpecialRequirements = createCareRequestDTO.SpecialRequirements,
                 Tasks = createCareRequestDTO.Tasks ?? new List<string>(),
                 ExperiencePreference = createCareRequestDTO.ExperiencePreference,
                 CertificationPreference = createCareRequestDTO.CertificationPreference,
                 LanguagePreference = createCareRequestDTO.LanguagePreference,
+                ServicePackageType = createCareRequestDTO.ServicePackageType,
+                ServiceMode = createCareRequestDTO.ServiceMode,
                 Status = "pending",
                 CreatedAt = DateTime.UtcNow
             };
@@ -235,6 +242,15 @@ namespace Infrastructure.Content.Services
             if (updateCareRequestDTO.Budget != null)
                 careRequest.Budget = updateCareRequestDTO.Budget;
 
+            if (updateCareRequestDTO.BudgetMin.HasValue)
+                careRequest.BudgetMin = updateCareRequestDTO.BudgetMin;
+
+            if (updateCareRequestDTO.BudgetMax.HasValue)
+                careRequest.BudgetMax = updateCareRequestDTO.BudgetMax;
+
+            if (updateCareRequestDTO.BudgetType != null)
+                careRequest.BudgetType = updateCareRequestDTO.BudgetType;
+
             if (updateCareRequestDTO.SpecialRequirements != null)
                 careRequest.SpecialRequirements = updateCareRequestDTO.SpecialRequirements;
 
@@ -249,6 +265,12 @@ namespace Infrastructure.Content.Services
 
             if (updateCareRequestDTO.LanguagePreference != null)
                 careRequest.LanguagePreference = updateCareRequestDTO.LanguagePreference;
+
+            if (updateCareRequestDTO.ServicePackageType != null)
+                careRequest.ServicePackageType = updateCareRequestDTO.ServicePackageType;
+
+            if (updateCareRequestDTO.ServiceMode != null)
+                careRequest.ServiceMode = updateCareRequestDTO.ServiceMode;
 
             careRequest.UpdatedAt = DateTime.UtcNow;
 
@@ -287,6 +309,10 @@ namespace Infrastructure.Content.Services
 
             _dbContext.CareRequests.Update(careRequest);
             await _dbContext.SaveChangesAsync();
+
+            // Notify pending responders that the request was cancelled
+            await NotifyPendingRespondersAsync(requestId, careRequest.Title, NotificationTypes.CareRequestNotSelected,
+                "Request Cancelled", $"The care request \"{careRequest.Title}\" has been cancelled by the client.");
 
             _logger.LogInformation($"CareRequest with ID '{requestId}' cancelled successfully");
 
@@ -355,17 +381,142 @@ namespace Infrastructure.Content.Services
                 Duration = careRequest.Duration,
                 Location = careRequest.Location,
                 Budget = careRequest.Budget,
+                BudgetMin = careRequest.BudgetMin,
+                BudgetMax = careRequest.BudgetMax,
+                BudgetType = careRequest.BudgetType,
                 SpecialRequirements = careRequest.SpecialRequirements,
                 Tasks = careRequest.Tasks ?? new List<string>(),
                 ExperiencePreference = careRequest.ExperiencePreference,
                 CertificationPreference = careRequest.CertificationPreference,
                 LanguagePreference = careRequest.LanguagePreference,
+                ServicePackageType = careRequest.ServicePackageType,
+                ServiceMode = careRequest.ServiceMode,
                 Status = careRequest.Status,
                 CreatedAt = careRequest.CreatedAt,
                 UpdatedAt = careRequest.UpdatedAt,
                 MatchedAt = careRequest.MatchedAt,
-                MatchCount = careRequest.MatchCount ?? 0
+                MatchCount = careRequest.MatchCount ?? 0,
+                RespondersCount = careRequest.RespondersCount ?? 0
             };
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  Request Lifecycle: Pause, Reopen, Close, Soft-Delete
+        // ─────────────────────────────────────────────────────────────
+
+        public async Task<CareRequestDTO> PauseCareRequestAsync(string requestId, string clientId)
+        {
+            var careRequest = await GetOwnedRequestAsync(requestId, clientId);
+
+            if (careRequest.Status == "paused")
+                throw new InvalidOperationException("Request is already paused.");
+            if (careRequest.Status == "closed" || careRequest.Status == "cancelled" || careRequest.Status == "completed")
+                throw new InvalidOperationException($"Cannot pause a request with status '{careRequest.Status}'.");
+
+            careRequest.Status = "paused";
+            careRequest.UpdatedAt = DateTime.UtcNow;
+            _dbContext.CareRequests.Update(careRequest);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("CareRequest {RequestId} paused by client {ClientId}", requestId, clientId);
+            return MapToDTO(careRequest);
+        }
+
+        public async Task<CareRequestDTO> ReopenCareRequestAsync(string requestId, string clientId)
+        {
+            var careRequest = await GetOwnedRequestAsync(requestId, clientId);
+
+            if (careRequest.Status != "paused")
+                throw new InvalidOperationException($"Only paused requests can be reopened. Current status: '{careRequest.Status}'.");
+
+            // Restore to the status before pause: if it had matches, go to matched, otherwise pending
+            careRequest.Status = (careRequest.MatchCount ?? 0) > 0 ? "matched" : "pending";
+            careRequest.UpdatedAt = DateTime.UtcNow;
+            _dbContext.CareRequests.Update(careRequest);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("CareRequest {RequestId} reopened by client {ClientId}", requestId, clientId);
+            return MapToDTO(careRequest);
+        }
+
+        public async Task<CareRequestDTO> CloseCareRequestAsync(string requestId, string clientId)
+        {
+            var careRequest = await GetOwnedRequestAsync(requestId, clientId);
+
+            if (careRequest.Status == "closed")
+                throw new InvalidOperationException("Request is already closed.");
+            if (careRequest.Status == "cancelled")
+                throw new InvalidOperationException("Cannot close a cancelled request.");
+
+            careRequest.Status = "closed";
+            careRequest.UpdatedAt = DateTime.UtcNow;
+            _dbContext.CareRequests.Update(careRequest);
+            await _dbContext.SaveChangesAsync();
+
+            // Notify all pending responders that the position has been filled
+            await NotifyPendingRespondersAsync(requestId, careRequest.Title, NotificationTypes.CareRequestClosed,
+                "Request Closed", $"The care request \"{careRequest.Title}\" has been closed by the client.");
+
+            _logger.LogInformation("CareRequest {RequestId} closed by client {ClientId}", requestId, clientId);
+            return MapToDTO(careRequest);
+        }
+
+        public async Task SoftDeleteCareRequestAsync(string requestId, string clientId)
+        {
+            var careRequest = await GetOwnedRequestAsync(requestId, clientId);
+
+            // Only allow delete if no active hires
+            var hasActiveHires = await _dbContext.CareRequestResponses
+                .AnyAsync(r => r.CareRequestId == requestId && r.Status == "hired");
+            if (hasActiveHires)
+                throw new InvalidOperationException("Cannot delete a request that has active hires.");
+
+            var allowedForDelete = new HashSet<string> { "pending", "paused", "closed", "unmatched", "cancelled" };
+            if (!allowedForDelete.Contains(careRequest.Status))
+                throw new InvalidOperationException($"Cannot delete a request with status '{careRequest.Status}'.");
+
+            careRequest.DeletedAt = DateTime.UtcNow;
+            careRequest.UpdatedAt = DateTime.UtcNow;
+            _dbContext.CareRequests.Update(careRequest);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("CareRequest {RequestId} soft-deleted by client {ClientId}", requestId, clientId);
+        }
+
+        private async Task<CareRequest> GetOwnedRequestAsync(string requestId, string clientId)
+        {
+            if (!ObjectId.TryParse(requestId, out var objectId))
+                throw new ArgumentException("Invalid care request ID format.");
+
+            var careRequest = await _dbContext.CareRequests.FindAsync(objectId);
+            if (careRequest == null)
+                throw new KeyNotFoundException($"Care request with ID '{requestId}' not found.");
+
+            if (careRequest.ClientId != clientId)
+                throw new UnauthorizedAccessException("You are not authorized to manage this request.");
+
+            return careRequest;
+        }
+
+        private async Task NotifyPendingRespondersAsync(string careRequestId, string requestTitle, string notificationType, string title, string body)
+        {
+            var pendingResponders = await _dbContext.CareRequestResponses
+                .Where(r => r.CareRequestId == careRequestId && (r.Status == "pending" || r.Status == "shortlisted"))
+                .Select(r => r.CaregiverId)
+                .ToListAsync();
+
+            foreach (var caregiverId in pendingResponders)
+            {
+                try
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        caregiverId, "system", notificationType, body, title, careRequestId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to notify caregiver {CaregiverId} about request {RequestId} status change", caregiverId, careRequestId);
+                }
+            }
         }
     }
 }

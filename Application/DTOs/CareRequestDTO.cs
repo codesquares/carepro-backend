@@ -38,7 +38,17 @@ namespace Application.DTOs
 
         public string? Location { get; set; }
 
+        /// <summary>Legacy free-text budget field (still supported)</summary>
         public string? Budget { get; set; }
+
+        /// <summary>Structured budget minimum</summary>
+        public decimal? BudgetMin { get; set; }
+
+        /// <summary>Structured budget maximum</summary>
+        public decimal? BudgetMax { get; set; }
+
+        /// <summary>Budget type: "Fixed" or "Negotiable"</summary>
+        public string? BudgetType { get; set; }
 
         [MaxLength(1000)]
         public string? SpecialRequirements { get; set; }
@@ -50,6 +60,10 @@ namespace Application.DTOs
         public string? CertificationPreference { get; set; }
 
         public string? LanguagePreference { get; set; }
+
+        public string? ServicePackageType { get; set; }
+
+        public string? ServiceMode { get; set; }
     }
 
     /// <summary>
@@ -79,6 +93,12 @@ namespace Application.DTOs
 
         public string? Budget { get; set; }
 
+        public decimal? BudgetMin { get; set; }
+
+        public decimal? BudgetMax { get; set; }
+
+        public string? BudgetType { get; set; }
+
         [MaxLength(1000)]
         public string? SpecialRequirements { get; set; }
 
@@ -89,6 +109,10 @@ namespace Application.DTOs
         public string? CertificationPreference { get; set; }
 
         public string? LanguagePreference { get; set; }
+
+        public string? ServicePackageType { get; set; }
+
+        public string? ServiceMode { get; set; }
     }
 
     /// <summary>
@@ -120,6 +144,12 @@ namespace Application.DTOs
 
         public string? Budget { get; set; }
 
+        public decimal? BudgetMin { get; set; }
+
+        public decimal? BudgetMax { get; set; }
+
+        public string? BudgetType { get; set; }
+
         public string? SpecialRequirements { get; set; }
 
         public List<string> Tasks { get; set; } = new List<string>();
@@ -130,6 +160,10 @@ namespace Application.DTOs
 
         public string? LanguagePreference { get; set; }
 
+        public string? ServicePackageType { get; set; }
+
+        public string? ServiceMode { get; set; }
+
         public string Status { get; set; } = string.Empty;
 
         public DateTime CreatedAt { get; set; }
@@ -139,6 +173,8 @@ namespace Application.DTOs
         public DateTime? MatchedAt { get; set; }
 
         public int MatchCount { get; set; }
+
+        public int RespondersCount { get; set; }
     }
 
     /// <summary>

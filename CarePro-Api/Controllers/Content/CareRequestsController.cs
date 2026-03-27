@@ -12,15 +12,18 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly ICareRequestService _careRequestService;
         private readonly ICareRequestMatchingService _matchingService;
+        private readonly ICareRequestResponseService _responseService;
         private readonly ILogger<CareRequestsController> _logger;
 
         public CareRequestsController(
             ICareRequestService careRequestService,
             ICareRequestMatchingService matchingService,
+            ICareRequestResponseService responseService,
             ILogger<CareRequestsController> logger)
         {
             _careRequestService = careRequestService;
             _matchingService = matchingService;
+            _responseService = responseService;
             _logger = logger;
         }
 
@@ -348,6 +351,392 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogError(ex, "Error triggering matching for CareRequest {Id}", id);
                 return StatusCode(500, new { success = false, message = "An error occurred while matching." });
             }
+        }
+
+        // ── Caregiver Browse & Respond Endpoints ─────────────────────────
+
+        /// <summary>
+        /// Get paginated care requests matching the caregiver's profile (browse page).
+        /// </summary>
+        [HttpGet("caregiver/matched")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> GetMatchedRequestsForCaregiver(
+            [FromQuery] string? serviceType,
+            [FromQuery] decimal? budgetMin,
+            [FromQuery] decimal? budgetMax,
+            [FromQuery] string? location,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var caregiverId = GetAuthenticatedUserId();
+                if (caregiverId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.GetMatchedRequestsForCaregiverAsync(
+                    caregiverId, serviceType, budgetMin, budgetMax, location, page, pageSize);
+
+                return Ok(new { success = true, data = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving matched requests for caregiver");
+                return StatusCode(500, new { success = false, message = "An error occurred while retrieving matched requests." });
+            }
+        }
+
+        /// <summary>
+        /// Get a single care request detail from caregiver's perspective (anonymized client).
+        /// </summary>
+        [HttpGet("{id}/caregiver-view")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> GetCaregiverView(string id)
+        {
+            try
+            {
+                var caregiverId = GetAuthenticatedUserId();
+                if (caregiverId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.GetCaregiverViewAsync(id, caregiverId);
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving caregiver view for CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while retrieving the request detail." });
+            }
+        }
+
+        /// <summary>
+        /// Caregiver responds (shows interest) to a care request.
+        /// </summary>
+        [HttpPost("{id}/respond")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> RespondToCareRequest(string id, [FromBody] RespondToCareRequestDTO dto)
+        {
+            try
+            {
+                var caregiverId = GetAuthenticatedUserId();
+                if (caregiverId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.RespondToRequestAsync(id, caregiverId, dto);
+                if (!result.Success)
+                    return BadRequest(new { success = false, message = result.Message });
+
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error responding to CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while responding to the request." });
+            }
+        }
+
+        // ── Client Detail & Management Endpoints ─────────────────────────
+
+        /// <summary>
+        /// Get full client-side request detail with responders grouped by status.
+        /// </summary>
+        [HttpGet("{id}/detail")]
+        [Authorize(Roles = "Client, Admin")]
+        public async Task<IActionResult> GetRequestDetailForClient(string id)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.GetRequestDetailForClientAsync(id, clientId);
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving detail for CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while retrieving the request detail." });
+            }
+        }
+
+        /// <summary>
+        /// Client shortlists a responder.
+        /// </summary>
+        [HttpPut("{id}/responses/{responseId}/shortlist")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> ShortlistResponse(string id, string responseId)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.ShortlistResponseAsync(id, responseId, clientId);
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error shortlisting response {ResponseId} for CareRequest {Id}", responseId, id);
+                return StatusCode(500, new { success = false, message = "An error occurred while shortlisting." });
+            }
+        }
+
+        /// <summary>
+        /// Client removes a responder from shortlist (back to pending).
+        /// </summary>
+        [HttpPut("{id}/responses/{responseId}/remove-shortlist")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> RemoveShortlist(string id, string responseId)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.RemoveShortlistAsync(id, responseId, clientId);
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error removing shortlist for response {ResponseId} on CareRequest {Id}", responseId, id);
+                return StatusCode(500, new { success = false, message = "An error occurred while removing shortlist." });
+            }
+        }
+
+        /// <summary>
+        /// Client hires a responder — generates a special gig scoped to client+caregiver.
+        /// </summary>
+        [HttpPost("{id}/responses/{responseId}/hire")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> HireResponder(string id, string responseId)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _responseService.HireResponderAsync(id, responseId, clientId);
+                if (!result.Success)
+                    return BadRequest(new { success = false, message = result.Message });
+
+                return Ok(new { success = true, data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error hiring response {ResponseId} for CareRequest {Id}", responseId, id);
+                return StatusCode(500, new { success = false, message = "An error occurred while hiring." });
+            }
+        }
+
+        // ── Lifecycle Endpoints ──────────────────────────────────────────
+
+        /// <summary>
+        /// Pause a care request — hides from caregiver browse, stops matching notifications.
+        /// </summary>
+        [HttpPut("{id}/pause")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> PauseCareRequest(string id)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _careRequestService.PauseCareRequestAsync(id, clientId);
+                return Ok(new CareRequestResponse { Success = true, Message = "Care request paused successfully", Data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error pausing CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while pausing the request." });
+            }
+        }
+
+        /// <summary>
+        /// Reopen a paused care request — makes it visible again.
+        /// </summary>
+        [HttpPut("{id}/reopen")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> ReopenCareRequest(string id)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _careRequestService.ReopenCareRequestAsync(id, clientId);
+                return Ok(new CareRequestResponse { Success = true, Message = "Care request reopened successfully", Data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reopening CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while reopening the request." });
+            }
+        }
+
+        /// <summary>
+        /// Close a care request — fulfilled/done, notifies all pending responders.
+        /// </summary>
+        [HttpPut("{id}/close")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> CloseCareRequest(string id)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                var result = await _careRequestService.CloseCareRequestAsync(id, clientId);
+                return Ok(new CareRequestResponse { Success = true, Message = "Care request closed successfully", Data = result });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error closing CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while closing the request." });
+            }
+        }
+
+        /// <summary>
+        /// Soft-delete a care request (sets DeletedAt). Only allowed if no active hires.
+        /// </summary>
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> SoftDeleteCareRequest(string id)
+        {
+            try
+            {
+                var clientId = GetAuthenticatedUserId();
+                if (clientId == null)
+                    return Unauthorized(new { success = false, message = "Unable to identify user." });
+
+                await _careRequestService.SoftDeleteCareRequestAsync(id, clientId);
+                return Ok(new { success = true, message = "Care request deleted successfully" });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting CareRequest {Id}", id);
+                return StatusCode(500, new { success = false, message = "An error occurred while deleting the request." });
+            }
+        }
+
+        // ── Helper ───────────────────────────────────────────────────────
+
+        private string? GetAuthenticatedUserId()
+        {
+            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                   ?? User.FindFirst("sub")?.Value
+                   ?? User.FindFirst("userId")?.Value;
         }
     }
 

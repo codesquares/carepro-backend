@@ -596,58 +596,58 @@ namespace Infrastructure.Content.Services
 
             if (matches.Count > 0)
             {
-                // Notify client — matches found (in-app)
-                await _notificationService.CreateNotificationAsync(
-                    careRequest.ClientId,
-                    "system",
-                    NotificationTypes.CareRequestMatched,
-                    $"We found {matches.Count} caregiver{(matches.Count > 1 ? "s" : "")} matching your request '{careRequest.Title}'! View your matches now.",
-                    "Caregivers Found!",
-                    careRequestId);
-
-                // Notify client — matches found (email)
-                try
+                // ── Notify matched CAREGIVERS (in-app + email) ──
+                foreach (var match in matches)
                 {
-                    await SendMatchFoundEmailToClientAsync(careRequest, matches.Count);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to send match-found email for CareRequest {CareRequestId}. In-app notification was saved.", careRequestId);
+                    // Track notification in CareRequestNotifiedCaregivers
+                    var alreadyNotified = await _dbContext.CareRequestNotifiedCaregivers
+                        .AnyAsync(n => n.CareRequestId == careRequestId && n.CaregiverId == match.CaregiverId);
+
+                    if (alreadyNotified) continue;
+
+                    var notifiedRecord = new CareRequestNotifiedCaregiver
+                    {
+                        Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+                        CareRequestId = careRequestId,
+                        CaregiverId = match.CaregiverId,
+                        NotifiedAt = DateTime.UtcNow,
+                        MatchScore = match.MatchScore
+                    };
+                    await _dbContext.CareRequestNotifiedCaregivers.AddAsync(notifiedRecord);
+
+                    // In-app notification to caregiver
+                    await _notificationService.CreateNotificationAsync(
+                        match.CaregiverId,
+                        "system",
+                        NotificationTypes.CareRequestNewMatch,
+                        $"A client needs {careRequest.ServiceCategory} in {careRequest.Location ?? "your area"}. Budget: {careRequest.Budget ?? "Not specified"}. Tap to view.",
+                        "A new care request matches your profile",
+                        careRequestId);
+
+                    // Email notification to caregiver
+                    try
+                    {
+                        await SendMatchNotificationEmailToCaregiverAsync(careRequest, match);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send match email to caregiver {CaregiverId} for CareRequest {CareRequestId}",
+                            match.CaregiverId, careRequestId);
+                    }
                 }
 
-                // Notify admins — match success
+                await _dbContext.SaveChangesAsync();
+
+                // Notify admins — match success (keep this)
                 await NotifyAdminsAsync(
                     NotificationTypes.CareRequestAdminMatchUpdate,
-                    $"Client received {matches.Count} match{(matches.Count > 1 ? "es" : "")} for care request '{careRequest.Title}' (Category: {careRequest.ServiceCategory}).",
+                    $"Care request '{careRequest.Title}' matched {matches.Count} caregiver{(matches.Count > 1 ? "s" : "")}. Category: {careRequest.ServiceCategory}. Caregivers have been notified.",
                     "Care Request Matched",
                     careRequestId);
             }
             else
             {
-                // Notify client — no matches (in-app)
-                var altMessage = hasAlternatives
-                    ? " We've found some suggested alternatives for you to review."
-                    : " You can try adjusting your requirements or browse available caregivers.";
-
-                await _notificationService.CreateNotificationAsync(
-                    careRequest.ClientId,
-                    "system",
-                    NotificationTypes.CareRequestNoMatch,
-                    $"We're working hard to find the right caregiver for '{careRequest.Title}'.{altMessage}",
-                    "We're On It!",
-                    careRequestId);
-
-                // Notify client — no matches (email, immediate)
-                try
-                {
-                    await SendNoMatchEmailToClientAsync(careRequest, hasAlternatives);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to send no-match email for CareRequest {CareRequestId}. In-app notification was saved.", careRequestId);
-                }
-
-                // Notify admins — no match (in-app + email)
+                // No matches — only notify admins, NOT the client
                 await NotifyAdminsAsync(
                     NotificationTypes.CareRequestAdminNoMatch,
                     $"No matches found for care request '{careRequest.Title}' (Category: {careRequest.ServiceCategory}, Location: {careRequest.Location ?? "Not specified"}). Review required.",
@@ -665,6 +665,29 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        private async Task SendMatchNotificationEmailToCaregiverAsync(CareRequest careRequest, CaregiverMatchDTO match)
+        {
+            if (!ObjectId.TryParse(match.CaregiverId, out var caregiverOid)) return;
+            var caregiver = await _dbContext.CareGivers.FindAsync(caregiverOid);
+            if (caregiver == null) return;
+
+            var subject = $"New Care Request Matches Your Profile — {careRequest.ServiceCategory}";
+            var htmlContent = $@"
+                <h3>Hi {caregiver.FirstName},</h3>
+                <p>A client has posted a care request that matches your profile!</p>
+                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                    <p><strong>Request:</strong> {careRequest.Title}</p>
+                    <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
+                    <p><strong>Urgency:</strong> {careRequest.Urgency}</p>
+                    <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
+                    <p><strong>Budget:</strong> {careRequest.Budget ?? "Not specified"}</p>
+                </div>
+                <p>Log in to your dashboard to <strong>view the request details</strong> and respond if you're interested.</p>
+                <p>— The CarePro Team</p>";
+
+            await _emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, htmlContent);
+        }
+
         private async Task NotifyAdminsAsync(string type, string content, string title, string relatedEntityId)
         {
             var admins = await _dbContext.AdminUsers.Where(a => !a.IsDeleted).ToListAsync();
@@ -675,58 +698,8 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        private async Task SendMatchFoundEmailToClientAsync(CareRequest careRequest, int matchCount)
-        {
-            if (!ObjectId.TryParse(careRequest.ClientId, out var clientOid)) return;
-            var client = await _dbContext.Clients.FindAsync(clientOid);
-            if (client == null) return;
-
-            var subject = $"Great News — We Found Caregivers for '{careRequest.Title}'!";
-            var htmlContent = $@"
-                <h3>Dear {client.FirstName},</h3>
-                <br />
-                <p>We're excited to let you know that we found <strong>{matchCount} caregiver{(matchCount > 1 ? "s" : "")}</strong> matching your care request: <strong>{careRequest.Title}</strong>.</p>
-                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
-                    <p><strong>Request Details:</strong></p>
-                    <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
-                    <p><strong>Urgency:</strong> {careRequest.Urgency}</p>
-                    <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
-                    <p><strong>Matches Found:</strong> {matchCount}</p>
-                </div>
-                <p>Log in to your dashboard to <strong>view your matches</strong>, compare caregivers, and book the one that's right for you.</p>
-                <p>Thanks for choosing CarePro!<br />The CarePro Team</p>";
-
-            await _emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, htmlContent);
-        }
-
-        private async Task SendNoMatchEmailToClientAsync(CareRequest careRequest, bool hasAlternatives)
-        {
-            if (!ObjectId.TryParse(careRequest.ClientId, out var clientOid)) return;
-            var client = await _dbContext.Clients.FindAsync(clientOid);
-            if (client == null) return;
-
-            var subject = $"We're On It — Your Care Request for '{careRequest.Title}'";
-            var altSection = hasAlternatives
-                ? "<p>In the meantime, we've found some <strong>suggested alternatives</strong> that might work for you. Log in to your dashboard to review them.</p>"
-                : "<p>You can also try <strong>adjusting your requirements</strong> (like location or budget) or <strong>browse available caregivers</strong> directly.</p>";
-
-            var htmlContent = $@"
-                <h3>Dear {client.FirstName},</h3>
-                <br />
-                <p>Thank you for submitting your care request: <strong>{careRequest.Title}</strong>.</p>
-                <p>We weren't able to find an exact match right now, but our team is <strong>actively working</strong> to connect you with the right caregiver.</p>
-                {altSection}
-                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
-                    <p><strong>Request Details:</strong></p>
-                    <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
-                    <p><strong>Urgency:</strong> {careRequest.Urgency}</p>
-                    <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
-                </div>
-                <p>We'll notify you as soon as we find matching caregivers.</p>
-                <p>Thanks for choosing CarePro!<br />The CarePro Team</p>";
-
-            await _emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, htmlContent);
-        }
+        // NOTE: SendMatchFoundEmailToClientAsync and SendNoMatchEmailToClientAsync removed.
+        // Clients are no longer emailed on match/no-match. They only get notified when a caregiver responds.
 
         private async Task SendNoMatchEmailToAdminsAsync(CareRequest careRequest)
         {

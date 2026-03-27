@@ -165,6 +165,15 @@ namespace Application.DTOs
         public const string CareRequestAdminMatchUpdate = "care_request_admin_match_update";
         public const string CareRequestAdminNoMatch = "care_request_admin_no_match";
 
+        // ── Care Request Response Flow ──
+        public const string CareRequestNewMatch = "care_request_new_match";
+        public const string CareRequestNewResponder = "care_request_new_responder";
+        public const string CareRequestShortlisted = "care_request_shortlisted";
+        public const string CareRequestHired = "care_request_hired";
+        public const string CareRequestNotSelected = "care_request_not_selected";
+        public const string CareRequestClosed = "care_request_closed";
+        public const string CareRequestPaused = "care_request_paused";
+
         // ── Visit Task Proposals ──
         public const string TaskProposedByClient = "task_proposed_by_client";
         public const string TaskProposalAccepted = "task_proposal_accepted";

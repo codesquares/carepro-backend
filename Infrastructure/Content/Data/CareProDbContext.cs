@@ -164,6 +164,14 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ClientWalletLedger>().HasKey(cl => cl.Id);
             modelBuilder.Entity<ClientWalletLedger>().Property(cl => cl.Id).HasElementName("_id");
 
+            modelBuilder.Entity<CareRequestResponse>().ToCollection("CareRequestResponses");
+            modelBuilder.Entity<CareRequestResponse>().HasKey(crr => crr.Id);
+            modelBuilder.Entity<CareRequestResponse>().Property(crr => crr.Id).HasElementName("_id");
+
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().ToCollection("CareRequestNotifiedCaregivers");
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().HasKey(cn => cn.Id);
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().Property(cn => cn.Id).HasElementName("_id");
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -176,6 +184,7 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AdminUser>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<ChatMessage>().HasQueryFilter(m => !m.IsDeleted);
             modelBuilder.Entity<Location>().HasQueryFilter(l => !l.IsDeleted);
+            modelBuilder.Entity<CareRequest>().HasQueryFilter(cr => cr.DeletedAt == null);
 
         }
 
@@ -224,5 +233,7 @@ namespace Infrastructure.Content.Data
         public DbSet<OrderNegotiation> OrderNegotiations { get; set; }
         public DbSet<ClientWallet> ClientWallets { get; set; }
         public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
+        public DbSet<CareRequestResponse> CareRequestResponses { get; set; }
+        public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
     }
 }
