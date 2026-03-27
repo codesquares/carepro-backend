@@ -14,6 +14,7 @@ namespace Infrastructure.Content.Services
         private readonly INotificationService _notificationService;
         private readonly IContractLLMService _llmService;
         private readonly IGeocodingService _geocodingService;
+        private readonly ITaskSheetService _taskSheetService;
         private readonly ILogger<OrderNegotiationService> _logger;
 
         public OrderNegotiationService(
@@ -21,12 +22,14 @@ namespace Infrastructure.Content.Services
             INotificationService notificationService,
             IContractLLMService llmService,
             IGeocodingService geocodingService,
+            ITaskSheetService taskSheetService,
             ILogger<OrderNegotiationService> logger)
         {
             _context = context;
             _notificationService = notificationService;
             _llmService = llmService;
             _geocodingService = geocodingService;
+            _taskSheetService = taskSheetService;
             _logger = logger;
         }
 
@@ -206,6 +209,9 @@ namespace Infrastructure.Content.Services
                 if (update.AccessInstructions != null)
                     negotiation.AccessInstructions = update.AccessInstructions;
 
+                if (update.AgreedStartDate.HasValue)
+                    negotiation.AgreedStartDate = update.AgreedStartDate;
+
                 if (update.Note != null)
                     negotiation.LastClientNote = update.Note;
 
@@ -262,6 +268,9 @@ namespace Infrastructure.Content.Services
 
                 if (update.AdditionalNotes != null)
                     negotiation.AdditionalNotes = update.AdditionalNotes;
+
+                if (update.AgreedStartDate.HasValue)
+                    negotiation.AgreedStartDate = update.AgreedStartDate;
 
                 if (update.Note != null)
                     negotiation.LastCaregiverNote = update.Note;
@@ -519,8 +528,11 @@ namespace Infrastructure.Content.Services
                     EndTime = s.EndTime
                 }).ToList();
 
-                // Contract dates
-                var startDate = DateTime.UtcNow.AddDays(1);
+                // Contract dates — use agreed start date, fall back to tomorrow
+                if (!negotiation.AgreedStartDate.HasValue)
+                    throw new InvalidOperationException("Cannot convert to contract — an agreed start date is required. Both parties must agree on a start date during negotiation.");
+
+                var startDate = negotiation.AgreedStartDate.Value;
                 var endDate = startDate.AddDays(packageSelection.DurationWeeks * 7);
                 var contractId = ObjectId.GenerateNewId().ToString();
 
@@ -603,6 +615,20 @@ namespace Infrastructure.Content.Services
                 negotiation.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
+
+                // Pre-generate all task sheets for the contract's first billing cycle
+                try
+                {
+                    await _taskSheetService.PreGenerateTaskSheetsAsync(contractId, negotiation.OrderId);
+                    _logger.LogInformation("Task sheets pre-generated for contract {ContractId}, order {OrderId}",
+                        contractId, negotiation.OrderId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to pre-generate task sheets for contract {ContractId}. " +
+                        "This can be retried manually.", contractId);
+                    // Don't fail the contract conversion — sheets can be generated later
+                }
 
                 // Notify both parties
                 await _notificationService.CreateNotificationAsync(
@@ -782,6 +808,7 @@ namespace Infrastructure.Content.Services
             LastCaregiverNote = n.LastCaregiverNote,
             CreatedByRole = n.CreatedByRole,
             NegotiationRound = n.NegotiationRound,
+            AgreedStartDate = n.AgreedStartDate,
             ContractId = n.ContractId,
             CreatedAt = n.CreatedAt,
             UpdatedAt = n.UpdatedAt

@@ -19,5 +19,22 @@ namespace Application.Interfaces.Content
         /// Caregiver accepts or rejects client-proposed tasks on a task sheet.
         /// </summary>
         Task<TaskSheetDTO> RespondToProposedTasksAsync(string taskSheetId, RespondToProposedTasksRequest request, string caregiverId);
+
+        /// <summary>
+        /// Activates a scheduled task sheet, transitioning it from "scheduled" to "in-progress".
+        /// Enforces the sequential gate: previous sheet must be submitted and reviewed.
+        /// </summary>
+        Task<TaskSheetDTO> ActivateTaskSheetAsync(string taskSheetId, string caregiverId);
+
+        /// <summary>
+        /// Pre-generates all task sheets for a contract when it is approved.
+        /// Sheets are created with "scheduled" status and concrete ScheduledDates.
+        /// </summary>
+        Task PreGenerateTaskSheetsAsync(string contractId, string orderId);
+
+        /// <summary>
+        /// Client reschedules a "scheduled" task sheet to a different date within the contract period.
+        /// </summary>
+        Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string clientId);
     }
 }

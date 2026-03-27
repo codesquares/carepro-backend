@@ -17,15 +17,18 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IClientOrderService clientOrderService;
         private readonly IBookingCommitmentService bookingCommitmentService;
+        private readonly IVisitCancellationService _visitCancellationService;
         private readonly ILogger<ClientOrdersController> logger;
 
         public ClientOrdersController(
             IClientOrderService clientOrderService,
             IBookingCommitmentService bookingCommitmentService,
+            IVisitCancellationService visitCancellationService,
             ILogger<ClientOrdersController> logger)
         {
             this.clientOrderService = clientOrderService;
             this.bookingCommitmentService = bookingCommitmentService;
+            _visitCancellationService = visitCancellationService;
             this.logger = logger;
         }
 
@@ -383,6 +386,47 @@ namespace CarePro_Api.Controllers.Content
             {
                 logger.LogError(ex, "Error raising dispute on order {OrderId}", orderId);
                 return StatusCode(500, new { message = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Cancel an upcoming visit for an order. Requires 24h advance notice.
+        /// Credits the client's wallet with the per-visit amount.
+        /// </summary>
+        [HttpPost]
+        [Route("{orderId}/cancel-visit")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
+        public async Task<IActionResult> CancelVisitAsync(string orderId, [FromBody] CancelVisitRequest request)
+        {
+            try
+            {
+                var clientId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(clientId))
+                    return Unauthorized(new { error = "Client authorization required." });
+
+                var result = await _visitCancellationService.CancelVisitAsync(orderId, request, clientId);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling visit for order {OrderId}", orderId);
+                return StatusCode(500, new { error = "An error occurred while cancelling the visit." });
             }
         }
     }

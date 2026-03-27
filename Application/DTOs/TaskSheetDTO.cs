@@ -14,6 +14,7 @@ namespace Application.DTOs
         public int BillingCycleNumber { get; set; }
         public List<TaskSheetItemDTO> Tasks { get; set; } = new List<TaskSheetItemDTO>();
         public string Status { get; set; } = string.Empty;
+        public DateTime? ScheduledDate { get; set; }
         public DateTime? SubmittedAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
@@ -107,5 +108,31 @@ namespace Application.DTOs
     {
         public string TaskId { get; set; } = string.Empty;
         public bool Accepted { get; set; }
+    }
+
+    /// <summary>
+    /// Request for client to reschedule a scheduled visit to a different date.
+    /// </summary>
+    public class RescheduleTaskSheetRequest
+    {
+        /// <summary>
+        /// The new date for the visit (date-only, Nigerian time).
+        /// Must be within the contract period and must not conflict with an existing active sheet on that day.
+        /// </summary>
+        public DateTime NewDate { get; set; }
+
+        /// <summary>
+        /// Optional reason for rescheduling.
+        /// </summary>
+        public string? Reason { get; set; }
+    }
+
+    public class RescheduleTaskSheetResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public DateTime OldDate { get; set; }
+        public DateTime NewDate { get; set; }
+        public string TaskSheetId { get; set; } = string.Empty;
     }
 }

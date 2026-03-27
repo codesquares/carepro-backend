@@ -43,6 +43,9 @@ namespace Domain.Entities
         public string? LastClientNote { get; set; }
         public string? LastCaregiverNote { get; set; }
 
+        // Agreed start date for the contract (both parties must agree)
+        public DateTime? AgreedStartDate { get; set; }
+
         // Meta
         public string CreatedByRole { get; set; } = string.Empty; // "Client" or "Caregiver"
         public int NegotiationRound { get; set; } = 1;

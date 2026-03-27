@@ -462,7 +462,15 @@ namespace Infrastructure.Content.Services
                             && ts.ClientReviewStatus == "Approved")
                         .CountAsync();
 
-                    if (approvedCount >= maxVisits && order.ClientOrderStatus != "Completed")
+                    int cancelledCount = await _dbContext.TaskSheets
+                        .Where(ts => ts.OrderId == taskSheet.OrderId
+                            && ts.BillingCycleNumber == currentBillingCycle
+                            && ts.Status == "cancelled")
+                        .CountAsync();
+
+                    int effectiveMax = maxVisits - cancelledCount;
+
+                    if (approvedCount >= effectiveMax && effectiveMax > 0 && order.ClientOrderStatus != "Completed")
                     {
                         order.ClientOrderStatus = "Completed";
                         order.IsOrderStatusApproved = true;
@@ -471,8 +479,8 @@ namespace Infrastructure.Content.Services
                         await _dbContext.SaveChangesAsync();
 
                         _logger.LogInformation(
-                            "Order {OrderId} auto-completed: all {Max} visits approved for billing cycle {Cycle}.",
-                            order.Id, maxVisits, currentBillingCycle);
+                            "Order {OrderId} auto-completed: {Approved} visits approved, {Cancelled} cancelled (effective max: {EffectiveMax}) for billing cycle {Cycle}.",
+                            order.Id, approvedCount, cancelledCount, effectiveMax, currentBillingCycle);
                     }
                 }
             }

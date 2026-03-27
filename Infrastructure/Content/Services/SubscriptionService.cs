@@ -877,7 +877,8 @@ namespace Infrastructure.Content.Services
                     PaymentOption = subscription.BillingCycle,
                     Amount = (int)Math.Round(subscription.RecurringAmount, 0), // Rounded to int for ClientOrder
                     OrderFee = subscription.PriceBreakdown.OrderFee,
-                    TransactionId = chargeResult.TransactionId
+                    TransactionId = chargeResult.TransactionId,
+                    BillingCycleNumber = cycleNumber
                 });
 
                 paymentRecord.Status = "successful";

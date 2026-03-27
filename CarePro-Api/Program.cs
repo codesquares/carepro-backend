@@ -178,6 +178,8 @@ builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
 builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
 builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
+builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
+builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
 
 builder.Services.AddScoped<IDisputeService, DisputeService>();
 

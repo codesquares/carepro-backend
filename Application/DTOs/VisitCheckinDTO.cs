@@ -40,6 +40,21 @@ namespace Application.DTOs
         public bool AlreadyCheckedIn { get; set; }
     }
 
+    /// <summary>
+    /// Structured error response for check-in failures so frontend can show appropriate UI.
+    /// </summary>
+    public class CheckinErrorResponse
+    {
+        public string Error { get; set; } = string.Empty;
+        public string ErrorCode { get; set; } = string.Empty;
+        public double? DistanceMeters { get; set; }
+        public int? MaxDistanceMeters { get; set; }
+        public string? ScheduledDay { get; set; }
+        public string? ScheduledStartTime { get; set; }
+        public string? ScheduledEndTime { get; set; }
+        public string? CurrentTimeNigeria { get; set; }
+    }
+
     public class VisitCheckinDTO
     {
         public string CheckinId { get; set; } = string.Empty;

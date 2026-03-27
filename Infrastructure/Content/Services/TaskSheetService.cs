@@ -155,11 +155,30 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("Maximum task sheets reached for this order.");
             }
 
-            // Previous sheet must be approved by client before a new one can be created
+            // One task sheet per day (Nigerian time) — prevent duplicates
+            var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
+            var todayNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone).Date;
+
+            var existingToday = await _dbContext.TaskSheets
+                .Where(ts => ts.OrderId == orderId
+                    && ts.ScheduledDate.HasValue
+                    && ts.ScheduledDate.Value.Date == todayNigeria
+                    && ts.Status != "cancelled")
+                .AnyAsync();
+
+            if (existingToday)
+            {
+                throw new InvalidOperationException("A task sheet has already been created for today. Only one visit per day is allowed.");
+            }
+
+            // Previous started sheet must be approved by client before a new one can be created
             if (existingCount > 0)
             {
                 var previousSheet = await _dbContext.TaskSheets
-                    .Where(ts => ts.OrderId == orderId && ts.BillingCycleNumber == currentBillingCycle)
+                    .Where(ts => ts.OrderId == orderId
+                        && ts.BillingCycleNumber == currentBillingCycle
+                        && ts.Status != "cancelled"
+                        && ts.Status != "scheduled")
                     .OrderByDescending(ts => ts.SheetNumber)
                     .FirstOrDefaultAsync();
 
@@ -226,6 +245,7 @@ namespace Infrastructure.Content.Services
                 BillingCycleNumber = currentBillingCycle,
                 Tasks = tasks,
                 Status = "in-progress",
+                ScheduledDate = todayNigeria,
                 SubmittedAt = null,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -266,6 +286,12 @@ namespace Infrastructure.Content.Services
             if (taskSheet.Status == "submitted")
             {
                 throw new InvalidOperationException("Cannot update a submitted task sheet.");
+            }
+
+            // Cannot update a scheduled sheet — must be activated first
+            if (taskSheet.Status == "scheduled")
+            {
+                throw new InvalidOperationException("Cannot update a scheduled task sheet. Please activate it first.");
             }
 
             // Validate: all original tasks (addedByCaregiver == false) must still be present (no removals allowed)
@@ -368,6 +394,12 @@ namespace Infrastructure.Content.Services
             if (taskSheet.Status == "submitted")
             {
                 throw new InvalidOperationException("This task sheet has already been submitted.");
+            }
+
+            // Cannot submit a scheduled sheet — must be activated first
+            if (taskSheet.Status == "scheduled")
+            {
+                throw new InvalidOperationException("Cannot submit a scheduled task sheet. Please activate it first.");
             }
 
             // Block submission if there are still pending client-proposed tasks
@@ -542,6 +574,7 @@ namespace Infrastructure.Content.Services
                     ProposalStatus = t.ProposalStatus ?? "Accepted"
                 }).ToList(),
                 Status = entity.Status,
+                ScheduledDate = entity.ScheduledDate,
                 SubmittedAt = entity.SubmittedAt,
                 ClientReviewStatus = entity.ClientReviewStatus,
                 ClientReviewedAt = entity.ClientReviewedAt,
@@ -572,6 +605,10 @@ namespace Infrastructure.Content.Services
             // Cannot propose on a submitted sheet
             if (taskSheet.Status == "submitted")
                 throw new InvalidOperationException("Cannot propose tasks on a submitted task sheet.");
+
+            // Cannot propose on a scheduled sheet — must be activated first
+            if (taskSheet.Status == "scheduled")
+                throw new InvalidOperationException("Cannot propose tasks on a scheduled task sheet. Please activate it first.");
 
             if (request.Tasks == null || request.Tasks.Count == 0)
                 throw new ArgumentException("At least one task must be proposed.");
@@ -742,6 +779,248 @@ namespace Infrastructure.Content.Services
             }
 
             return MapToDTO(taskSheet);
+        }
+
+        // ── Pre-Generation & Activation ──────────────────────────────────
+
+        /// <summary>
+        /// Generates all scheduled dates for a contract's first billing cycle.
+        /// Uses the agreed schedule (days of week) starting from ContractStartDate for DurationWeeks.
+        /// </summary>
+        internal static List<DateTime> GenerateScheduledDates(List<ScheduledVisit> schedule, DateTime startDate, int durationWeeks)
+        {
+            var dates = new List<DateTime>();
+            var endDate = startDate.AddDays(durationWeeks * 7);
+
+            for (var date = startDate.Date; date < endDate.Date; date = date.AddDays(1))
+            {
+                if (schedule.Any(s => s.DayOfWeek == date.DayOfWeek))
+                    dates.Add(date);
+            }
+
+            return dates.OrderBy(d => d).ToList();
+        }
+
+        public async Task PreGenerateTaskSheetsAsync(string contractId, string orderId)
+        {
+            var contract = await _dbContext.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+            if (contract == null)
+                throw new InvalidOperationException($"Contract '{contractId}' not found.");
+
+            var order = await GetOrderOrThrow(orderId);
+
+            // Generate dates from contract schedule
+            var scheduledDates = GenerateScheduledDates(
+                contract.Schedule,
+                contract.ContractStartDate,
+                contract.SelectedPackage.DurationWeeks);
+
+            // Get tasks from the contract
+            var tasks = contract.Tasks?.Select(t => new TaskSheetItem
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                Text = !string.IsNullOrEmpty(t.Description) ? $"{t.Title} — {t.Description}" : t.Title,
+                Completed = false,
+                AddedByCaregiver = false
+            }).ToList() ?? new List<TaskSheetItem>();
+
+            int billingCycle = order.BillingCycleNumber ?? 1;
+
+            for (int i = 0; i < scheduledDates.Count; i++)
+            {
+                var taskSheet = new TaskSheet
+                {
+                    Id = ObjectId.GenerateNewId(),
+                    OrderId = orderId,
+                    CaregiverId = contract.CaregiverId,
+                    SheetNumber = i + 1,
+                    BillingCycleNumber = billingCycle,
+                    Tasks = tasks.Select(t => new TaskSheetItem
+                    {
+                        Id = ObjectId.GenerateNewId().ToString(),
+                        Text = t.Text,
+                        Completed = false,
+                        AddedByCaregiver = false
+                    }).ToList(),
+                    Status = "scheduled",
+                    ScheduledDate = scheduledDates[i],
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await _dbContext.TaskSheets.AddAsync(taskSheet);
+            }
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Pre-generated {Count} task sheets for contract {ContractId}, order {OrderId} (dates: {First} → {Last})",
+                scheduledDates.Count, contractId, orderId,
+                scheduledDates.FirstOrDefault().ToString("yyyy-MM-dd"),
+                scheduledDates.LastOrDefault().ToString("yyyy-MM-dd"));
+        }
+
+        public async Task<TaskSheetDTO> ActivateTaskSheetAsync(string taskSheetId, string caregiverId)
+        {
+            var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
+
+            if (taskSheet.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("You are not authorized to activate this task sheet.");
+
+            if (taskSheet.Status != "scheduled")
+                throw new InvalidOperationException($"Only scheduled task sheets can be activated. Current status: '{taskSheet.Status}'.");
+
+            var order = await GetOrderOrThrow(taskSheet.OrderId);
+
+            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This order has been completed.");
+
+            // Sequential gate: previous started sheets (in-progress or submitted) must be completed
+            // Skip cancelled and scheduled sheets — they don't block the sequence
+            var previousSheets = await _dbContext.TaskSheets
+                .Where(ts => ts.OrderId == taskSheet.OrderId
+                    && ts.BillingCycleNumber == taskSheet.BillingCycleNumber
+                    && ts.SheetNumber < taskSheet.SheetNumber
+                    && ts.Status != "cancelled"
+                    && ts.Status != "scheduled")
+                .OrderByDescending(ts => ts.SheetNumber)
+                .ToListAsync();
+
+            if (previousSheets.Count > 0)
+            {
+                var lastSheet = previousSheets.First();
+
+                if (lastSheet.Status != "submitted")
+                {
+                    throw new InvalidOperationException(
+                        $"Visit #{lastSheet.SheetNumber} has not been submitted yet. Please submit it before activating the next visit.");
+                }
+
+                if (lastSheet.ClientReviewStatus != "Approved" && lastSheet.ClientReviewStatus != "Disputed")
+                {
+                    throw new InvalidOperationException(
+                        $"Visit #{lastSheet.SheetNumber} has not been reviewed by the client yet. The client must approve or review the previous visit first.");
+                }
+            }
+
+            taskSheet.Status = "in-progress";
+            taskSheet.UpdatedAt = DateTime.UtcNow;
+            _dbContext.TaskSheets.Update(taskSheet);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("TaskSheet {TaskSheetId} activated for order {OrderId}, sheet #{SheetNumber}",
+                taskSheetId, taskSheet.OrderId, taskSheet.SheetNumber);
+
+            return MapToDTO(taskSheet);
+        }
+
+        public async Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string clientId)
+        {
+            var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
+
+            var order = await GetOrderOrThrow(taskSheet.OrderId);
+
+            // Only the client for this order can reschedule
+            if (order.ClientId != clientId)
+                throw new UnauthorizedAccessException("You are not authorized to reschedule visits for this order.");
+
+            // Can only reschedule "scheduled" sheets
+            if (taskSheet.Status != "scheduled")
+                throw new InvalidOperationException($"Only scheduled visits can be rescheduled. Current status: '{taskSheet.Status}'.");
+
+            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("This order has been completed.");
+
+            // Validate the new date is within the contract period
+            var contract = await _dbContext.Contracts
+                .FirstOrDefaultAsync(c => c.OrderId == taskSheet.OrderId
+                    && (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
+
+            if (contract == null)
+                throw new InvalidOperationException("No approved contract found for this order.");
+
+            var newDate = request.NewDate.Date;
+
+            if (newDate < contract.ContractStartDate.Date)
+                throw new InvalidOperationException($"The new date cannot be before the contract start date ({contract.ContractStartDate:yyyy-MM-dd}).");
+
+            if (newDate >= contract.ContractEndDate.Date)
+                throw new InvalidOperationException($"The new date cannot be on or after the contract end date ({contract.ContractEndDate:yyyy-MM-dd}).");
+
+            // Cannot reschedule to a date in the past (Nigerian time)
+            var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
+            var todayNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone).Date;
+            if (newDate < todayNigeria)
+                throw new InvalidOperationException("Cannot reschedule to a date in the past.");
+
+            // Check no other active (non-cancelled) sheet is already on that date for this order
+            var conflicting = await _dbContext.TaskSheets
+                .Where(ts => ts.OrderId == taskSheet.OrderId
+                    && ts.ScheduledDate.HasValue
+                    && ts.ScheduledDate.Value.Date == newDate
+                    && ts.Status != "cancelled"
+                    && ts.Id != taskSheet.Id)
+                .AnyAsync();
+
+            if (conflicting)
+                throw new InvalidOperationException($"Another visit is already scheduled for {newDate:yyyy-MM-dd}. Please choose a different date.");
+
+            var oldDate = taskSheet.ScheduledDate ?? taskSheet.CreatedAt;
+
+            taskSheet.ScheduledDate = newDate;
+            taskSheet.UpdatedAt = DateTime.UtcNow;
+            _dbContext.TaskSheets.Update(taskSheet);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "TaskSheet {TaskSheetId} rescheduled from {OldDate} to {NewDate} by client {ClientId}",
+                taskSheetId, oldDate.ToString("yyyy-MM-dd"), newDate.ToString("yyyy-MM-dd"), clientId);
+
+            // Notify the caregiver
+            try
+            {
+                var caregiverId = order.CaregiverId;
+                if (!string.IsNullOrEmpty(caregiverId))
+                {
+                    var notificationContent = $"Visit #{taskSheet.SheetNumber} has been rescheduled from {oldDate:MMM dd} to {newDate:MMM dd}.";
+                    if (!string.IsNullOrEmpty(request.Reason))
+                        notificationContent += $" Reason: {request.Reason}";
+
+                    await _notificationService.CreateNotificationAsync(
+                        caregiverId,
+                        clientId,
+                        NotificationTypes.VisitCancelledByClient, // Reuse — closest match
+                        notificationContent,
+                        "Visit Rescheduled",
+                        taskSheetId,
+                        taskSheet.OrderId);
+
+                    var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
+                    if (caregiver?.Email != null)
+                    {
+                        await _emailService.SendGenericNotificationEmailAsync(
+                            caregiver.Email,
+                            caregiver.FirstName ?? "Caregiver",
+                            "Visit Rescheduled",
+                            $"Visit #{taskSheet.SheetNumber} has been rescheduled from {oldDate:MMMM dd, yyyy} to {newDate:MMMM dd, yyyy}." +
+                            (!string.IsNullOrEmpty(request.Reason) ? $" Reason: {request.Reason}" : "") +
+                            " Please check your updated schedule.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send reschedule notification for TaskSheet {TaskSheetId}", taskSheetId);
+            }
+
+            return new RescheduleTaskSheetResponse
+            {
+                Success = true,
+                Message = $"Visit #{taskSheet.SheetNumber} has been rescheduled to {newDate:MMMM dd, yyyy}.",
+                OldDate = oldDate,
+                NewDate = newDate,
+                TaskSheetId = taskSheetId
+            };
         }
     }
 }

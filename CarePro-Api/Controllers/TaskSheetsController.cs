@@ -261,6 +261,77 @@ namespace CarePro_Api.Controllers
             }
         }
 
+        /// <summary>
+        /// Activate a scheduled task sheet — transitions it from "scheduled" to "in-progress".
+        /// The caregiver must have completed (submitted + reviewed) the previous visit first.
+        /// </summary>
+        [HttpPut("{taskSheetId}/activate")]
+        public async Task<IActionResult> ActivateTaskSheet(string taskSheetId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { error = "Caregiver authorization required." });
+
+                var result = await _taskSheetService.ActivateTaskSheetAsync(taskSheetId, userId);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error activating task sheet {TaskSheetId}", taskSheetId);
+                return StatusCode(500, new { error = "An error occurred while activating the task sheet." });
+            }
+        }
+
+        /// <summary>
+        /// Client reschedules a scheduled visit to a different date.
+        /// The new date must be within the contract period and not conflict with another visit.
+        /// </summary>
+        [HttpPut("{taskSheetId}/reschedule")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
+        public async Task<IActionResult> RescheduleTaskSheet(string taskSheetId, [FromBody] RescheduleTaskSheetRequest request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { error = "Client authorization required." });
+
+                var result = await _taskSheetService.RescheduleTaskSheetAsync(taskSheetId, request, userId);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error rescheduling task sheet {TaskSheetId}", taskSheetId);
+                return StatusCode(500, new { error = "An error occurred while rescheduling the visit." });
+            }
+        }
+
         // ── Private helpers ──
 
         private string? GetCurrentUserId() =>

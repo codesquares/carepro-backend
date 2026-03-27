@@ -26,6 +26,18 @@ namespace Application.DTOs
         public decimal TotalWithdrawn { get; set; }
     }
 
+    // ── Client Wallet DTO ──
+
+    public class ClientWalletDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string ClientId { get; set; } = string.Empty;
+        public decimal CreditBalance { get; set; }
+        public decimal TotalCredited { get; set; }
+        public decimal TotalSpent { get; set; }
+        public DateTime UpdatedAt { get; set; }
+    }
+
     // ── Ledger DTOs ──
 
     public class EarningsLedgerDTO

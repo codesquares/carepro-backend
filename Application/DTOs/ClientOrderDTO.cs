@@ -86,6 +86,7 @@ namespace Application.DTOs
         public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
         public int? FrequencyPerWeek { get; set; }
         public string? ServiceType { get; set; }
+        public int? BillingCycleNumber { get; set; }
     }
 
     public class UpdateClientOrderStatusRequest

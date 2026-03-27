@@ -50,6 +50,7 @@ namespace Application.DTOs
         public string? ServiceAddress { get; set; }
         public string? AccessInstructions { get; set; }
         public string? Note { get; set; }
+        public DateTime? AgreedStartDate { get; set; }
         public bool SubmitForCaregiverReview { get; set; } = false;
 
         /// <summary>
@@ -69,6 +70,7 @@ namespace Application.DTOs
         public List<NegotiationScheduleSlotDTO>? CaregiverProposedSchedule { get; set; }
         public string? AdditionalNotes { get; set; }
         public string? Note { get; set; }
+        public DateTime? AgreedStartDate { get; set; }
         public bool SubmitForClientReview { get; set; } = false;
     }
 
@@ -143,6 +145,9 @@ namespace Application.DTOs
         // Notes
         public string? LastClientNote { get; set; }
         public string? LastCaregiverNote { get; set; }
+
+        // Agreed start date
+        public DateTime? AgreedStartDate { get; set; }
 
         // Meta
         public string CreatedByRole { get; set; } = string.Empty;

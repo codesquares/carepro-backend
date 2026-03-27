@@ -13,6 +13,13 @@ namespace Domain.Entities
         public int BillingCycleNumber { get; set; } = 1;
         public List<TaskSheetItem> Tasks { get; set; } = new List<TaskSheetItem>();
         public string Status { get; set; } = "in-progress";
+
+        /// <summary>
+        /// The calendar date this task sheet is for (Nigerian time, date-only).
+        /// Ensures only one task sheet per scheduled day. Null for legacy sheets.
+        /// </summary>
+        public DateTime? ScheduledDate { get; set; }
+
         public DateTime? SubmittedAt { get; set; }
         public string? ClientSignatureUrl { get; set; }
         public DateTime? ClientSignatureSignedAt { get; set; }

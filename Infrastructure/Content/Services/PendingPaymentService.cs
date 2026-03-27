@@ -140,7 +140,7 @@ namespace Infrastructure.Content.Services
             if (existingPendingPayment != null)
             {
                 var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
-                if (age.TotalMinutes < 20 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
+                if (age.TotalMinutes < 5 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
                 {
                     // Verify the commitment is still valid before returning a cached link
                     var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);

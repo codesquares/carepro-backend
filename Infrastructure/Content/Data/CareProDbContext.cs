@@ -155,6 +155,15 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<OrderNegotiation>().HasKey(n => n.Id);
             modelBuilder.Entity<OrderNegotiation>().Property(n => n.Id).HasElementName("_id");
 
+            modelBuilder.Entity<ClientWallet>().ToCollection("ClientWallets");
+            modelBuilder.Entity<ClientWallet>().HasKey(cw => cw.Id);
+            modelBuilder.Entity<ClientWallet>().Property(cw => cw.Id).HasElementName("_id");
+            modelBuilder.Entity<ClientWallet>().HasIndex(cw => cw.ClientId).IsUnique();
+
+            modelBuilder.Entity<ClientWalletLedger>().ToCollection("ClientWalletLedgers");
+            modelBuilder.Entity<ClientWalletLedger>().HasKey(cl => cl.Id);
+            modelBuilder.Entity<ClientWalletLedger>().Property(cl => cl.Id).HasElementName("_id");
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -213,5 +222,7 @@ namespace Infrastructure.Content.Data
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
         public DbSet<OrderNegotiation> OrderNegotiations { get; set; }
+        public DbSet<ClientWallet> ClientWallets { get; set; }
+        public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
     }
 }

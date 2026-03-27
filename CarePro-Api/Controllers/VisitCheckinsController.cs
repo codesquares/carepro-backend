@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -38,6 +39,20 @@ namespace CarePro_Api.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return StatusCode(403, new { error = ex.Message });
+            }
+            catch (CheckinValidationException ex)
+            {
+                return BadRequest(new CheckinErrorResponse
+                {
+                    Error = ex.Message,
+                    ErrorCode = ex.ErrorCode,
+                    DistanceMeters = ex.DistanceMeters,
+                    MaxDistanceMeters = ex.MaxDistanceMeters,
+                    ScheduledDay = ex.ScheduledDay,
+                    ScheduledStartTime = ex.ScheduledStartTime,
+                    ScheduledEndTime = ex.ScheduledEndTime,
+                    CurrentTimeNigeria = ex.CurrentTimeNigeria
+                });
             }
             catch (InvalidOperationException ex)
             {

@@ -116,6 +116,7 @@ namespace Infrastructure.Content.Services
                 OrderCreatedAt = DateTime.Now,
                 FrequencyPerWeek = addClientOrderRequest.FrequencyPerWeek,
                 ServiceType = addClientOrderRequest.ServiceType,
+                BillingCycleNumber = addClientOrderRequest.BillingCycleNumber,
             };
 
             await careProDbContext.ClientOrders.AddAsync(clientOrder);

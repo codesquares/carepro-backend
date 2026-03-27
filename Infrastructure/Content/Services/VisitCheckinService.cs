@@ -78,13 +78,22 @@ namespace Infrastructure.Content.Services
             if (taskSheet.Status == "submitted")
                 throw new InvalidOperationException("Cannot check in to an already submitted task sheet.");
 
+            if (taskSheet.Status == "cancelled")
+                throw CheckinValidationException.TaskSheetCancelled("This task sheet has been cancelled.");
+
+            if (taskSheet.Status == "scheduled")
+                throw new InvalidOperationException("Cannot check in to a scheduled task sheet. Please activate it first.");
+
             // Verify the client has approved the contract before allowing check-in
             var approvedContract = await _dbContext.Contracts
                 .FirstOrDefaultAsync(c => c.OrderId == request.OrderId &&
                     (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
 
             if (approvedContract == null)
-                throw new InvalidOperationException("Cannot check in until the client has approved the contract for this order.");
+                throw CheckinValidationException.NoApprovedContract("Cannot check in until the client has approved the contract for this order.");
+
+            // Schedule guard — check-in is only allowed on scheduled days within the agreed time window (Nigerian time)
+            ValidateSchedule(approvedContract);
 
             // GPS proximity validation
             double? distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
@@ -137,6 +146,48 @@ namespace Infrastructure.Content.Services
             };
         }
 
+        /// <summary>
+        /// Validates that the current Nigerian time falls within the contract's scheduled visit window.
+        /// </summary>
+        private void ValidateSchedule(Contract approvedContract)
+        {
+            var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
+            var nowNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone);
+            var todayDow = nowNigeria.DayOfWeek;
+            var currentTime = nowNigeria.TimeOfDay;
+
+            var todaysSlot = approvedContract.Schedule
+                .FirstOrDefault(s => s.DayOfWeek == todayDow);
+
+            if (todaysSlot == null)
+            {
+                throw CheckinValidationException.NotScheduledToday(
+                    $"No visit is scheduled for {todayDow}. Check your contract schedule.",
+                    todayDow.ToString(),
+                    nowNigeria.ToString("HH:mm"));
+            }
+
+            // Allow a 30-minute grace period before and after the scheduled window
+            var gracePeriod = TimeSpan.FromMinutes(30);
+            if (TimeSpan.TryParse(todaysSlot.StartTime, out var start) &&
+                TimeSpan.TryParse(todaysSlot.EndTime, out var end))
+            {
+                var windowStart = start - gracePeriod;
+                var windowEnd = end + gracePeriod;
+
+                if (currentTime < windowStart || currentTime > windowEnd)
+                {
+                    throw CheckinValidationException.OutsideSchedule(
+                        $"Check-in is only allowed between {todaysSlot.StartTime} and {todaysSlot.EndTime} (Nigerian time). " +
+                        $"Current time: {nowNigeria:HH:mm}.",
+                        todayDow.ToString(),
+                        todaysSlot.StartTime,
+                        todaysSlot.EndTime,
+                        nowNigeria.ToString("HH:mm"));
+                }
+            }
+        }
+
         private async Task<double?> ValidateProximity(double caregiverLat, double caregiverLng, ClientOrder order, string caregiverId)
         {
             int maxDistanceMeters = _configuration.GetValue<int>("VisitCheckin:MaxDistanceMeters", 150);
@@ -184,7 +235,7 @@ namespace Infrastructure.Content.Services
             if (!serviceLat.HasValue || !serviceLng.HasValue)
             {
                 _logger.LogWarning("No geocoded service address on contract for order {OrderId}. Cannot validate proximity.", order.Id);
-                throw new InvalidOperationException(
+                throw CheckinValidationException.NoGeocodedAddress(
                     "The service address for this order has not been geocoded yet. Please contact support or ask the client to confirm the service address.");
             }
 
@@ -203,9 +254,10 @@ namespace Infrastructure.Content.Services
                 }
                 else
                 {
-                    throw new InvalidOperationException(
+                    throw CheckinValidationException.Proximity(
                         $"You are approximately {distanceMeters:F0}m away from the service address. " +
-                        $"You must be within {maxDistanceMeters}m to check in.");
+                        $"You must be within {maxDistanceMeters}m to check in.",
+                        distanceMeters, maxDistanceMeters);
                 }
             }
 

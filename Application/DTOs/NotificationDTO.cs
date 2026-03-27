@@ -191,6 +191,9 @@ namespace Application.DTOs
         public const string NegotiationBothAgreed = "negotiation_both_agreed";
         public const string NegotiationAbandoned = "negotiation_abandoned";
         public const string NegotiationConverted = "negotiation_converted";
+
+        // ── Visit Cancellation ──
+        public const string VisitCancelledByClient = "visit_cancelled_by_client";
     }
 
     public class BroadcastNotificationRequest
