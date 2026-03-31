@@ -145,6 +145,9 @@ namespace Application.DTOs
         public const string EarningsAdded = "earnings_added";
         public const string OrderPayment = "order_payment";
         public const string RefundProcessed = "refund_processed";
+        public const string RefundRequested = "refund_requested";
+        public const string RefundApproved = "refund_approved";
+        public const string RefundRejected = "refund_rejected";
 
         // ── Withdrawals ──
         public const string WithdrawalRequest = "withdrawal_request";

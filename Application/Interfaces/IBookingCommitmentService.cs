@@ -49,5 +49,11 @@ namespace Application.Interfaces
         /// Gets the commitment status check for a client and gig.
         /// </summary>
         Task<CommitmentStatusResponse> GetCommitmentStatusAsync(string clientId, string gigId);
+
+        /// <summary>
+        /// Invalidates the booking commitment linked to a cancelled order.
+        /// Expires the commitment and resets IsAppliedToOrder so the client must pay again.
+        /// </summary>
+        Task<bool> InvalidateCommitmentForOrderAsync(string orderId);
     }
 }

@@ -65,7 +65,7 @@ namespace Infrastructure.Content.Services
             };
         }
 
-        public async Task CreditAsync(string clientId, decimal amount, string description, string? orderId = null, string? taskSheetId = null)
+        public async Task CreditAsync(string clientId, decimal amount, string description, string? orderId = null, string? taskSheetId = null, string? ledgerType = null)
         {
             if (string.IsNullOrWhiteSpace(clientId))
                 throw new ArgumentException("ClientId cannot be null or empty.", nameof(clientId));
@@ -102,7 +102,7 @@ namespace Infrastructure.Content.Services
                 {
                     Id = ObjectId.GenerateNewId().ToString(),
                     ClientId = clientId,
-                    Type = ClientLedgerEntryType.CancellationCredit,
+                    Type = ledgerType ?? ClientLedgerEntryType.CancellationCredit,
                     Amount = amount,
                     ClientOrderId = orderId,
                     TaskSheetId = taskSheetId,
@@ -117,6 +117,75 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation("Credited {Amount} to client {ClientId} wallet. New balance: {Balance}. Reason: {Description}",
                     amount, clientId, wallet.CreditBalance, description);
             });
+        }
+
+        public async Task DebitAsync(string clientId, decimal amount, string description, string? orderId = null)
+        {
+            if (string.IsNullOrWhiteSpace(clientId))
+                throw new ArgumentException("ClientId cannot be null or empty.", nameof(clientId));
+            if (amount <= 0)
+                throw new ArgumentException($"Amount must be positive. Received: {amount}");
+            if (amount > MAX_TRANSACTION_AMOUNT)
+                throw new ArgumentException($"Amount {amount} exceeds maximum allowed transaction amount.");
+
+            amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
+            await _lockManager.ExecuteWithLockAsync(clientId, async () =>
+            {
+                var wallet = await _dbContext.ClientWallets
+                    .FirstOrDefaultAsync(w => w.ClientId == clientId);
+
+                if (wallet == null || wallet.CreditBalance < amount)
+                {
+                    throw new InvalidOperationException(
+                        $"Insufficient wallet balance. Available: {wallet?.CreditBalance ?? 0}, Requested: {amount}");
+                }
+
+                wallet.CreditBalance -= amount;
+                wallet.TotalSpent += amount;
+                wallet.Version++;
+                wallet.UpdatedAt = DateTime.UtcNow;
+
+                var ledger = new ClientWalletLedger
+                {
+                    Id = ObjectId.GenerateNewId().ToString(),
+                    ClientId = clientId,
+                    Type = ClientLedgerEntryType.RefundDebit,
+                    Amount = -amount,
+                    ClientOrderId = orderId,
+                    Description = description,
+                    BalanceAfter = wallet.CreditBalance,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _dbContext.ClientWalletLedgers.Add(ledger);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Debited {Amount} from client {ClientId} wallet. New balance: {Balance}. Reason: {Description}",
+                    amount, clientId, wallet.CreditBalance, description);
+            });
+        }
+
+        public async Task<List<ClientWalletLedgerDTO>> GetLedgerHistoryAsync(string clientId)
+        {
+            if (string.IsNullOrWhiteSpace(clientId))
+                throw new ArgumentException("ClientId cannot be null or empty.", nameof(clientId));
+
+            var entries = await _dbContext.ClientWalletLedgers
+                .Where(l => l.ClientId == clientId)
+                .OrderByDescending(l => l.CreatedAt)
+                .ToListAsync();
+
+            return entries.Select(e => new ClientWalletLedgerDTO
+            {
+                Id = e.Id,
+                Type = e.Type,
+                Amount = e.Amount,
+                ClientOrderId = e.ClientOrderId,
+                Description = e.Description,
+                BalanceAfter = e.BalanceAfter,
+                CreatedAt = e.CreatedAt
+            }).ToList();
         }
     }
 }

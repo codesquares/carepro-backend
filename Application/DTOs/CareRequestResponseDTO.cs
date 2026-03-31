@@ -122,6 +122,7 @@ namespace Application.DTOs
         public decimal? ProposedRate { get; set; }
         public bool IsVerified { get; set; }
         public string? AboutMe { get; set; }
+        public string? SpecialGigId { get; set; }
     }
 
     // ── Shortlist / Hire Result DTOs ──

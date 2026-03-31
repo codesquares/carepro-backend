@@ -292,5 +292,34 @@ namespace Infrastructure.Content.Services
             return await _dbContext.EarningsLedger
                 .AnyAsync(e => e.ClientOrderId == clientOrderId && e.Type == LedgerEntryType.FundsReleased);
         }
+
+        public async Task RecordOrderCancellationAsync(string caregiverId, decimal amount, string clientOrderId,
+            string? subscriptionId, int? billingCycleNumber, string serviceType, string description)
+        {
+            ValidateInput(caregiverId, amount);
+
+            var wallet = await _walletService.GetOrCreateWalletAsync(caregiverId);
+
+            var entry = new EarningsLedger
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                CaregiverId = caregiverId,
+                Type = LedgerEntryType.OrderCancelled,
+                Amount = -amount, // Negative for debits
+                ClientOrderId = clientOrderId,
+                SubscriptionId = subscriptionId,
+                BillingCycleNumber = billingCycleNumber,
+                ServiceType = serviceType,
+                Description = description,
+                BalanceAfter = wallet.PendingBalance,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.EarningsLedger.Add(entry);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Ledger: OrderCancelled for caregiver {CaregiverId}, amount -{Amount}, order {OrderId}",
+                caregiverId, amount, clientOrderId);
+        }
     }
 }

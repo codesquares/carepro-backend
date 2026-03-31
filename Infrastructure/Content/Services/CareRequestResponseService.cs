@@ -21,7 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
-        private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "active" };
+        private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "unmatched", "active" };
 
         public CareRequestResponseService(
             CareProDbContext dbContext,
@@ -52,7 +52,7 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException("Care request not found.");
 
             var statusLower = careRequest.Status?.ToLower();
-            if (statusLower != "pending" && statusLower != "matched" && statusLower != "active")
+            if (statusLower != "pending" && statusLower != "matched" && statusLower != "unmatched" && statusLower != "active")
                 throw new InvalidOperationException($"Cannot respond to a request with status '{careRequest.Status}'.");
 
             // Check for duplicate response
@@ -223,7 +223,29 @@ namespace Infrastructure.Content.Services
             if (existingHire)
                 throw new InvalidOperationException("You have already hired a caregiver for this request. Only one hire is allowed per request.");
 
+            // Use caregiver's profile image, or fall back to an image from their existing gigs
+            string? gigImage = null;
+            if (ObjectId.TryParse(response.CaregiverId, out var caregiverOid))
+            {
+                var caregiver = await _dbContext.CareGivers.FindAsync(caregiverOid);
+                gigImage = caregiver?.ProfileImage;
+
+                if (string.IsNullOrEmpty(gigImage))
+                {
+                    gigImage = await _dbContext.Gigs
+                        .Where(g => g.CaregiverId == response.CaregiverId && g.IsDeleted != true && g.Image1 != null)
+                        .Select(g => g.Image1)
+                        .FirstOrDefaultAsync();
+                }
+            }
+
             // Generate special gig from care request details
+            // Price priority: caregiver's proposed rate → client's budget max → budget min → 0
+            var gigPrice = response.ProposedRate.HasValue ? (int)response.ProposedRate.Value
+                         : careRequest.BudgetMax.HasValue ? (int)careRequest.BudgetMax.Value
+                         : careRequest.BudgetMin.HasValue ? (int)careRequest.BudgetMin.Value
+                         : 0;
+
             var specialGig = new Gig
             {
                 Id = ObjectId.GenerateNewId(),
@@ -235,9 +257,8 @@ namespace Infrastructure.Content.Services
                 PackageName = "Care Request Package",
                 PackageDetails = careRequest.Tasks ?? new List<string>(),
                 DeliveryTime = careRequest.Duration ?? "As agreed",
-                Price = careRequest.BudgetMax.HasValue ? (int)careRequest.BudgetMax.Value
-                      : careRequest.BudgetMin.HasValue ? (int)careRequest.BudgetMin.Value
-                      : 0,
+                Price = gigPrice,
+                Image1 = gigImage,
                 Status = "Active",
                 CaregiverId = response.CaregiverId,
                 CreatedAt = DateTime.UtcNow,
@@ -322,8 +343,13 @@ namespace Infrastructure.Content.Services
 
             // Get all browsable care requests (any caregiver can see and respond)
             // Use ToLower() for case-insensitive matching — existing DB records may vary in casing
+            // Include "unmatched" — the recommendation engine may find zero matches, but the request
+            // should still be visible on the caregiver browse page so any caregiver can respond.
             var query = _dbContext.CareRequests
-                .Where(cr => cr.Status.ToLower() == "pending" || cr.Status.ToLower() == "matched" || cr.Status.ToLower() == "active");
+                .Where(cr => cr.Status.ToLower() == "pending"
+                             || cr.Status.ToLower() == "matched"
+                             || cr.Status.ToLower() == "unmatched"
+                             || cr.Status.ToLower() == "active");
 
             // Optional filters
             if (!string.IsNullOrEmpty(serviceType))
@@ -497,7 +523,8 @@ namespace Infrastructure.Content.Services
                 Message = resp.Message,
                 ProposedRate = resp.ProposedRate,
                 IsVerified = hasVerifiedCert,
-                AboutMe = caregiver.AboutMe
+                AboutMe = caregiver.AboutMe,
+                SpecialGigId = resp.SpecialGigId
             };
         }
 

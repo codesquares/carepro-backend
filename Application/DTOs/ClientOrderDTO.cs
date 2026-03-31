@@ -102,4 +102,9 @@ namespace Application.DTOs
         public string? DisputeReason { get; set; }
         public string? UserId { get; set; }
     }
+
+    public class CancelOrderRequest
+    {
+        public string? Reason { get; set; }
+    }
 }

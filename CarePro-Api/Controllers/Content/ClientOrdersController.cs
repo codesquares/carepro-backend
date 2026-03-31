@@ -390,6 +390,48 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
+        /// Cancels an order: invalidates booking commitment fee, debits unreleased caregiver earnings,
+        /// cancels future task sheets, and notifies both client and caregiver.
+        /// </summary>
+        [HttpPost]
+        [Route("{orderId}/cancel")]
+        [Authorize(Roles = "Client, Admin, SuperAdmin")]
+        public async Task<IActionResult> CancelOrderAsync(string orderId, [FromBody] CancelOrderRequest? request = null)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(currentUserId))
+                    return Unauthorized(new { error = "Authorization required." });
+
+                // For Admins, we still need the client userId — fetch from the order
+                string clientUserId;
+                if (IsAdminOrSuperAdmin())
+                {
+                    var orderInfo = await clientOrderService.GetClientOrderAsync(orderId);
+                    clientUserId = orderInfo.ClientId;
+                }
+                else
+                {
+                    clientUserId = currentUserId;
+                }
+
+                var result = await clientOrderService.CancelOrderAsync(orderId, clientUserId, request?.Reason);
+
+                if (!result.IsSuccess)
+                    return BadRequest(new { errors = result.Errors });
+
+                logger.LogInformation("Order {OrderId} cancelled by user {UserId}.", orderId, currentUserId);
+                return Ok(new { message = result.Value });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling order {OrderId}", orderId);
+                return StatusCode(500, new { error = "An error occurred while cancelling the order." });
+            }
+        }
+
+        /// <summary>
         /// Cancel an upcoming visit for an order. Requires 24h advance notice.
         /// Credits the client's wallet with the per-visit amount.
         /// </summary>

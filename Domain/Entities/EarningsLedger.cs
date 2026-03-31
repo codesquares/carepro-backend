@@ -94,6 +94,7 @@ namespace Domain.Entities
         public const string DisputeHold = "DisputeHold";
         public const string Adjustment = "Adjustment";
         public const string VisitApproved = "VisitApproved";
+        public const string OrderCancelled = "OrderCancelled";
     }
 
     /// <summary>

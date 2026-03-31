@@ -58,5 +58,11 @@ namespace Application.Interfaces.Content
         /// Checks if a FundsReleased entry already exists for a given order (prevents double-release).
         /// </summary>
         Task<bool> HasFundsBeenReleasedForOrderAsync(string clientOrderId);
+
+        /// <summary>
+        /// Records an OrderCancelled ledger entry when an order is cancelled.
+        /// </summary>
+        Task RecordOrderCancellationAsync(string caregiverId, decimal amount, string clientOrderId,
+            string? subscriptionId, int? billingCycleNumber, string serviceType, string description);
     }
 }

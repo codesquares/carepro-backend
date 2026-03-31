@@ -308,6 +308,40 @@ namespace Infrastructure.Content.Services
             return wallet.WithdrawableBalance >= SafeRound(amount);
         }
 
+        public async Task DebitOrderCancellationAsync(string caregiverId, decimal unreleasedAmount)
+        {
+            ValidateCaregiverId(caregiverId);
+            ValidateAmount(unreleasedAmount, "DebitOrderCancellation");
+            unreleasedAmount = SafeRound(unreleasedAmount);
+
+            await _lockManager.ExecuteWithLockAsync(caregiverId, async () =>
+            {
+                var wallet = await GetOrCreateWalletEntityAsync(caregiverId);
+
+                // Only remove from PendingBalance — WithdrawableBalance was earned via approved visits
+                var debitAmount = Math.Min(unreleasedAmount, wallet.PendingBalance);
+                if (debitAmount <= 0)
+                {
+                    _logger.LogWarning(
+                        "Order cancellation debit: {Amount} requested but PendingBalance is {Pending} for caregiver {CaregiverId}",
+                        unreleasedAmount, wallet.PendingBalance, caregiverId);
+                    return;
+                }
+
+                wallet.PendingBalance = SafeRound(wallet.PendingBalance - debitAmount);
+                wallet.TotalEarned = SafeRound(Math.Max(0, wallet.TotalEarned - debitAmount));
+                wallet.Version++;
+                wallet.UpdatedAt = DateTime.UtcNow;
+
+                _dbContext.CaregiverWallets.Update(wallet);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Order cancellation debit for caregiver {CaregiverId}: -{Amount}. TotalEarned: {TotalEarned}, Pending: {Pending}, Withdrawable: {Withdrawable}, Version: {Version}",
+                    caregiverId, debitAmount, wallet.TotalEarned, wallet.PendingBalance, wallet.WithdrawableBalance, wallet.Version);
+            });
+        }
+
         // ── Private Helpers ──
 
         private async Task<CaregiverWallet> GetOrCreateWalletEntityAsync(string caregiverId)

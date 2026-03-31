@@ -118,4 +118,17 @@ namespace Application.DTOs
         public string Status { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
+
+    // ── Client Wallet Ledger DTO ──
+
+    public class ClientWalletLedgerDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public string? ClientOrderId { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public decimal BalanceAfter { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
 }

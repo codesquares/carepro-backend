@@ -182,6 +182,9 @@ namespace Infrastructure.Content.Services
                 CaregiverId = gig.CaregiverId,
                 CreatedAt = gig.CreatedAt,
                 EligibilityWarning = eligibilityWarning,
+                IsSpecialGig = gig.IsSpecialGig,
+                CareRequestId = gig.CareRequestId,
+                ScopedClientId = gig.ScopedClientId,
             };
 
             return gigDTO;
@@ -275,6 +278,9 @@ namespace Infrastructure.Content.Services
                     Status = gig.Status,
                     CaregiverId = gig.CaregiverId,
                     CreatedAt = gig.CreatedAt,
+                    IsSpecialGig = gig.IsSpecialGig,
+                    CareRequestId = gig.CareRequestId,
+                    ScopedClientId = gig.ScopedClientId,
 
                 };
                 gigsDTOs.Add(gigDTO);
@@ -327,6 +333,9 @@ namespace Infrastructure.Content.Services
                     CreatedAt = gig.CreatedAt,
                     UpdatedOn = gig.UpdatedOn,
                     IsUpdatedToPause = gig.IsUpdatedToPause,
+                    IsSpecialGig = gig.IsSpecialGig,
+                    CareRequestId = gig.CareRequestId,
+                    ScopedClientId = gig.ScopedClientId,
 
                 };
                 gigsDTOs.Add(gigDTO);
@@ -338,7 +347,7 @@ namespace Infrastructure.Content.Services
         public async Task<IEnumerable<GigDTO>> GetAllGigsAsync()
         {
             var gigs = await careProDbContext.Gigs
-                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.IsDeleted != true)
+                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.IsDeleted != true && x.IsSpecialGig != true)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync();
 
@@ -377,6 +386,9 @@ namespace Infrastructure.Content.Services
                     UpdatedOn = gig.UpdatedOn,
                     IsUpdatedToPause = gig.IsUpdatedToPause,
                     CreatedAt = gig.CreatedAt,
+                    IsSpecialGig = gig.IsSpecialGig,
+                    CareRequestId = gig.CareRequestId,
+                    ScopedClientId = gig.ScopedClientId,
                 };
                 gigDTOs.Add(serviceDTO);
             }
@@ -387,6 +399,9 @@ namespace Infrastructure.Content.Services
         public async Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null)
         {
             var query = careProDbContext.Gigs.Where(x => x.IsDeleted != true);
+
+            // Exclude special gigs (created from care request hires) from marketplace
+            query = query.Where(x => x.IsSpecialGig != true);
 
             if (!string.IsNullOrWhiteSpace(status))
                 query = query.Where(x => x.Status == status);
@@ -435,6 +450,9 @@ namespace Infrastructure.Content.Services
                     UpdatedOn = gig.UpdatedOn,
                     IsUpdatedToPause = gig.IsUpdatedToPause,
                     CreatedAt = gig.CreatedAt,
+                    IsSpecialGig = gig.IsSpecialGig,
+                    CareRequestId = gig.CareRequestId,
+                    ScopedClientId = gig.ScopedClientId,
                 };
                 gigDTOs.Add(serviceDTO);
             }
@@ -514,6 +532,9 @@ namespace Infrastructure.Content.Services
                 UpdatedOn = gig.UpdatedOn,
                 IsUpdatedToPause = gig.IsUpdatedToPause,
                 CreatedAt = gig.CreatedAt,
+                IsSpecialGig = gig.IsSpecialGig,
+                CareRequestId = gig.CareRequestId,
+                ScopedClientId = gig.ScopedClientId,
             };
 
             return gigDTO;

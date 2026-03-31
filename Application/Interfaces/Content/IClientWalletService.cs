@@ -13,6 +13,16 @@ namespace Application.Interfaces.Content
         /// <summary>
         /// Credits the client's wallet (e.g., visit cancellation refund).
         /// </summary>
-        Task CreditAsync(string clientId, decimal amount, string description, string? orderId = null, string? taskSheetId = null);
+        Task CreditAsync(string clientId, decimal amount, string description, string? orderId = null, string? taskSheetId = null, string? ledgerType = null);
+
+        /// <summary>
+        /// Debits the client's wallet (e.g., refund processed to bank).
+        /// </summary>
+        Task DebitAsync(string clientId, decimal amount, string description, string? orderId = null);
+
+        /// <summary>
+        /// Gets the ledger history for a client.
+        /// </summary>
+        Task<List<ClientWalletLedgerDTO>> GetLedgerHistoryAsync(string clientId);
     }
 }

@@ -479,5 +479,37 @@ namespace Infrastructure.Content.Services
         }
 
         #endregion
+
+        public async Task<bool> InvalidateCommitmentForOrderAsync(string orderId)
+        {
+            if (string.IsNullOrWhiteSpace(orderId))
+            {
+                _logger.LogWarning("InvalidateCommitmentForOrderAsync called with null/empty orderId");
+                return false;
+            }
+
+            var commitment = await _dbContext.BookingCommitments
+                .FirstOrDefaultAsync(bc => bc.AppliedToOrderId == orderId
+                                        && bc.IsAppliedToOrder);
+
+            if (commitment == null)
+            {
+                _logger.LogInformation("No applied commitment found for order {OrderId} — nothing to invalidate.", orderId);
+                return false;
+            }
+
+            commitment.Status = BookingCommitmentStatus.Expired;
+            commitment.IsAppliedToOrder = false;
+            commitment.AppliedToOrderId = null;
+
+            _dbContext.BookingCommitments.Update(commitment);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Commitment {CommitmentId} invalidated due to order {OrderId} cancellation. Client must pay a new booking fee.",
+                commitment.Id, orderId);
+
+            return true;
+        }
     }
 }

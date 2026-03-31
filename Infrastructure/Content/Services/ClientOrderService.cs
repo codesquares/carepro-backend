@@ -1,6 +1,7 @@
 ﻿using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,9 @@ namespace Infrastructure.Content.Services
         private readonly IContractService contractService;
         private readonly ICaregiverWalletService walletService;
         private readonly IEarningsLedgerService ledgerService;
+        private readonly IBookingCommitmentService bookingCommitmentService;
+        private readonly IEmailService emailService;
+        private readonly IClientWalletService clientWalletService;
 
         public ClientOrderService(
             CareProDbContext careProDbContext,
@@ -39,7 +43,10 @@ namespace Infrastructure.Content.Services
             IOrderTasksService orderTasksService,
             IContractService contractService,
             ICaregiverWalletService walletService,
-            IEarningsLedgerService ledgerService)
+            IEarningsLedgerService ledgerService,
+            IBookingCommitmentService bookingCommitmentService,
+            IEmailService emailService,
+            IClientWalletService clientWalletService)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
@@ -51,6 +58,9 @@ namespace Infrastructure.Content.Services
             this.contractService = contractService;
             this.walletService = walletService;
             this.ledgerService = ledgerService;
+            this.bookingCommitmentService = bookingCommitmentService;
+            this.emailService = emailService;
+            this.clientWalletService = clientWalletService;
         }
 
         public async Task<Result<ClientOrderDTO>> CreateClientOrderAsync(AddClientOrderRequest addClientOrderRequest)
@@ -1096,6 +1106,228 @@ namespace Infrastructure.Content.Services
         private void LogAuditEvent(object message, string? userId)
         {
             logger.LogInformation($"Audit Event: {message}. User ID: {userId}. Timestamp: {DateTime.UtcNow}");
+        }
+
+        public async Task<Result<string>> CancelOrderAsync(string orderId, string clientUserId, string? reason = null)
+        {
+            if (!ObjectId.TryParse(orderId, out var objectId))
+            {
+                return Result<string>.Failure(new List<string> { "Invalid order ID format." });
+            }
+
+            var order = await careProDbContext.ClientOrders.FindAsync(objectId);
+            if (order == null)
+            {
+                return Result<string>.Failure(new List<string> { $"Order with ID '{orderId}' not found." });
+            }
+
+            // IDOR: verify the caller owns this order
+            if (order.ClientId != clientUserId)
+            {
+                logger.LogWarning("Client {UserId} attempted to cancel order {OrderId} belonging to client {OwnerId}.",
+                    clientUserId, orderId, order.ClientId);
+                return Result<string>.Failure(new List<string> { "You are not authorized to cancel this order." });
+            }
+
+            // Only allow cancellation of active orders
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            if (terminalStatuses.Contains(order.ClientOrderStatus, StringComparer.OrdinalIgnoreCase))
+            {
+                return Result<string>.Failure(new List<string>
+                {
+                    $"Order cannot be cancelled — it is already '{order.ClientOrderStatus}'."
+                });
+            }
+
+            var gig = await gigServices.GetGigAsync(order.GigId);
+            var gigTitle = gig?.Title ?? "a gig";
+
+            // ── 1. Calculate unreleased earnings ──
+            int currentBillingCycle = order.BillingCycleNumber ?? 1;
+            bool isOneTime = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
+            int maxVisits = isOneTime ? 1 : (order.FrequencyPerWeek ?? 1) * 4;
+
+            decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+            decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+
+            // Count approved visits (already released to WithdrawableBalance)
+            int approvedVisitCount = await careProDbContext.EarningsLedger
+                .CountAsync(e => e.ClientOrderId == orderId
+                    && e.Type == LedgerEntryType.VisitApproved
+                    && e.BillingCycleNumber == currentBillingCycle);
+
+            decimal releasedAmount = perVisitAmount * approvedVisitCount;
+            // Account for rounding on last visit
+            if (approvedVisitCount >= maxVisits)
+                releasedAmount = caregiverTotal;
+
+            decimal unreleasedAmount = Math.Max(0, caregiverTotal - releasedAmount);
+
+            // ── 2. Update order status ──
+            order.ClientOrderStatus = "Cancelled";
+            order.OrderUpdatedOn = DateTime.UtcNow;
+            careProDbContext.ClientOrders.Update(order);
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Order {OrderId} cancelled by client {ClientId}. Released: ₦{Released}, Unreleased: ₦{Unreleased} (visits: {Approved}/{MaxVisits})",
+                orderId, clientUserId, releasedAmount, unreleasedAmount, approvedVisitCount, maxVisits);
+
+            // ── 3. Invalidate booking commitment fee ──
+            try
+            {
+                await bookingCommitmentService.InvalidateCommitmentForOrderAsync(orderId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error invalidating commitment for cancelled order {OrderId}", orderId);
+            }
+
+            // ── 4. Debit unreleased earnings from caregiver wallet ──
+            if (unreleasedAmount > 0)
+            {
+                try
+                {
+                    await walletService.DebitOrderCancellationAsync(order.CaregiverId, unreleasedAmount);
+
+                    string serviceType = string.IsNullOrEmpty(order.SubscriptionId) ? "one-time" : "monthly";
+                    await ledgerService.RecordOrderCancellationAsync(
+                        order.CaregiverId, unreleasedAmount, orderId,
+                        order.SubscriptionId, order.BillingCycleNumber, serviceType,
+                        $"Order cancelled — ₦{unreleasedAmount} unreleased earnings removed ({approvedVisitCount}/{maxVisits} visits completed for {gigTitle})");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error debiting unreleased earnings for cancelled order {OrderId}", orderId);
+                }
+            }
+
+            // ── 5. Credit client wallet with the undelivered portion ──
+            // The client paid the full OrderFee. For completed visits, the caregiver earned their share.
+            // The remaining undelivered portion goes back to the client's wallet.
+            decimal clientRefundAmount = 0m;
+            if ((order.OrderFee ?? 0m) > 0 && maxVisits > 0)
+            {
+                decimal orderFee = order.OrderFee ?? 0m;
+                decimal perVisitCost = Math.Round(orderFee / maxVisits, 2);
+                int deliveredVisits = approvedVisitCount;
+                decimal deliveredCost = perVisitCost * deliveredVisits;
+                if (deliveredVisits >= maxVisits) deliveredCost = orderFee;
+                clientRefundAmount = Math.Max(0, orderFee - deliveredCost);
+            }
+
+            if (clientRefundAmount > 0)
+            {
+                try
+                {
+                    await clientWalletService.CreditAsync(
+                        order.ClientId, clientRefundAmount,
+                        $"Order cancelled — ₦{clientRefundAmount} credited for {maxVisits - approvedVisitCount} undelivered visit(s) on {gigTitle}",
+                        orderId, null, ClientLedgerEntryType.OrderCancellationCredit);
+
+                    logger.LogInformation(
+                        "Client {ClientId} wallet credited ₦{Amount} for cancelled order {OrderId}",
+                        order.ClientId, clientRefundAmount, orderId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error crediting client wallet for cancelled order {OrderId}", orderId);
+                }
+            }
+
+            // ── 6. Cancel future/pending task sheets ──
+            try
+            {
+                var pendingTaskSheets = await careProDbContext.TaskSheets
+                    .Where(ts => ts.OrderId == orderId
+                        && ts.Status != "submitted"
+                        && ts.Status != "cancelled")
+                    .ToListAsync();
+
+                foreach (var ts in pendingTaskSheets)
+                {
+                    ts.Status = "cancelled";
+                    ts.UpdatedAt = DateTime.UtcNow;
+                }
+
+                if (pendingTaskSheets.Any())
+                {
+                    careProDbContext.TaskSheets.UpdateRange(pendingTaskSheets);
+                    await careProDbContext.SaveChangesAsync();
+                    logger.LogInformation("Cancelled {Count} pending task sheets for order {OrderId}",
+                        pendingTaskSheets.Count, orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling task sheets for order {OrderId}", orderId);
+            }
+
+            // ── 6. Send notifications to client and caregiver ──
+            try
+            {
+                var client = await clientService.GetClientUserAsync(order.ClientId);
+                var caregiver = await careGiverService.GetCaregiverUserAsync(order.CaregiverId);
+
+                string cancelReason = reason ?? "Cancelled by client";
+
+                // In-app notification to client
+                string clientNotification = $"Your order for {gigTitle} has been cancelled. " +
+                    (approvedVisitCount > 0
+                        ? $"{approvedVisitCount} visit(s) were completed before cancellation. "
+                        : "No visits were completed. ") +
+                    (clientRefundAmount > 0
+                        ? $"₦{clientRefundAmount} has been credited to your wallet. "
+                        : "") +
+                    "You will need to pay a new booking fee to re-engage this service. " +
+                    "You can request a refund from your wallet to get these funds back to your bank account.";
+
+                await notificationService.CreateNotificationAsync(
+                    order.ClientId, order.ClientId,
+                    NotificationTypes.OrderCancelled,
+                    clientNotification, "Order Cancelled",
+                    orderId);
+
+                // In-app notification to caregiver
+                string caregiverNotification = $"Order for {gigTitle} has been cancelled by the client. " +
+                    (approvedVisitCount > 0
+                        ? $"You earned ₦{releasedAmount} for {approvedVisitCount} completed visit(s). "
+                        : "") +
+                    (unreleasedAmount > 0
+                        ? $"₦{unreleasedAmount} in unreleased earnings has been removed from your pending balance."
+                        : "");
+
+                await notificationService.CreateNotificationAsync(
+                    order.CaregiverId, order.ClientId,
+                    NotificationTypes.OrderCancelled,
+                    caregiverNotification, "Order Cancelled",
+                    orderId);
+
+                // Email to client
+                if (client?.Email != null)
+                {
+                    await emailService.SendOrderCancelledEmailAsync(
+                        client.Email, client.FirstName ?? "Client", gigTitle, cancelReason, orderId);
+                }
+
+                // Email to caregiver
+                if (caregiver?.Email != null)
+                {
+                    await emailService.SendOrderCancelledEmailAsync(
+                        caregiver.Email, caregiver.FirstName ?? "Caregiver", gigTitle, cancelReason, orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error sending cancellation notifications for order {OrderId}", orderId);
+            }
+
+            LogAuditEvent($"Order cancelled (ID: {orderId}), client credited ₦{clientRefundAmount}, caregiver debited ₦{unreleasedAmount}", clientUserId);
+
+            return Result<string>.Success(
+                $"Order cancelled successfully. {approvedVisitCount} visit(s) were completed. " +
+                (clientRefundAmount > 0 ? $"₦{clientRefundAmount} has been credited to your wallet. " : "") +
+                "Booking commitment fee has been invalidated. You can request a refund from your wallet.");
         }
 
 

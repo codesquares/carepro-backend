@@ -40,6 +40,11 @@ namespace Application.DTOs
         /// </summary>
         public string? EligibilityWarning { get; set; }
 
+        // ── Care Request Special Gig Fields ──
+        public bool? IsSpecialGig { get; set; }
+        public string? CareRequestId { get; set; }
+        public string? ScopedClientId { get; set; }
+
     }
 
     public class AddGigRequest

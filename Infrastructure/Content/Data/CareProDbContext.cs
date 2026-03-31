@@ -172,6 +172,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<CareRequestNotifiedCaregiver>().HasKey(cn => cn.Id);
             modelBuilder.Entity<CareRequestNotifiedCaregiver>().Property(cn => cn.Id).HasElementName("_id");
 
+            modelBuilder.Entity<RefundRequest>().ToCollection("RefundRequests");
+            modelBuilder.Entity<RefundRequest>().HasKey(rr => rr.Id);
+            modelBuilder.Entity<RefundRequest>().Property(rr => rr.Id).HasElementName("_id");
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -235,5 +239,6 @@ namespace Infrastructure.Content.Data
         public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
         public DbSet<CareRequestResponse> CareRequestResponses { get; set; }
         public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
+        public DbSet<RefundRequest> RefundRequests { get; set; }
     }
 }

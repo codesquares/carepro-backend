@@ -49,7 +49,9 @@ namespace Domain.Entities
     public static class ClientLedgerEntryType
     {
         public const string CancellationCredit = "CancellationCredit";
+        public const string OrderCancellationCredit = "OrderCancellationCredit";
         public const string CreditApplied = "CreditApplied";
         public const string Adjustment = "Adjustment";
+        public const string RefundDebit = "RefundDebit";
     }
 }

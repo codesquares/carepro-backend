@@ -72,10 +72,19 @@ namespace Infrastructure.Content.Services
 
                 var reviewsDTO = new List<ReviewResponse>();
 
-                var gig = await gigServices.GetGigAsync(gigId);
+                GigDTO? gig;
+                try
+                {
+                    gig = await gigServices.GetGigAsync(gigId);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // Gig was soft-deleted — return empty reviews rather than crashing
+                    return reviewsDTO;
+                }
                 if (gig == null)
                 {
-                    throw new KeyNotFoundException($"Gig with ID:{gigId} Not found");
+                    return reviewsDTO;
                 }
 
 

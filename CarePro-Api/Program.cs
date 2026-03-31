@@ -181,6 +181,7 @@ builder.Services.AddScoped<IObservationReportService, ObservationReportService>(
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
 builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
+builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
 
 builder.Services.AddScoped<IDisputeService, DisputeService>();
 

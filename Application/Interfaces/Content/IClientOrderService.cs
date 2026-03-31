@@ -32,6 +32,11 @@ namespace Application.Interfaces.Content
 
         Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusDeclinedRequest);
 
+        /// <summary>
+        /// Cancels an order: invalidates booking commitment, debits unreleased earnings from caregiver,
+        /// cancels future task sheets, and sends notifications to both client and caregiver.
+        /// </summary>
+        Task<Result<string>> CancelOrderAsync(string orderId, string clientUserId, string? reason = null);
 
     }
 }

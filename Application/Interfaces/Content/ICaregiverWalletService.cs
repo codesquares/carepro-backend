@@ -52,5 +52,11 @@ namespace Application.Interfaces.Content
         /// (Amounts stay in PendingBalance but are not eligible for auto-release.)
         /// </summary>
         Task<bool> HasSufficientWithdrawableBalance(string caregiverId, decimal amount);
+
+        /// <summary>
+        /// Debits unreleased pending funds when an order is cancelled.
+        /// Only removes from PendingBalance and decrements TotalEarned — does NOT touch WithdrawableBalance.
+        /// </summary>
+        Task DebitOrderCancellationAsync(string caregiverId, decimal unreleasedAmount);
     }
 }
