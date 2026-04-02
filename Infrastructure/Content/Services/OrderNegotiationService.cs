@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,9 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _context;
         private readonly INotificationService _notificationService;
         private readonly IContractLLMService _llmService;
+        private readonly IContractTemplateService _templateService;
+        private readonly IContractPdfService _pdfService;
+        private readonly IEmailService _emailService;
         private readonly IGeocodingService _geocodingService;
         private readonly ITaskSheetService _taskSheetService;
         private readonly ILogger<OrderNegotiationService> _logger;
@@ -21,6 +25,9 @@ namespace Infrastructure.Content.Services
             CareProDbContext context,
             INotificationService notificationService,
             IContractLLMService llmService,
+            IContractTemplateService templateService,
+            IContractPdfService pdfService,
+            IEmailService emailService,
             IGeocodingService geocodingService,
             ITaskSheetService taskSheetService,
             ILogger<OrderNegotiationService> logger)
@@ -28,6 +35,9 @@ namespace Infrastructure.Content.Services
             _context = context;
             _notificationService = notificationService;
             _llmService = llmService;
+            _templateService = templateService;
+            _pdfService = pdfService;
+            _emailService = emailService;
             _geocodingService = geocodingService;
             _taskSheetService = taskSheetService;
             _logger = logger;
@@ -490,9 +500,12 @@ namespace Infrastructure.Content.Services
                 {
                     PackageType = order.PaymentOption ?? "standard",
                     VisitsPerWeek = expectedVisitsPerWeek,
-                    PricePerVisit = expectedVisitsPerWeek > 0 ? order.Amount / expectedVisitsPerWeek : order.Amount,
-                    TotalWeeklyPrice = order.Amount,
-                    DurationWeeks = 4
+                    DurationWeeks = 4,
+                    // PricePerVisit = total amount paid ÷ total visits (visitsPerWeek × durationWeeks)
+                    PricePerVisit = expectedVisitsPerWeek > 0
+                        ? Math.Round((decimal)order.Amount / (expectedVisitsPerWeek * 4), 2)
+                        : order.Amount,
+                    TotalWeeklyPrice = Math.Round((decimal)order.Amount / 4, 2),
                 };
 
                 // Build tasks: prefer agreed negotiation tasks, fall back to order tasks
@@ -575,7 +588,7 @@ namespace Infrastructure.Content.Services
                     ContractEndDate = endDate
                 };
 
-                var contractTerms = await _llmService.GenerateContractWithScheduleAsync(enrichedData);
+                var contractTerms = _templateService.RenderContract(enrichedData);
 
                 var contract = new Contract
                 {
@@ -651,6 +664,25 @@ namespace Infrastructure.Content.Services
 
                 _logger.LogInformation("Negotiation {NegotiationId} converted to contract {ContractId} for order {OrderId}",
                     negotiationId, contractId, negotiation.OrderId);
+
+                // Generate PDF and email to both parties
+                try
+                {
+                    var pdfBytes = _pdfService.GeneratePdf(enrichedData);
+                    var gigTitle = enrichedData.GigTitle;
+
+                    if (!string.IsNullOrEmpty(enrichedData.ClientEmail))
+                        await _emailService.SendContractPdfEmailAsync(enrichedData.ClientEmail, enrichedData.ClientFullName, contractId, gigTitle, pdfBytes);
+
+                    if (!string.IsNullOrEmpty(enrichedData.CaregiverEmail))
+                        await _emailService.SendContractPdfEmailAsync(enrichedData.CaregiverEmail, enrichedData.CaregiverFullName, contractId, gigTitle, pdfBytes);
+
+                    _logger.LogInformation("Contract PDF emailed to both parties for contract {ContractId}", contractId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to email contract PDF for contract {ContractId}. Contract was still created successfully.", contractId);
+                }
 
                 return MapToDTO(negotiation);
             }

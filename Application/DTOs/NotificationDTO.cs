@@ -206,6 +206,7 @@ namespace Application.DTOs
 
         // ── Visit Cancellation ──
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
+        public const string VisitCancellationRequested = "visit_cancellation_requested";
     }
 
     public class BroadcastNotificationRequest

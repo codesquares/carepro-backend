@@ -105,6 +105,7 @@ namespace Application.Interfaces.Content
         // Contract Status Management (used by both flows)
         // ========================================
         Task<ContractDTO> GetContractByIdAsync(string contractId);
+        Task<ContractGenerationDataDTO?> GetContractPdfDataAsync(string contractId);
         Task<ContractDTO?> GetContractByOrderIdAsync(string orderId);
         Task<List<ContractDTO>> GetContractsByClientIdAsync(string clientId);
         Task<List<ContractDTO>> GetContractsByCaregiverIdAsync(string caregiverId);

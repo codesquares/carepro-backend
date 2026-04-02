@@ -81,8 +81,37 @@ namespace Infrastructure.Content.Services
             if (taskSheet.Status == "cancelled")
                 throw CheckinValidationException.TaskSheetCancelled("This task sheet has been cancelled.");
 
+            // Auto-activate scheduled task sheets on check-in — no separate activation step needed.
+            // Applies the same sequential gate as the explicit activate endpoint.
             if (taskSheet.Status == "scheduled")
-                throw new InvalidOperationException("Cannot check in to a scheduled task sheet. Please activate it first.");
+            {
+                var previousSheets = await _dbContext.TaskSheets
+                    .Where(ts => ts.OrderId == taskSheet.OrderId
+                        && ts.BillingCycleNumber == taskSheet.BillingCycleNumber
+                        && ts.SheetNumber < taskSheet.SheetNumber
+                        && ts.Status != "cancelled"
+                        && ts.Status != "scheduled")
+                    .OrderByDescending(ts => ts.SheetNumber)
+                    .ToListAsync();
+
+                if (previousSheets.Count > 0)
+                {
+                    var lastSheet = previousSheets.First();
+                    if (lastSheet.Status != "submitted")
+                        throw new InvalidOperationException(
+                            $"Visit #{lastSheet.SheetNumber} has not been submitted yet. Please submit it before checking in to this visit.");
+                    if (lastSheet.ClientReviewStatus != "Approved" && lastSheet.ClientReviewStatus != "Disputed")
+                        throw new InvalidOperationException(
+                            $"Visit #{lastSheet.SheetNumber} has not been reviewed by the client yet. The client must approve or review it before you can check in to this visit.");
+                }
+
+                taskSheet.Status = "in-progress";
+                taskSheet.UpdatedAt = DateTime.UtcNow;
+                _dbContext.TaskSheets.Update(taskSheet);
+                await _dbContext.SaveChangesAsync();
+                _logger.LogInformation("TaskSheet {TaskSheetId} auto-activated during check-in for order {OrderId}",
+                    taskSheet.Id, taskSheet.OrderId);
+            }
 
             // Verify the client has approved the contract before allowing check-in
             var approvedContract = await _dbContext.Contracts
@@ -92,8 +121,8 @@ namespace Infrastructure.Content.Services
             if (approvedContract == null)
                 throw CheckinValidationException.NoApprovedContract("Cannot check in until the client has approved the contract for this order.");
 
-            // Schedule guard — check-in is only allowed on scheduled days within the agreed time window (Nigerian time)
-            ValidateSchedule(approvedContract);
+            // Schedule guard — allowed on the task sheet's scheduled date, within the visit window (Nigerian time)
+            ValidateSchedule(approvedContract, taskSheet);
 
             // GPS proximity validation
             double? distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
@@ -147,40 +176,57 @@ namespace Infrastructure.Content.Services
         }
 
         /// <summary>
-        /// Validates that the current Nigerian time falls within the contract's scheduled visit window.
+        /// Validates that today is the task sheet's scheduled date and the current Nigerian time
+        /// falls within the visit window (30 minutes before start through end time).
         /// </summary>
-        private void ValidateSchedule(Contract approvedContract)
+        private void ValidateSchedule(Contract approvedContract, TaskSheet taskSheet)
         {
             var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
             var nowNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone);
-            var todayDow = nowNigeria.DayOfWeek;
+            var todayNigeria = nowNigeria.Date;
             var currentTime = nowNigeria.TimeOfDay;
 
-            var todaysSlot = approvedContract.Schedule
-                .FirstOrDefault(s => s.DayOfWeek == todayDow);
+            // Verify today is the task sheet's specific scheduled date
+            if (taskSheet.ScheduledDate.HasValue && taskSheet.ScheduledDate.Value.Date != todayNigeria)
+            {
+                throw CheckinValidationException.NotScheduledToday(
+                    $"This visit is scheduled for {taskSheet.ScheduledDate.Value:dddd, MMMM d}. " +
+                    $"Check-in is only allowed on the scheduled date.",
+                    nowNigeria.DayOfWeek.ToString(),
+                    nowNigeria.ToString("HH:mm"));
+            }
+
+            // Use the task sheet's date to look up the correct day's contract schedule slot
+            var visitDow = taskSheet.ScheduledDate.HasValue
+                ? taskSheet.ScheduledDate.Value.DayOfWeek
+                : nowNigeria.DayOfWeek;
+
+            var todaysSlot = approvedContract.Schedule.FirstOrDefault(s => s.DayOfWeek == visitDow);
 
             if (todaysSlot == null)
             {
                 throw CheckinValidationException.NotScheduledToday(
-                    $"No visit is scheduled for {todayDow}. Check your contract schedule.",
-                    todayDow.ToString(),
+                    $"No visit is scheduled for {visitDow}. Check your contract schedule.",
+                    visitDow.ToString(),
                     nowNigeria.ToString("HH:mm"));
             }
 
-            // Allow a 30-minute grace period before and after the scheduled window
+            // Allow check-in from 30 minutes before the visit starts through the end of the visit.
+            // This covers early arrival and any point during the full visit duration.
             var gracePeriod = TimeSpan.FromMinutes(30);
             if (TimeSpan.TryParse(todaysSlot.StartTime, out var start) &&
                 TimeSpan.TryParse(todaysSlot.EndTime, out var end))
             {
                 var windowStart = start - gracePeriod;
-                var windowEnd = end + gracePeriod;
+                var windowEnd = end;
 
                 if (currentTime < windowStart || currentTime > windowEnd)
                 {
+                    var earlyTime = (start - gracePeriod).ToString(@"hh\:mm");
                     throw CheckinValidationException.OutsideSchedule(
-                        $"Check-in is only allowed between {todaysSlot.StartTime} and {todaysSlot.EndTime} (Nigerian time). " +
+                        $"Check-in is available from {earlyTime} until {todaysSlot.EndTime} (Nigerian time). " +
                         $"Current time: {nowNigeria:HH:mm}.",
-                        todayDow.ToString(),
+                        visitDow.ToString(),
                         todaysSlot.StartTime,
                         todaysSlot.EndTime,
                         nowNigeria.ToString("HH:mm"));

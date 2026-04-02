@@ -11,11 +11,13 @@ namespace CarePro_Api.Controllers.Content
     public class ContractController : ControllerBase
     {
         private readonly IContractService _contractService;
+        private readonly IContractPdfService _pdfService;
         private readonly ILogger<ContractController> _logger;
 
-        public ContractController(IContractService contractService, ILogger<ContractController> logger)
+        public ContractController(IContractService contractService, IContractPdfService pdfService, ILogger<ContractController> logger)
         {
             _contractService = contractService;
+            _pdfService = pdfService;
             _logger = logger;
         }
 
@@ -792,6 +794,37 @@ namespace CarePro_Api.Controllers.Content
             {
                 _logger.LogError(ex, "Error terminating contract {ContractId}", contractId);
                 return StatusCode(500, "Failed to terminate contract");
+            }
+        }
+
+        /// <summary>
+        /// Download the contract as a formatted PDF.
+        /// Available to the client or caregiver who is party to the contract.
+        /// </summary>
+        [HttpGet("{contractId}/pdf")]
+        public async Task<IActionResult> DownloadContractPdf(string contractId)
+        {
+            try
+            {
+                var userId = GetUserIdFromToken();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized("Authorization required");
+
+                var pdfData = await _contractService.GetContractPdfDataAsync(contractId);
+                if (pdfData == null)
+                    return NotFound("Contract not found");
+
+                // Ensure requester is a party to this contract
+                if (pdfData.ClientId != userId && pdfData.CaregiverId != userId)
+                    return Forbid();
+
+                var pdfBytes = _pdfService.GeneratePdf(pdfData);
+                return File(pdfBytes, "application/pdf", $"CarePro-Contract-{contractId}.pdf");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating PDF for contract {ContractId}", contractId);
+                return StatusCode(500, "Failed to generate contract PDF");
             }
         }
     }

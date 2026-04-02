@@ -13,6 +13,23 @@ namespace Application.DTOs
         public string? Reason { get; set; }
     }
 
+    /// <summary>
+    /// Caregiver requests cancellation of an upcoming visit.
+    /// This notifies the client so they can cancel through the platform.
+    /// </summary>
+    public class CaregiverCancelVisitRequest
+    {
+        /// <summary>
+        /// The task sheet ID for the visit to cancel.
+        /// </summary>
+        public string TaskSheetId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Required reason for cancellation.
+        /// </summary>
+        public string Reason { get; set; } = string.Empty;
+    }
+
     public class CancelVisitResponse
     {
         public bool Success { get; set; }

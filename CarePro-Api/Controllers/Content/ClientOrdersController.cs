@@ -11,6 +11,7 @@ using System.Security.Claims;
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
+    [Route("api/orders")]
     [ApiController]
     [Authorize]
     public class ClientOrdersController : ControllerBase
@@ -469,6 +470,48 @@ namespace CarePro_Api.Controllers.Content
             {
                 logger.LogError(ex, "Error cancelling visit for order {OrderId}", orderId);
                 return StatusCode(500, new { error = "An error occurred while cancelling the visit." });
+            }
+        }
+
+        /// <summary>
+        /// Caregiver requests cancellation of an upcoming visit.
+        /// Notifies the client so they can cancel through the platform.
+        /// Caregiver must provide 24h notice; less triggers CarePro review.
+        /// </summary>
+        [HttpPost]
+        [Route("{orderId}/caregiver-cancel-visit")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")]
+        public async Task<IActionResult> CaregiverRequestCancellationAsync(string orderId, [FromBody] CaregiverCancelVisitRequest request)
+        {
+            try
+            {
+                var caregiverId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(caregiverId))
+                    return Unauthorized(new { error = "Caregiver authorization required." });
+
+                var result = await _visitCancellationService.CaregiverRequestCancellationAsync(orderId, request, caregiverId);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing caregiver cancellation request for order {OrderId}", orderId);
+                return StatusCode(500, new { error = "An error occurred while processing the cancellation request." });
             }
         }
     }

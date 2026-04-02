@@ -338,12 +338,12 @@ namespace CarePro_Api.Controllers
         // Helper methods for extracting user identity from JWT tokens
         private string? GetClientIdFromToken()
         {
-            return User.FindFirst("ClientId")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return User.FindFirst("userId")?.Value ?? User.FindFirst("sub")?.Value ?? User.FindFirst("id")?.Value;
         }
 
         private string? GetCaregiverIdFromToken()
         {
-            return User.FindFirst("CareGiverId")?.Value;
+            return User.FindFirst("userId")?.Value ?? User.FindFirst("sub")?.Value ?? User.FindFirst("id")?.Value;
         }
 
         private string? GetUserRole()

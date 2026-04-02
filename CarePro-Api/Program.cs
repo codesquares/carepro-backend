@@ -165,6 +165,8 @@ builder.Services.AddHttpClient<GeocodingService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
 builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
+builder.Services.AddScoped<IContractTemplateService, ContractTemplateService>();
+builder.Services.AddScoped<IContractPdfService, ContractPdfService>();
 
 // Order Tasks services (Enhanced Contract Generation feature)
 builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();

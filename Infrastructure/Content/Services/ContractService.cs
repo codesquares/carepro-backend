@@ -416,6 +416,50 @@ namespace Infrastructure.Content.Services
             return contract != null ? MapToContractDTO(contract) : throw new InvalidOperationException("Contract not found");
         }
 
+        public async Task<ContractGenerationDataDTO?> GetContractPdfDataAsync(string contractId)
+        {
+            var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+            if (contract == null) return null;
+
+            var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == contract.ClientId);
+            var caregiver = await _context.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == contract.CaregiverId);
+            var gig = !string.IsNullOrEmpty(contract.GigId)
+                ? await _context.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == contract.GigId)
+                : null;
+
+            return new ContractGenerationDataDTO
+            {
+                ContractId = contract.Id,
+                OrderId = contract.OrderId,
+                GeneratedAt = contract.CreatedAt,
+                ClientId = contract.ClientId,
+                ClientFullName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Client",
+                ClientEmail = client?.Email,
+                ClientPhone = client?.PhoneNo,
+                CaregiverId = contract.CaregiverId,
+                CaregiverFullName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Caregiver",
+                CaregiverEmail = caregiver?.Email,
+                CaregiverPhone = caregiver?.PhoneNo,
+                CaregiverQualifications = caregiver?.AboutMe,
+                GigTitle = gig?.Title ?? "Care Service",
+                GigDescription = gig != null ? string.Join(", ", gig.PackageDetails ?? new List<string>()) : null,
+                GigCategory = gig?.Category,
+                Package = contract.SelectedPackage,
+                TotalAmountPaid = contract.TotalAmount,
+                TransactionReference = contract.PaymentTransactionId,
+                Schedule = contract.Schedule,
+                ServiceAddress = contract.ServiceAddress ?? "On file",
+                City = client?.PreferredCity,
+                State = client?.PreferredState,
+                SpecialClientRequirements = contract.SpecialClientRequirements,
+                AccessInstructions = contract.AccessInstructions,
+                CaregiverNotes = contract.CaregiverAdditionalNotes,
+                Tasks = contract.Tasks,
+                ContractStartDate = contract.ContractStartDate,
+                ContractEndDate = contract.ContractEndDate
+            };
+        }
+
         public async Task<ContractDTO?> GetContractByOrderIdAsync(string orderId)
         {
             try
@@ -818,9 +862,12 @@ namespace Infrastructure.Content.Services
                 {
                     PackageType = order.PaymentOption ?? "standard",
                     VisitsPerWeek = expectedVisitsPerWeek,
-                    PricePerVisit = expectedVisitsPerWeek > 0 ? order.Amount / expectedVisitsPerWeek : order.Amount,
-                    TotalWeeklyPrice = order.Amount,
-                    DurationWeeks = 4 // Default
+                    DurationWeeks = 4,
+                    // PricePerVisit = total amount paid ÷ total visits (visitsPerWeek × durationWeeks)
+                    PricePerVisit = expectedVisitsPerWeek > 0
+                        ? Math.Round((decimal)order.Amount / (expectedVisitsPerWeek * 4), 2)
+                        : order.Amount,
+                    TotalWeeklyPrice = Math.Round((decimal)order.Amount / 4, 2),
                 };
 
                 // Build tasks from OrderTasks or create empty list
@@ -1456,9 +1503,12 @@ namespace Infrastructure.Content.Services
                 {
                     PackageType = order.PaymentOption ?? "standard",
                     VisitsPerWeek = expectedVisitsPerWeek,
-                    PricePerVisit = expectedVisitsPerWeek > 0 ? order.Amount / expectedVisitsPerWeek : order.Amount,
-                    TotalWeeklyPrice = order.Amount,
-                    DurationWeeks = 4
+                    DurationWeeks = 4,
+                    // PricePerVisit = total amount paid ÷ total visits (visitsPerWeek × durationWeeks)
+                    PricePerVisit = expectedVisitsPerWeek > 0
+                        ? Math.Round((decimal)order.Amount / (expectedVisitsPerWeek * 4), 2)
+                        : order.Amount,
+                    TotalWeeklyPrice = Math.Round((decimal)order.Amount / 4, 2),
                 };
 
                 // Build tasks from OrderTasks
