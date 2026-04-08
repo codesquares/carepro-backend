@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -12,7 +14,7 @@ namespace Infrastructure.Content.Services
     public class OrderNegotiationService : IOrderNegotiationService
     {
         private readonly CareProDbContext _context;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IContractLLMService _llmService;
         private readonly IContractTemplateService _templateService;
         private readonly IContractPdfService _pdfService;
@@ -23,7 +25,7 @@ namespace Infrastructure.Content.Services
 
         public OrderNegotiationService(
             CareProDbContext context,
-            INotificationService notificationService,
+            IMediator mediator,
             IContractLLMService llmService,
             IContractTemplateService templateService,
             IContractPdfService pdfService,
@@ -33,7 +35,7 @@ namespace Infrastructure.Content.Services
             ILogger<OrderNegotiationService> logger)
         {
             _context = context;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _llmService = llmService;
             _templateService = templateService;
             _pdfService = pdfService;
@@ -131,14 +133,14 @@ namespace Infrastructure.Content.Services
                     ? request.CaregiverId
                     : clientId;
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     otherPartyId,
                     userId,
                     NotificationTypes.NegotiationStarted,
                     "A new negotiation has been started for your order.",
                     "Negotiation Started",
                     negotiation.Id,
-                    request.OrderId);
+                    request.OrderId));
 
                 _logger.LogInformation("Negotiation {NegotiationId} created for order {OrderId} by {Role} {UserId}",
                     negotiation.Id, request.OrderId, request.CreatedByRole, userId);
@@ -240,14 +242,14 @@ namespace Infrastructure.Content.Services
 
                 if (update.SubmitForCaregiverReview)
                 {
-                    await _notificationService.CreateNotificationAsync(
+                    await _mediator.Send(new SendNotificationCommand(
                         negotiation.CaregiverId,
                         clientId,
                         NotificationTypes.NegotiationClientSubmitted,
                         "The client has submitted updates for your review.",
                         "Negotiation Update",
                         negotiation.Id,
-                        negotiation.OrderId);
+                        negotiation.OrderId));
                 }
 
                 return MapToDTO(negotiation);
@@ -300,14 +302,14 @@ namespace Infrastructure.Content.Services
 
                 if (update.SubmitForClientReview)
                 {
-                    await _notificationService.CreateNotificationAsync(
+                    await _mediator.Send(new SendNotificationCommand(
                         negotiation.ClientId,
                         caregiverId,
                         NotificationTypes.NegotiationCaregiverSubmitted,
                         "The caregiver has submitted updates for your review.",
                         "Negotiation Update",
                         negotiation.Id,
-                        negotiation.OrderId);
+                        negotiation.OrderId));
                 }
 
                 return MapToDTO(negotiation);
@@ -334,14 +336,14 @@ namespace Infrastructure.Content.Services
                 negotiation.ClientAgreedAt = DateTime.UtcNow;
                 negotiation.UpdatedAt = DateTime.UtcNow;
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     negotiation.CaregiverId,
                     clientId,
                     NotificationTypes.NegotiationClientAgreed,
                     "The client has agreed to the current negotiation terms.",
                     "Client Agreed",
                     negotiation.Id,
-                    negotiation.OrderId);
+                    negotiation.OrderId));
 
                 if (negotiation.CaregiverAgreed)
                     await FinaliseAgreementAsync(negotiation);
@@ -372,14 +374,14 @@ namespace Infrastructure.Content.Services
                 negotiation.CaregiverAgreedAt = DateTime.UtcNow;
                 negotiation.UpdatedAt = DateTime.UtcNow;
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     negotiation.ClientId,
                     caregiverId,
                     NotificationTypes.NegotiationCaregiverAgreed,
                     "The caregiver has agreed to the current negotiation terms.",
                     "Caregiver Agreed",
                     negotiation.Id,
-                    negotiation.OrderId);
+                    negotiation.OrderId));
 
                 if (negotiation.ClientAgreed)
                     await FinaliseAgreementAsync(negotiation);
@@ -429,14 +431,14 @@ namespace Infrastructure.Content.Services
 
                 var otherPartyId = isClient ? negotiation.CaregiverId : negotiation.ClientId;
                 var reasonSuffix = string.IsNullOrEmpty(request.Reason) ? "" : $" Reason: {request.Reason}";
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     otherPartyId,
                     userId,
                     NotificationTypes.NegotiationAbandoned,
                     $"The {role.ToLower()} has abandoned the negotiation.{reasonSuffix}",
                     "Negotiation Abandoned",
                     negotiation.Id,
-                    negotiation.OrderId);
+                    negotiation.OrderId));
 
                 return MapToDTO(negotiation);
             }
@@ -644,23 +646,23 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Notify both parties
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     negotiation.ClientId,
                     negotiation.CaregiverId,
                     NotificationTypes.NegotiationConverted,
                     "Your negotiation has been converted to a contract. You can review it now.",
                     "Contract Generated",
                     contractId,
-                    negotiation.OrderId);
+                    negotiation.OrderId));
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     negotiation.CaregiverId,
                     negotiation.ClientId,
                     NotificationTypes.NegotiationConverted,
                     "The negotiation has been converted to a contract. You can review it now.",
                     "Contract Generated",
                     contractId,
-                    negotiation.OrderId);
+                    negotiation.OrderId));
 
                 _logger.LogInformation("Negotiation {NegotiationId} converted to contract {ContractId} for order {OrderId}",
                     negotiationId, contractId, negotiation.OrderId);
@@ -740,23 +742,23 @@ namespace Infrastructure.Content.Services
 
             await _context.SaveChangesAsync();
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 negotiation.ClientId,
                 negotiation.CaregiverId,
                 NotificationTypes.NegotiationBothAgreed,
                 "Both parties have agreed. You can now generate the contract.",
                 "Agreement Reached",
                 negotiation.Id,
-                negotiation.OrderId);
+                negotiation.OrderId));
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 negotiation.CaregiverId,
                 negotiation.ClientId,
                 NotificationTypes.NegotiationBothAgreed,
                 "Both parties have agreed. The client can now generate the contract.",
                 "Agreement Reached",
                 negotiation.Id,
-                negotiation.OrderId);
+                negotiation.OrderId));
         }
 
         private async Task TryGeocodeAsync(OrderNegotiation negotiation, string address)

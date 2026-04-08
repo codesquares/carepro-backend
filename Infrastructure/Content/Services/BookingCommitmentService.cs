@@ -1,9 +1,11 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -15,7 +17,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IGigServices _gigServices;
         private readonly FlutterwaveService _flutterwaveService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<BookingCommitmentService> _logger;
 
@@ -34,14 +36,14 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IGigServices gigServices,
             FlutterwaveService flutterwaveService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<BookingCommitmentService> logger)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
             _flutterwaveService = flutterwaveService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -430,24 +432,24 @@ namespace Infrastructure.Content.Services
             }
 
             // 2. Notify client: "You now have access to chat with [Caregiver] about [Gig]"
-            await _notificationService.CreateNotificationAsync(
-                recipientId: commitment.ClientId,
-                senderId: commitment.CaregiverId,
-                type: NotificationTypes.CommitmentConfirmed,
-                content: $"You've unlocked access to chat with {caregiverName} about their gig: {gigTitle}. You can now discuss care details before placing a full order.",
+            await _mediator.Send(new SendNotificationCommand(
+                RecipientId: commitment.ClientId,
+                SenderId: commitment.CaregiverId,
+                Type: NotificationTypes.CommitmentConfirmed,
+                Content: $"You've unlocked access to chat with {caregiverName} about their gig: {gigTitle}. You can now discuss care details before placing a full order.",
                 Title: "Gig Access Unlocked",
-                relatedEntityId: commitment.GigId
-            );
+                RelatedEntityId: commitment.GigId
+            ));
 
             // 3. Notify caregiver: "A client is interested in your gig"
-            await _notificationService.CreateNotificationAsync(
-                recipientId: commitment.CaregiverId,
-                senderId: commitment.ClientId,
-                type: NotificationTypes.CommitmentConfirmed,
-                content: $"{clientName} is interested in your gig: {gigTitle}. They have paid a booking commitment fee and can now message you to discuss care details.",
+            await _mediator.Send(new SendNotificationCommand(
+                RecipientId: commitment.CaregiverId,
+                SenderId: commitment.ClientId,
+                Type: NotificationTypes.CommitmentConfirmed,
+                Content: $"{clientName} is interested in your gig: {gigTitle}. They have paid a booking commitment fee and can now message you to discuss care details.",
                 Title: "New Booking Interest",
-                relatedEntityId: commitment.GigId
-            );
+                RelatedEntityId: commitment.GigId
+            ));
 
             _logger.LogInformation(
                 "Commitment notifications sent. ClientId: {ClientId}, CaregiverId: {CaregiverId}, GigId: {GigId}",

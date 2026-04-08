@@ -22,6 +22,7 @@ using Serilog;
 using System.Text;
 using CarePro_Api.Middleware;
 using CarePro_Api.Filters;
+using Infrastructure.Content.Services.Handlers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -231,6 +232,9 @@ builder.Services.AddScoped<IOriginValidationService, OriginValidationService>();
 
 // Add SignalR
 builder.Services.AddSignalR();
+
+// Register MediatR — scans Infrastructure assembly for all handlers
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<SendNotificationCommandHandler>());
 
 
 

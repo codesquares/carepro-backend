@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -17,20 +19,20 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly CloudinaryService _cloudinaryService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<TaskSheetService> _logger;
 
         public TaskSheetService(
             CareProDbContext dbContext,
             CloudinaryService cloudinaryService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<TaskSheetService> logger)
         {
             _dbContext = dbContext;
             _cloudinaryService = cloudinaryService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -460,15 +462,15 @@ namespace Infrastructure.Content.Services
                     : "";
 
                 // Notify client
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: order.ClientId,
-                    senderId: taskSheet.CaregiverId,
-                    type: NotificationTypes.VisitSubmitted,
-                    content: $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber}.{durationText} Please review and approve the visit.",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.ClientId,
+                    SenderId: taskSheet.CaregiverId,
+                    Type: NotificationTypes.VisitSubmitted,
+                    Content: $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber}.{durationText} Please review and approve the visit.",
                     Title: "Visit Submitted for Review",
-                    relatedEntityId: taskSheetId,
-                    orderId: taskSheet.OrderId
-                );
+                    RelatedEntityId: taskSheetId,
+                    OrderId: taskSheet.OrderId
+                ));
 
                 if (client?.Email != null)
                 {
@@ -481,15 +483,15 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Notify caregiver (confirmation)
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: taskSheet.CaregiverId,
-                    senderId: order.ClientId,
-                    type: NotificationTypes.VisitSubmitted,
-                    content: $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} Waiting for client approval.",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: taskSheet.CaregiverId,
+                    SenderId: order.ClientId,
+                    Type: NotificationTypes.VisitSubmitted,
+                    Content: $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} Waiting for client approval.",
                     Title: "Visit Submitted Successfully",
-                    relatedEntityId: taskSheetId,
-                    orderId: taskSheet.OrderId
-                );
+                    RelatedEntityId: taskSheetId,
+                    OrderId: taskSheet.OrderId
+                ));
 
                 if (caregiver?.Email != null)
                 {
@@ -644,15 +646,15 @@ namespace Infrastructure.Content.Services
                 var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == clientId);
                 var clientName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Your client";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: taskSheet.CaregiverId,
-                    senderId: clientId,
-                    type: NotificationTypes.TaskProposedByClient,
-                    content: $"{clientName} has proposed {request.Tasks.Count} new task(s) on visit #{taskSheet.SheetNumber}: {taskNames}. Please review and accept or reject them before your next submission.",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: taskSheet.CaregiverId,
+                    SenderId: clientId,
+                    Type: NotificationTypes.TaskProposedByClient,
+                    Content: $"{clientName} has proposed {request.Tasks.Count} new task(s) on visit #{taskSheet.SheetNumber}: {taskNames}. Please review and accept or reject them before your next submission.",
                     Title: "New Task Proposal from Client",
-                    relatedEntityId: taskSheetId,
-                    orderId: taskSheet.OrderId
-                );
+                    RelatedEntityId: taskSheetId,
+                    OrderId: taskSheet.OrderId
+                ));
 
                 // Send email to caregiver
                 var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == taskSheet.CaregiverId);
@@ -737,28 +739,28 @@ namespace Infrastructure.Content.Services
                 // Send notification per accepted/rejected type
                 if (acceptedTasks.Count > 0)
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        recipientId: order.ClientId,
-                        senderId: caregiverId,
-                        type: NotificationTypes.TaskProposalAccepted,
-                        content: $"{caregiverName} accepted {acceptedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", acceptedTasks)}.",
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.ClientId,
+                        SenderId: caregiverId,
+                        Type: NotificationTypes.TaskProposalAccepted,
+                        Content: $"{caregiverName} accepted {acceptedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", acceptedTasks)}.",
                         Title: "Task Proposal Accepted",
-                        relatedEntityId: taskSheetId,
-                        orderId: taskSheet.OrderId
-                    );
+                        RelatedEntityId: taskSheetId,
+                        OrderId: taskSheet.OrderId
+                    ));
                 }
 
                 if (rejectedTasks.Count > 0)
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        recipientId: order.ClientId,
-                        senderId: caregiverId,
-                        type: NotificationTypes.TaskProposalRejected,
-                        content: $"{caregiverName} rejected {rejectedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", rejectedTasks)}.",
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.ClientId,
+                        SenderId: caregiverId,
+                        Type: NotificationTypes.TaskProposalRejected,
+                        Content: $"{caregiverName} rejected {rejectedTasks.Count} of your proposed task(s) on visit #{taskSheet.SheetNumber}: {string.Join(", ", rejectedTasks)}.",
                         Title: "Task Proposal Rejected",
-                        relatedEntityId: taskSheetId,
-                        orderId: taskSheet.OrderId
-                    );
+                        RelatedEntityId: taskSheetId,
+                        OrderId: taskSheet.OrderId
+                    ));
                 }
 
                 // Send email to client
@@ -986,14 +988,14 @@ namespace Infrastructure.Content.Services
                     if (!string.IsNullOrEmpty(request.Reason))
                         notificationContent += $" Reason: {request.Reason}";
 
-                    await _notificationService.CreateNotificationAsync(
+                    await _mediator.Send(new SendNotificationCommand(
                         caregiverId,
                         clientId,
                         NotificationTypes.VisitCancelledByClient, // Reuse — closest match
                         notificationContent,
                         "Visit Rescheduled",
                         taskSheetId,
-                        taskSheet.OrderId);
+                        taskSheet.OrderId));
 
                     var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
                     if (caregiver?.Email != null)

@@ -54,6 +54,9 @@ namespace Infrastructure.Content.Services
                 // Send real-time notification
                 await SendRealTimeNotificationAsync(recipientId, notification);
 
+                // Push updated unread count to frontend
+                await PushUnreadCountAsync(recipientId);
+
                 return notification.Id.ToString();
             }
             catch (Exception ex)
@@ -180,7 +183,8 @@ namespace Infrastructure.Content.Services
                 _dbContext.Notifications.Update(existingNotification);
                 await _dbContext.SaveChangesAsync();
 
-
+                // Push updated unread count to frontend
+                await PushUnreadCountAsync(existingNotification.RecipientId);
             }
             catch (Exception ex)
             {
@@ -203,6 +207,9 @@ namespace Infrastructure.Content.Services
                 }
 
                 await _dbContext.SaveChangesAsync();
+
+                // Push updated unread count (will be 0) to frontend
+                await PushUnreadCountAsync(userId);
             }
             catch (Exception ex)
             {
@@ -218,8 +225,12 @@ namespace Infrastructure.Content.Services
                 var notification = await _dbContext.Notifications.FindAsync(ObjectId.Parse(notificationId));
                 if (notification != null)
                 {
+                    var recipientId = notification.RecipientId;
                     _dbContext.Notifications.Remove(notification);
                     await _dbContext.SaveChangesAsync();
+
+                    // Push updated unread count to frontend
+                    await PushUnreadCountAsync(recipientId);
                 }
             }
             catch (Exception ex)
@@ -303,6 +314,27 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogError(ex, "Error sending real-time notification to user {UserId}", userId);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Pushes the current unread count to the user's notification group via SignalR.
+        /// Frontend listens for "UnreadCountChanged" to update badge counts in real time.
+        /// </summary>
+        private async Task PushUnreadCountAsync(string userId)
+        {
+            try
+            {
+                var count = await _dbContext.Notifications
+                    .CountAsync(n => n.RecipientId == userId && !n.IsRead);
+
+                await _notificationHubContext.Clients
+                    .Group($"notifications_{userId}")
+                    .SendAsync("UnreadCountChanged", count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error pushing unread count to user {UserId}", userId);
             }
         }
 

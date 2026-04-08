@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -14,7 +16,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IClientWalletService _clientWalletService;
         private readonly IClientService _clientService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<RefundRequestService> _logger;
 
@@ -22,14 +24,14 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IClientWalletService clientWalletService,
             IClientService clientService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<RefundRequestService> logger)
         {
             _dbContext = dbContext;
             _clientWalletService = clientWalletService;
             _clientService = clientService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -75,12 +77,12 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             // Notify client
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 clientId, clientId,
                 NotificationTypes.RefundRequested,
                 $"Your refund request for ₦{request.Amount:N2} has been submitted and is pending review.",
                 "Refund Request Submitted",
-                refundRequest.Id.ToString());
+                refundRequest.Id.ToString()));
 
             _logger.LogInformation("Refund request {RequestId} created by client {ClientId} for ₦{Amount}",
                 refundRequest.Id, clientId, request.Amount);
@@ -200,11 +202,11 @@ namespace Infrastructure.Content.Services
                 : $"Your refund request for ₦{request.Amount:N2} has been rejected." +
                   (!string.IsNullOrEmpty(review.AdminNote) ? $" Reason: {review.AdminNote}" : "");
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 request.ClientId, adminId,
                 notificationType, notificationContent,
                 review.Status == RefundRequestStatus.Approved ? "Refund Approved" : "Refund Rejected",
-                requestId);
+                requestId));
 
             // Send email
             if (client?.Email != null && review.Status == RefundRequestStatus.Approved)
@@ -248,12 +250,12 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             // Notify client that bank transfer is complete
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 request.ClientId, adminId,
                 NotificationTypes.RefundProcessed,
                 $"Your refund of ₦{request.Amount:N2} has been transferred to your bank account.",
                 "Refund Completed",
-                requestId);
+                requestId));
 
             _logger.LogInformation("Refund request {RequestId} completed by admin {AdminId}. Bank transfer done.",
                 requestId, adminId);

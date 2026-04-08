@@ -1,6 +1,8 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -72,7 +74,7 @@ namespace Infrastructure.Content.Services
         {
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<CareProDbContext>();
-            var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
             var now = DateTime.UtcNow;
 
@@ -103,13 +105,13 @@ namespace Infrastructure.Content.Services
                     // Send first reminder at day 25 (5 days remaining)
                     if (daysSinceDeletion == FirstReminderDay)
                     {
-                        await notificationService.CreateNotificationAsync(
+                        await mediator.Send(new SendNotificationCommand(
                             gig.CaregiverId,
                             "system",
                             NotificationTypes.GigDeletionReminder,
                             $"Your gig \"{gig.Title}\" will be permanently deleted in {daysRemaining} days. Restore it now if you want to keep it.",
                             "Gig Deletion Reminder",
-                            gigId);
+                            gigId));
 
                         remindersSent++;
                         _logger.LogInformation(
@@ -119,13 +121,13 @@ namespace Infrastructure.Content.Services
                     // Send final warning at day 29 (1 day remaining)
                     else if (daysSinceDeletion == FinalReminderDay)
                     {
-                        await notificationService.CreateNotificationAsync(
+                        await mediator.Send(new SendNotificationCommand(
                             gig.CaregiverId,
                             "system",
                             NotificationTypes.GigDeletionReminder,
                             $"FINAL WARNING: Your gig \"{gig.Title}\" will be permanently deleted tomorrow. This is your last chance to restore it.",
                             "Final Gig Deletion Warning",
-                            gigId);
+                            gigId));
 
                         remindersSent++;
                         _logger.LogInformation(
@@ -135,13 +137,13 @@ namespace Infrastructure.Content.Services
                     // Send permanent deletion confirmation after grace period
                     else if (daysSinceDeletion >= GracePeriodDays)
                     {
-                        await notificationService.CreateNotificationAsync(
+                        await mediator.Send(new SendNotificationCommand(
                             gig.CaregiverId,
                             "system",
                             NotificationTypes.GigPermanentlyDeleted,
                             $"Your gig \"{gig.Title}\" has been permanently deleted as the 30-day restoration period has expired.",
                             "Gig Permanently Deleted",
-                            gigId);
+                            gigId));
 
                         remindersSent++;
                         _logger.LogInformation(

@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -20,7 +22,7 @@ namespace Infrastructure.Content.Services
         private readonly IEarningsService _earningsService;
         private readonly ICareGiverService _careGiverService;
         private readonly IAdminUserService _adminUserService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly ICaregiverWalletService _walletService;
         private readonly IEarningsLedgerService _ledgerService;
 
@@ -29,7 +31,7 @@ namespace Infrastructure.Content.Services
             IEarningsService earningsService,
             ICareGiverService careGiverService,
             IAdminUserService adminUserService,
-            INotificationService notificationService,
+            IMediator mediator,
             ICaregiverWalletService walletService,
             IEarningsLedgerService ledgerService)
         {
@@ -37,7 +39,7 @@ namespace Infrastructure.Content.Services
             _earningsService = earningsService;
             _careGiverService = careGiverService;
             _adminUserService = adminUserService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _walletService = walletService;
             _ledgerService = ledgerService;
         }

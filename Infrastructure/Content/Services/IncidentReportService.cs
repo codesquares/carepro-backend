@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -16,7 +18,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly CloudinaryService _cloudinaryService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly ILogger<IncidentReportService> _logger;
 
         private static readonly HashSet<string> ValidIncidentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -32,12 +34,12 @@ namespace Infrastructure.Content.Services
         public IncidentReportService(
             CareProDbContext dbContext,
             CloudinaryService cloudinaryService,
-            INotificationService notificationService,
+            IMediator mediator,
             ILogger<IncidentReportService> logger)
         {
             _dbContext = dbContext;
             _cloudinaryService = cloudinaryService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _logger = logger;
         }
 
@@ -169,15 +171,15 @@ namespace Infrastructure.Content.Services
 
                 foreach (var admin in admins)
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        recipientId: admin.Id.ToString(),
-                        senderId: caregiverId,
-                        type: "IncidentReport",
-                        content: content,
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: caregiverId,
+                        Type: "IncidentReport",
+                        Content: content,
                         Title: title,
-                        relatedEntityId: report.Id.ToString(),
-                        orderId: report.OrderId
-                    );
+                        RelatedEntityId: report.Id.ToString(),
+                        OrderId: report.OrderId
+                    ));
                 }
 
                 _logger.LogInformation("Admin notifications sent for {Severity} incident report {ReportId} to {AdminCount} admins",

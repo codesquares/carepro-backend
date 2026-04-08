@@ -109,7 +109,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, $"Error getting assessment questions for user type: {userType}");
+                logger.LogError(ex, $"Error getting assessment questions for user Type: {userType}");
                 throw;
             }
         }

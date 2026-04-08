@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -14,7 +16,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IClientWalletService _clientWalletService;
         private readonly ICaregiverWalletService _caregiverWalletService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<VisitCancellationService> _logger;
 
@@ -24,14 +26,14 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IClientWalletService clientWalletService,
             ICaregiverWalletService caregiverWalletService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<VisitCancellationService> logger)
         {
             _dbContext = dbContext;
             _clientWalletService = clientWalletService;
             _caregiverWalletService = caregiverWalletService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -197,13 +199,13 @@ namespace Infrastructure.Content.Services
                 if (!string.IsNullOrEmpty(request.Reason))
                     notificationContent += $" Reason: {request.Reason}";
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     caregiverId,
                     clientId,
                     NotificationTypes.VisitCancelledByClient,
                     notificationContent,
                     "Visit Cancelled",
-                    orderId);
+                    orderId));
 
                 // Send email to caregiver
                 try
@@ -322,13 +324,13 @@ namespace Infrastructure.Content.Services
                     ? $"{caregiverName} has requested to cancel visit #{taskSheet.SheetNumber}. Reason: {request.Reason}. Please cancel the visit from your dashboard to receive a full refund."
                     : $"{caregiverName} has requested to cancel visit #{taskSheet.SheetNumber} with less than 24 hours notice. Reason: {request.Reason}. This matter will be reviewed by CarePro.";
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     clientId,
                     caregiverId,
                     NotificationTypes.VisitCancellationRequested,
                     notificationContent,
                     "Caregiver Cancellation Request",
-                    orderId);
+                    orderId));
 
                 // Email the client
                 try

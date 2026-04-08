@@ -24,7 +24,7 @@ namespace Infrastructure.Content.Services
             sb.AppendLine("th { background-color: #f0f6ff; font-weight: 600; }");
             sb.AppendLine("ul { margin: 4px 0; padding-left: 24px; }");
             sb.AppendLine("li { margin-bottom: 4px; font-size: 13px; }");
-            sb.AppendLine(".signature-block { margin-top: 40px; display: flex; justify-content: space-between; }");
+            sb.AppendLine(".signature-block { margin-top: 40px; display: flex; justify-Content: space-between; }");
             sb.AppendLine(".signature-line { border-top: 1px solid #333; width: 45%; padding-top: 4px; font-size: 13px; }");
             sb.AppendLine("</style></head><body>");
 

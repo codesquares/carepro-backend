@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -21,7 +23,7 @@ namespace Infrastructure.Content.Services
         private readonly IGeocodingService _geocodingService;
         private readonly IEligibilityService _eligibilityService;
         private readonly IClientRecommendationService _recommendationService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<CareRequestMatchingService> _logger;
@@ -45,7 +47,7 @@ namespace Infrastructure.Content.Services
             IGeocodingService geocodingService,
             IEligibilityService eligibilityService,
             IClientRecommendationService recommendationService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             IConfiguration configuration,
             ILogger<CareRequestMatchingService> logger)
@@ -54,7 +56,7 @@ namespace Infrastructure.Content.Services
             _geocodingService = geocodingService;
             _eligibilityService = eligibilityService;
             _recommendationService = recommendationService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _configuration = configuration;
             _logger = logger;
@@ -616,13 +618,13 @@ namespace Infrastructure.Content.Services
                     await _dbContext.CareRequestNotifiedCaregivers.AddAsync(notifiedRecord);
 
                     // In-app notification to caregiver
-                    await _notificationService.CreateNotificationAsync(
+                    await _mediator.Send(new SendNotificationCommand(
                         match.CaregiverId,
                         "system",
                         NotificationTypes.CareRequestNewMatch,
                         $"A client needs {careRequest.ServiceCategory} in {careRequest.Location ?? "your area"}. Budget: {careRequest.Budget ?? "Not specified"}. Tap to view.",
                         "A new care request matches your profile",
-                        careRequestId);
+                        careRequestId));
 
                     // Email notification to caregiver
                     try
@@ -693,8 +695,8 @@ namespace Infrastructure.Content.Services
             var admins = await _dbContext.AdminUsers.Where(a => !a.IsDeleted).ToListAsync();
             foreach (var admin in admins)
             {
-                await _notificationService.CreateNotificationAsync(
-                    admin.Id.ToString(), "system", type, content, title, relatedEntityId);
+                await _mediator.Send(new SendNotificationCommand(
+                    admin.Id.ToString(), "system", type, content, title, relatedEntityId));
             }
         }
 

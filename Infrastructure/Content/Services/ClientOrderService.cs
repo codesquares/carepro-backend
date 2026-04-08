@@ -1,9 +1,11 @@
-﻿using Application.DTOs;
+﻿using Application.Commands;
+using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -24,7 +26,7 @@ namespace Infrastructure.Content.Services
         private readonly ICareGiverService careGiverService;
         private readonly IClientService clientService;
         private readonly ILogger<GigServices> logger;
-        private readonly INotificationService notificationService;
+        private readonly IMediator mediator;
         private readonly IOrderTasksService orderTasksService;
         private readonly IContractService contractService;
         private readonly ICaregiverWalletService walletService;
@@ -39,7 +41,7 @@ namespace Infrastructure.Content.Services
             ICareGiverService careGiverService,
             IClientService clientService,
             ILogger<GigServices> logger,
-            INotificationService notificationService,
+            IMediator mediator,
             IOrderTasksService orderTasksService,
             IContractService contractService,
             ICaregiverWalletService walletService,
@@ -53,7 +55,7 @@ namespace Infrastructure.Content.Services
             this.careGiverService = careGiverService;
             this.clientService = clientService;
             this.logger = logger;
-            this.notificationService = notificationService;
+            this.mediator = mediator;
             this.orderTasksService = orderTasksService;
             this.contractService = contractService;
             this.walletService = walletService;
@@ -166,14 +168,14 @@ namespace Infrastructure.Content.Services
             {
                 string notificationContent = $"New order received for your service: {gig!.Title} - Amount: ₦{clientOrder.Amount} from {client!.FirstName} {client.LastName}";
 
-                await notificationService.CreateNotificationAsync(
+                await mediator.Send(new SendNotificationCommand(
                     clientOrder.CaregiverId,
                     clientOrder.ClientId ?? string.Empty,
                     NotificationTypes.OrderReceived,
                     notificationContent,
                     "New Order Received",
                     clientOrder.Id.ToString()
-                );
+                ));
             }
 
             // ── EVENT: Credit caregiver wallet on order creation ──
@@ -1059,35 +1061,35 @@ namespace Infrastructure.Content.Services
 
                 foreach (var admin in admins)
                 {
-                    await notificationService.CreateNotificationAsync(
-                        recipientId: admin.Id.ToString(),
-                        senderId: dispute.RaisedBy,
-                        type: Application.DTOs.NotificationTypes.DisputeRaised,
-                        content: $"[ACTION REQUIRED] {content}",
+                    await mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: dispute.RaisedBy,
+                        Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                        Content: $"[ACTION REQUIRED] {content}",
                         Title: title,
-                        relatedEntityId: dispute.Id.ToString(),
-                        orderId: dispute.OrderId);
+                        RelatedEntityId: dispute.Id.ToString(),
+                        OrderId: dispute.OrderId));
                 }
 
                 // Notify caregiver
-                await notificationService.CreateNotificationAsync(
-                    recipientId: order.CaregiverId,
-                    senderId: dispute.RaisedBy,
-                    type: Application.DTOs.NotificationTypes.DisputeRaised,
-                    content: $"A dispute has been raised on Order {order.Id}. An admin will review this shortly.",
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.CaregiverId,
+                    SenderId: dispute.RaisedBy,
+                    Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    Content: $"A dispute has been raised on Order {order.Id}. An admin will review this shortly.",
                     Title: title,
-                    relatedEntityId: dispute.Id.ToString(),
-                    orderId: dispute.OrderId);
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
 
                 // Confirm to client
-                await notificationService.CreateNotificationAsync(
-                    recipientId: order.ClientId,
-                    senderId: dispute.RaisedBy,
-                    type: Application.DTOs.NotificationTypes.DisputeRaised,
-                    content: $"Your dispute on Order {order.Id} has been submitted. An admin will review it shortly.",
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.ClientId,
+                    SenderId: dispute.RaisedBy,
+                    Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    Content: $"Your dispute on Order {order.Id} has been submitted. An admin will review it shortly.",
                     Title: "Dispute Submitted",
-                    relatedEntityId: dispute.Id.ToString(),
-                    orderId: dispute.OrderId);
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
 
                 logger.LogInformation("Dispute notifications sent for order {OrderId} to {AdminCount} admins, caregiver, and client", order.Id, admins.Count);
             }
@@ -1282,11 +1284,11 @@ namespace Infrastructure.Content.Services
                     "You will need to pay a new booking fee to re-engage this service. " +
                     "You can request a refund from your wallet to get these funds back to your bank account.";
 
-                await notificationService.CreateNotificationAsync(
+                await mediator.Send(new SendNotificationCommand(
                     order.ClientId, order.ClientId,
                     NotificationTypes.OrderCancelled,
                     clientNotification, "Order Cancelled",
-                    orderId);
+                    orderId));
 
                 // In-app notification to caregiver
                 string caregiverNotification = $"Order for {gigTitle} has been cancelled by the client. " +
@@ -1297,11 +1299,11 @@ namespace Infrastructure.Content.Services
                         ? $"₦{unreleasedAmount} in unreleased earnings has been removed from your pending balance."
                         : "");
 
-                await notificationService.CreateNotificationAsync(
+                await mediator.Send(new SendNotificationCommand(
                     order.CaregiverId, order.ClientId,
                     NotificationTypes.OrderCancelled,
                     caregiverNotification, "Order Cancelled",
-                    orderId);
+                    orderId));
 
                 // Email to client
                 if (client?.Email != null)

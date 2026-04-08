@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -15,20 +17,20 @@ namespace Infrastructure.Content.Services
     public class DisputeService : IDisputeService
     {
         private readonly CareProDbContext _dbContext;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEarningsLedgerService _ledgerService;
         private readonly ICaregiverWalletService _walletService;
         private readonly ILogger<DisputeService> _logger;
 
         public DisputeService(
             CareProDbContext dbContext,
-            INotificationService notificationService,
+            IMediator mediator,
             IEarningsLedgerService ledgerService,
             ICaregiverWalletService walletService,
             ILogger<DisputeService> logger)
         {
             _dbContext = dbContext;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _ledgerService = ledgerService;
             _walletService = walletService;
             _logger = logger;
@@ -587,38 +589,38 @@ namespace Infrastructure.Content.Services
 
                 foreach (var admin in admins)
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        recipientId: admin.Id.ToString(),
-                        senderId: dispute.RaisedBy,
-                        type: NotificationTypes.DisputeRaised,
-                        content: $"[ACTION REQUIRED] {content}",
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: dispute.RaisedBy,
+                        Type: NotificationTypes.DisputeRaised,
+                        Content: $"[ACTION REQUIRED] {content}",
                         Title: title,
-                        relatedEntityId: dispute.Id.ToString(),
-                        orderId: dispute.OrderId);
+                        RelatedEntityId: dispute.Id.ToString(),
+                        OrderId: dispute.OrderId));
                 }
 
                 // ── Notify caregiver ──
                 if (caregiver != null)
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        recipientId: order.CaregiverId,
-                        senderId: dispute.RaisedBy,
-                        type: NotificationTypes.DisputeRaised,
-                        content: $"A dispute has been raised on your {disputeTarget} for Order {order.Id}. Category: {dispute.Category}. An admin will review this shortly.",
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.CaregiverId,
+                        SenderId: dispute.RaisedBy,
+                        Type: NotificationTypes.DisputeRaised,
+                        Content: $"A dispute has been raised on your {disputeTarget} for Order {order.Id}. Category: {dispute.Category}. An admin will review this shortly.",
                         Title: title,
-                        relatedEntityId: dispute.Id.ToString(),
-                        orderId: dispute.OrderId);
+                        RelatedEntityId: dispute.Id.ToString(),
+                        OrderId: dispute.OrderId));
                 }
 
                 // ── Confirm to client ──
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: order.ClientId,
-                    senderId: dispute.RaisedBy,
-                    type: NotificationTypes.DisputeRaised,
-                    content: $"Your dispute on {disputeTarget} for Order {order.Id} has been submitted. An admin will review it shortly.",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.ClientId,
+                    SenderId: dispute.RaisedBy,
+                    Type: NotificationTypes.DisputeRaised,
+                    Content: $"Your dispute on {disputeTarget} for Order {order.Id} has been submitted. An admin will review it shortly.",
                     Title: "Dispute Submitted",
-                    relatedEntityId: dispute.Id.ToString(),
-                    orderId: dispute.OrderId);
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
 
                 _logger.LogInformation("Dispute notifications sent for dispute {DisputeId} to {AdminCount} admins, caregiver, and client",
                     dispute.Id, admins.Count);
@@ -643,24 +645,24 @@ namespace Infrastructure.Content.Services
                 var actionText = dispute.ResolutionAction != null ? $" Action: {dispute.ResolutionAction}." : "";
 
                 // ── Notify client ──
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: dispute.ClientId,
-                    senderId: dispute.ResolvedBy ?? string.Empty,
-                    type: NotificationTypes.DisputeResolved,
-                    content: $"Your dispute on Order {dispute.OrderId} has been {status} by {adminName}.{actionText} {dispute.ResolutionSummary}",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: dispute.ClientId,
+                    SenderId: dispute.ResolvedBy ?? string.Empty,
+                    Type: NotificationTypes.DisputeResolved,
+                    Content: $"Your dispute on Order {dispute.OrderId} has been {status} by {adminName}.{actionText} {dispute.ResolutionSummary}",
                     Title: title,
-                    relatedEntityId: dispute.Id.ToString(),
-                    orderId: dispute.OrderId);
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
 
                 // ── Notify caregiver ──
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: dispute.CaregiverId,
-                    senderId: dispute.ResolvedBy ?? string.Empty,
-                    type: NotificationTypes.DisputeResolved,
-                    content: $"A dispute on Order {dispute.OrderId} has been {status}.{actionText} {dispute.ResolutionSummary}",
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: dispute.CaregiverId,
+                    SenderId: dispute.ResolvedBy ?? string.Empty,
+                    Type: NotificationTypes.DisputeResolved,
+                    Content: $"A dispute on Order {dispute.OrderId} has been {status}.{actionText} {dispute.ResolutionSummary}",
                     Title: title,
-                    relatedEntityId: dispute.Id.ToString(),
-                    orderId: dispute.OrderId);
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
 
                 _logger.LogInformation("Dispute resolution notifications sent for dispute {DisputeId}", dispute.Id);
             }

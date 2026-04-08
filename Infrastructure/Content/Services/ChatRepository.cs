@@ -1,7 +1,9 @@
-﻿using Application.DTOs;
+﻿using Application.Commands;
+using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -16,13 +18,13 @@ namespace Infrastructure.Content.Services
     public class ChatRepository : IChatRepository
     {
         private readonly CareProDbContext careProDbContext;
-        private readonly INotificationService notificationService;
+        private readonly IMediator mediator;
 
 
-        public ChatRepository(CareProDbContext careProDbContext, INotificationService notificationService)
+        public ChatRepository(CareProDbContext careProDbContext, IMediator mediator)
         {
             this.careProDbContext = careProDbContext;
-            this.notificationService = notificationService;
+            this.mediator = mediator;
         }
 
         public async Task SaveMessageAsync(ChatMessage chatMessage)
@@ -50,14 +52,14 @@ namespace Infrastructure.Content.Services
                     string senderName = $"{sender.FirstName} {sender.LastName}";
                     string notificationContent = $"{senderName} sent you a message";
 
-                    await notificationService.CreateNotificationAsync(
+                    await mediator.Send(new SendNotificationCommand(
                         chatMessage.ReceiverId,
                         chatMessage.SenderId,
                         NotificationTypes.ChatMessage,
                         notificationContent,
                         "New Message Alert",
                         chatMessage.MessageId.ToString()
-                    );
+                    ));
                 }
             }
         }

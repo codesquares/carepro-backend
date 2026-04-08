@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -16,7 +18,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly IClientService _clientService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly ILogger<CareRequestService> _logger;
 
         // Valid service categories
@@ -50,11 +52,11 @@ namespace Infrastructure.Content.Services
             "pending", "matched", "unmatched", "accepted", "completed", "cancelled", "paused", "closed"
         };
 
-        public CareRequestService(CareProDbContext dbContext, IClientService clientService, INotificationService notificationService, ILogger<CareRequestService> logger)
+        public CareRequestService(CareProDbContext dbContext, IClientService clientService, IMediator mediator, ILogger<CareRequestService> logger)
         {
             _dbContext = dbContext;
             _clientService = clientService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _logger = logger;
         }
 
@@ -509,8 +511,8 @@ namespace Infrastructure.Content.Services
             {
                 try
                 {
-                    await _notificationService.CreateNotificationAsync(
-                        caregiverId, "system", notificationType, body, title, careRequestId);
+                    await _mediator.Send(new SendNotificationCommand(
+                        caregiverId, "system", notificationType, body, title, careRequestId));
                 }
                 catch (Exception ex)
                 {

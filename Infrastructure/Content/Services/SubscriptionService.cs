@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -14,7 +16,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IClientOrderService _clientOrderService;
         private readonly FlutterwaveService _flutterwaveService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly ILogger<SubscriptionService> _logger;
         private readonly IConfiguration _configuration;
         private readonly ICaregiverWalletService _walletService;
@@ -30,7 +32,7 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IClientOrderService clientOrderService,
             FlutterwaveService flutterwaveService,
-            INotificationService notificationService,
+            IMediator mediator,
             ILogger<SubscriptionService> logger,
             IConfiguration configuration,
             ICaregiverWalletService walletService,
@@ -40,7 +42,7 @@ namespace Infrastructure.Content.Services
             _dbContext = dbContext;
             _clientOrderService = clientOrderService;
             _flutterwaveService = flutterwaveService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _logger = logger;
             _configuration = configuration;
             _walletService = walletService;
@@ -144,13 +146,13 @@ namespace Infrastructure.Content.Services
                 subscription.Id, request.ClientId, request.GigId, request.BillingCycle, request.RecurringAmount);
 
             // Notify client
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 request.ClientId,
                 "system",
                 NotificationTypes.SubscriptionCreated,
                 $"Your {request.BillingCycle} subscription has been activated. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Activated",
-                subscription.Id);
+                subscription.Id));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -251,22 +253,22 @@ namespace Infrastructure.Content.Services
                 subscriptionId, subscription.CurrentPeriodEnd);
 
             // Notify client
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionCancellationScheduled,
                 $"Your subscription will be cancelled on {subscription.CurrentPeriodEnd:MMM dd, yyyy}. Service continues until then.",
                 "Cancellation Scheduled",
-                subscriptionId);
+                subscriptionId));
 
             // Notify caregiver
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
                 NotificationTypes.SubscriptionCancellationNotice,
                 $"A client's subscription for your service will end on {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                 "Subscription Ending",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -306,13 +308,13 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} reactivated by {UserId}", subscriptionId, userId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionReactivated,
                 "Your subscription has been reactivated. Auto-renewal is back on.",
                 "Subscription Reactivated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -431,21 +433,21 @@ namespace Infrastructure.Content.Services
                 ? $" A pro-rated refund of {subscription.Currency} {subscription.RefundAmount:N2} will be processed."
                 : "";
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionTerminated,
                 $"Your subscription has been terminated immediately.{refundMsg}",
                 "Subscription Terminated",
-                subscriptionId);
+                subscriptionId));
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
                 NotificationTypes.SubscriptionTerminated,
                 "A subscription for your service has been terminated.",
                 "Subscription Terminated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -535,14 +537,14 @@ namespace Infrastructure.Content.Services
                 subscriptionId, planChange.PreviousBillingCycle, planChange.PreviousFrequencyPerWeek,
                 newCycle, newFrequency, changeType, planChange.EffectiveDate);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionPlanChanged,
                 $"Your plan has been {changeType}d. New amount: {subscription.Currency} {newTotal:N2}/{newCycle}. " +
                 $"Changes take effect on {planChange.EffectiveDate:MMM dd, yyyy}.",
                 "Plan Changed",
-                subscriptionId);
+                subscriptionId));
 
             return Result<PlanChangeResponse>.Success(new PlanChangeResponse
             {
@@ -663,13 +665,13 @@ namespace Infrastructure.Content.Services
                 "Payment method updated for subscription {SubscriptionId}. Card: {Brand} ****{Last4}",
                 subscriptionId, cardBrand, cardLastFour);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.PaymentMethodUpdated,
                 $"Your payment method has been updated to {cardBrand} ****{cardLastFour}.",
                 "Payment Method Updated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -701,13 +703,13 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} paused by {UserId}", subscriptionId, userId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionPaused,
                 "Your subscription has been paused. No charges will be made until you resume.",
                 "Subscription Paused",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -741,13 +743,13 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation("Subscription {SubscriptionId} resumed by {UserId}. Next charge: {NextCharge}",
                 subscriptionId, userId, periodEnd);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionResumed,
                 $"Your subscription has been resumed. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Resumed",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -933,14 +935,14 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Notify client of successful charge
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
                     NotificationTypes.RecurringPaymentSuccessful,
                     $"Your {subscription.BillingCycle} subscription payment of {subscription.Currency} {subscription.RecurringAmount:N2} was successful. " +
                     $"Next charge: {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                     "Payment Successful",
-                    subscriptionId);
+                    subscriptionId));
 
                 return Result<SubscriptionPaymentRecordDTO>.Success(new SubscriptionPaymentRecordDTO
                 {
@@ -994,13 +996,13 @@ namespace Infrastructure.Content.Services
                     "Subscription {SubscriptionId} SUSPENDED after {Attempts} failed charge attempts. Last error: {Error}",
                     subscriptionId, subscription.FailedChargeAttempts, errorMessage);
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
                     NotificationTypes.SubscriptionSuspended,
                     "Your subscription has been suspended due to repeated payment failures. Please update your payment method to continue service.",
                     "Subscription Suspended",
-                    subscriptionId);
+                    subscriptionId));
             }
             else
             {
@@ -1014,13 +1016,13 @@ namespace Infrastructure.Content.Services
                     subscriptionId, subscription.FailedChargeAttempts, subscription.MaxRetryAttempts,
                     subscription.NextChargeDate, errorMessage);
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
                     NotificationTypes.PaymentFailed,
                     $"Your subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
                     "Payment Failed",
-                    subscriptionId);
+                    subscriptionId));
             }
 
             await _dbContext.SaveChangesAsync();
@@ -1053,21 +1055,21 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} finalized as Cancelled", subscriptionId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
                 NotificationTypes.SubscriptionCancelled,
                 "Your subscription has ended. Thank you for using CarePro.",
                 "Subscription Ended",
-                subscriptionId);
+                subscriptionId));
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
                 NotificationTypes.SubscriptionEnded,
                 "A client's subscription for your service has ended.",
                 "Subscription Ended",
-                subscriptionId);
+                subscriptionId));
         }
 
         // ══════════════════════════════════════════

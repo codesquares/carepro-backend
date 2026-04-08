@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -17,7 +19,7 @@ namespace Infrastructure.Content.Services
     public class CareRequestResponseService : ICareRequestResponseService
     {
         private readonly CareProDbContext _dbContext;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
@@ -25,12 +27,12 @@ namespace Infrastructure.Content.Services
 
         public CareRequestResponseService(
             CareProDbContext dbContext,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<CareRequestResponseService> logger)
         {
             _dbContext = dbContext;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -93,13 +95,13 @@ namespace Infrastructure.Content.Services
             var caregiver = await _dbContext.CareGivers.FindAsync(ObjectId.Parse(caregiverId));
             var caregiverName = caregiver != null ? caregiver.FirstName : "A caregiver";
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 careRequest.ClientId,
                 caregiverId,
                 NotificationTypes.CareRequestNewResponder,
                 $"{caregiverName} is interested in your \"{careRequest.Title}\" request. View their profile.",
                 $"{caregiverName} responded to your request",
-                careRequestId);
+                careRequestId));
 
             _logger.LogInformation("Caregiver {CaregiverId} responded to CareRequest {CareRequestId}", caregiverId, careRequestId);
 
@@ -180,13 +182,13 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             // Notify caregiver
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 response.CaregiverId,
                 clientId,
                 NotificationTypes.CareRequestShortlisted,
                 $"A client shortlisted you for their \"{careRequest.Title}\" request.",
                 "You've been shortlisted!",
-                careRequestId);
+                careRequestId));
 
             return new ShortlistResult { Success = true, ResponseId = responseId, Status = "shortlisted" };
         }
@@ -282,13 +284,13 @@ namespace Infrastructure.Content.Services
             var client = await _dbContext.Clients.FindAsync(ObjectId.Parse(clientId));
             var clientName = client?.FirstName ?? "A client";
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 response.CaregiverId,
                 clientId,
                 NotificationTypes.CareRequestHired,
                 $"{clientName} selected you for their \"{careRequest.Title}\" request. View the booking details and proceed.",
                 "You've been selected!",
-                specialGig.Id.ToString());
+                specialGig.Id.ToString()));
 
             // Send email to caregiver
             try
