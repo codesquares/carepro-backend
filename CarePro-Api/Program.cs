@@ -440,4 +440,24 @@ app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
 
+// One-time startup migration: sync existing verified users to caregiver profiles
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var verificationService = scope.ServiceProvider.GetRequiredService<IVerificationService>();
+        var migrationLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var updated = await verificationService.BackfillCaregiverVerificationStateAsync();
+        if (updated > 0)
+        {
+            migrationLogger.LogInformation("Startup migration: backfilled {Count} caregiver verification states", updated);
+        }
+    }
+    catch (Exception ex)
+    {
+        var migrationLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        migrationLogger.LogError(ex, "Startup migration failed for caregiver verification backfill - app will continue normally");
+    }
+}
+
 app.Run();

@@ -42,6 +42,7 @@ namespace Application.DTOs
         public string VerificationStatus { get; set; }
         public DateTime VerifiedOn { get; set; }
         public DateTime? UpdatedOn { get; set; }
+        public DateTime? LastWebhookReceivedAt { get; set; }
     }
 
 

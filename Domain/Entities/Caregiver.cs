@@ -59,7 +59,10 @@ namespace Domain.Entities
         public string? GoogleId { get; set; }
         public string? AuthProvider { get; set; } // "local", "google", "both", or null for existing users
 
-
+        // Identity verification (Dojah KYC)
+        public bool? IsIdentityVerified { get; set; }
+        public string? IdentityVerificationStatus { get; set; } // "success", "pending", "failed"
+        public DateTime? IdentityVerifiedAt { get; set; }
 
     }
 }

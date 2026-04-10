@@ -146,6 +146,9 @@ namespace Application.DTOs
 
         public DateTime CreatedAt { get; set; }
 
+        public bool IsIdentityVerified { get; set; }
+        public string? IdentityVerificationStatus { get; set; }
+        public DateTime? IdentityVerifiedAt { get; set; }
 
     }
 
@@ -174,6 +177,7 @@ namespace Application.DTOs
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool IsIdentityVerified { get; set; }
     }
 
     public class UpdateCaregiverAdditionalInfoRequest

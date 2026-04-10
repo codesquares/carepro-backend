@@ -555,8 +555,10 @@ namespace Infrastructure.Content.Services
                     ProfileImage = caregiver.ProfileImage,
                     AuthProvider = caregiver.AuthProvider,
 
-
                     CreatedAt = caregiver.CreatedAt,
+                    IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
+                    IdentityVerificationStatus = caregiver.IdentityVerificationStatus,
+                    IdentityVerifiedAt = caregiver.IdentityVerifiedAt,
                 };
 
 
@@ -645,6 +647,9 @@ namespace Infrastructure.Content.Services
                 Longitude = caregiver.Longitude,
 
                 CreatedAt = caregiver.CreatedAt,
+                IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
+                IdentityVerificationStatus = caregiver.IdentityVerificationStatus,
+                IdentityVerifiedAt = caregiver.IdentityVerifiedAt,
             };
 
             return caregiverDTO;
@@ -685,6 +690,7 @@ namespace Infrastructure.Content.Services
                     Latitude = caregiver.Latitude,
                     Longitude = caregiver.Longitude,
                     CreatedAt = caregiver.CreatedAt,
+                    IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
                 };
 
                 caregiversDTOs.Add(caregiverDTO);
@@ -749,6 +755,7 @@ namespace Infrastructure.Content.Services
                 Latitude = caregiver.Latitude,
                 Longitude = caregiver.Longitude,
                 CreatedAt = caregiver.CreatedAt,
+                IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
             };
 
             return caregiverDTO;
