@@ -123,7 +123,16 @@ namespace Infrastructure.Content.Services
             }
             else
             {
-                careRequest.Status = "unmatched";
+                careRequest.MatchRetryCount++;
+                if (careRequest.MatchRetryCount >= 3)
+                {
+                    careRequest.Status = "escalated";
+                    _logger.LogWarning("CareRequest {CareRequestId} escalated after {RetryCount} failed match attempts", careRequestId, careRequest.MatchRetryCount);
+                }
+                else
+                {
+                    careRequest.Status = "unmatched";
+                }
             }
             careRequest.MatchCount = topMatches.Count;
             careRequest.UpdatedAt = DateTime.UtcNow;
@@ -649,20 +658,30 @@ namespace Infrastructure.Content.Services
             }
             else
             {
-                // No matches — only notify admins, NOT the client
-                await NotifyAdminsAsync(
-                    NotificationTypes.CareRequestAdminNoMatch,
-                    $"No matches found for care request '{careRequest.Title}' (Category: {careRequest.ServiceCategory}, Location: {careRequest.Location ?? "Not specified"}). Review required.",
-                    "No Match — Action Required",
-                    careRequestId);
+                // No matches — only notify admins once per care request
+                if (careRequest.NoMatchEmailSentAt == null)
+                {
+                    await NotifyAdminsAsync(
+                        NotificationTypes.CareRequestAdminNoMatch,
+                        $"No matches found for care request '{careRequest.Title}' (Category: {careRequest.ServiceCategory}, Location: {careRequest.Location ?? "Not specified"}). Review required.",
+                        "No Match — Action Required",
+                        careRequestId);
 
-                try
-                {
-                    await SendNoMatchEmailToAdminsAsync(careRequest);
+                    try
+                    {
+                        await SendNoMatchEmailToAdminsAsync(careRequest);
+                        careRequest.NoMatchEmailSentAt = DateTime.UtcNow;
+                        _dbContext.CareRequests.Update(careRequest);
+                        await _dbContext.SaveChangesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send no-match admin email for CareRequest {CareRequestId}.", careRequestId);
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Failed to send no-match admin email for CareRequest {CareRequestId}.", careRequestId);
+                    _logger.LogInformation("No-match email already sent for CareRequest {CareRequestId} at {SentAt}, skipping.", careRequestId, careRequest.NoMatchEmailSentAt);
                 }
             }
         }

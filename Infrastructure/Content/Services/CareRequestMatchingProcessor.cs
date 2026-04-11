@@ -16,6 +16,7 @@ namespace Infrastructure.Content.Services
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<CareRequestMatchingProcessor> _logger;
         private readonly TimeSpan _pollingInterval = TimeSpan.FromMinutes(2);
+        private const int MaxMatchRetries = 3;
 
         public CareRequestMatchingProcessor(
             IServiceScopeFactory scopeFactory,
@@ -65,13 +66,13 @@ namespace Infrastructure.Content.Services
 
             // Find care requests that need matching:
             // 1. New pending requests (created > 30s ago to avoid racing with creation response)
-            // 2. Previously unmatched requests (retry after 24h cooldown)
+            // 2. Previously unmatched requests (retry after 24h cooldown, max 3 retries)
             var cutoff = DateTime.UtcNow.AddSeconds(-30);
             var retryCutoff = DateTime.UtcNow.AddHours(-24);
             var pendingRequests = await dbContext.CareRequests
                 .Where(cr =>
                     (cr.Status == "pending" && cr.CreatedAt < cutoff) ||
-                    (cr.Status == "unmatched" && cr.UpdatedAt != null && cr.UpdatedAt < retryCutoff))
+                    (cr.Status == "unmatched" && cr.MatchRetryCount < MaxMatchRetries && cr.UpdatedAt != null && cr.UpdatedAt < retryCutoff))
                 .OrderBy(cr => cr.CreatedAt)
                 .Take(20)
                 .ToListAsync(stoppingToken);
