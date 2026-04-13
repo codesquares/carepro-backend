@@ -188,6 +188,9 @@ builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
 
 builder.Services.AddScoped<IDisputeService, DisputeService>();
 
+// Gig templates (template-driven gig creation)
+builder.Services.AddScoped<IGigTemplateService, GigTemplateService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
@@ -457,6 +460,24 @@ using (var scope = app.Services.CreateScope())
     {
         var migrationLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         migrationLogger.LogError(ex, "Startup migration failed for caregiver verification backfill - app will continue normally");
+    }
+}
+
+// Seed gig template data from predefined templates
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var gigTemplateService = scope.ServiceProvider.GetRequiredService<IGigTemplateService>();
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var seedData = GigTemplateSeedData.GetSeedData();
+        await gigTemplateService.SeedTemplatesAsync(seedData);
+        seedLogger.LogInformation("Gig template seed check completed");
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        seedLogger.LogError(ex, "Gig template seeding failed - app will continue normally");
     }
 }
 
