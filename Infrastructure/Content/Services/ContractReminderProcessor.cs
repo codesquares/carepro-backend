@@ -29,20 +29,33 @@ namespace Infrastructure.Content.Services
         {
             _logger.LogInformation("ContractReminderProcessor started.");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await ProcessContractRemindersAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error occurred while processing contract reminders.");
-                }
+                    try
+                    {
+                        await ProcessContractRemindersAsync(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred while processing contract reminders.");
+                    }
 
-                // Wait for the next run (6 hours)
-                await Task.Delay(_interval, stoppingToken);
+                    // Wait for the next run (6 hours)
+                    await Task.Delay(_interval, stoppingToken);
+                }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Normal shutdown — do not propagate
+            }
+
+            _logger.LogInformation("ContractReminderProcessor: Stopped");
         }
 
         private async Task ProcessContractRemindersAsync(CancellationToken stoppingToken)

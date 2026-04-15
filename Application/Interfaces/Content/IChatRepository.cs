@@ -27,7 +27,7 @@ namespace Application.Interfaces.Content
         Task<ChatMessage?> UpdateMessageStatus(string messageId, string newStatus);
 
         // Message deletion methods
-        Task<ChatMessage> GetMessageByIdAsync(string messageId);
+        Task<ChatMessage?> GetMessageByIdAsync(string messageId);
         Task<bool> DeleteMessageAsync(string messageId);
 
         // Read receipt methods

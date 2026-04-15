@@ -29,6 +29,9 @@ WORKDIR /app
 RUN addgroup -g 1001 -S carepro && \
     adduser -S carepro -G carepro -u 1001
 
+# Upgrade all Alpine packages to fix OpenSSL and musl vulnerabilities
+RUN apk update && apk upgrade --no-cache
+
 # Install required packages for health checks and security (Alpine)
 RUN apk add --no-cache curl
 

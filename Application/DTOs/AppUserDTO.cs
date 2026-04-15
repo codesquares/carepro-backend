@@ -12,7 +12,8 @@ namespace Application.DTOs
 
         public string Email { get; set; }
 
-        public string Password { get; set; }
+        // SECURITY: Password hash must NEVER be returned in API responses
+        // public string Password { get; set; }
 
         public string FirstName { get; set; }
 

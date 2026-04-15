@@ -158,7 +158,7 @@ namespace Infrastructure.Content.Services
 
                 IsAvailable = false,
 
-                CreatedAt = DateTime.Now,
+                CreatedAt = DateTime.UtcNow,
             };
 
             await careProDbContext.CareGivers.AddAsync(caregiver);
@@ -209,14 +209,14 @@ namespace Infrastructure.Content.Services
 
             #region EmailVerificationHandling
 
-            // Check if this is a development environment or localhost origin
-            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
-                               origin?.Contains("localhost") == true ||
-                               origin?.Contains("127.0.0.1") == true;
+            // SECURITY: Only auto-confirm in Development environment (server-side check, NOT client-controlled)
+            var environment = configuration["ASPNETCORE_ENVIRONMENT"] ?? "Production";
+            var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase) &&
+                               configuration.GetValue<bool>("Development:AutoConfirmEmail", false);
 
             if (isDevelopment)
             {
-                // Auto-confirm email for development/localhost
+                // Auto-confirm email for development only
                 careProAppUser.EmailConfirmed = true;
                 careProDbContext.AppUsers.Update(careProAppUser);
                 await careProDbContext.SaveChangesAsync();
@@ -226,7 +226,7 @@ namespace Infrastructure.Content.Services
                 // Production/staging: Send verification email
                 try
                 {
-                    var jwtSecretKey = configuration["JwtSettings:Secret"];
+                    var jwtSecretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret Key is not configured");
                     var token = tokenHandler.GenerateEmailVerificationToken(
                         careProAppUser.AppUserId.ToString(),
                         careProAppUser.Email,
@@ -234,7 +234,7 @@ namespace Infrastructure.Content.Services
                     );
 
                     string verificationLink;
-                    verificationLink = IsFrontendOrigin(origin)
+                    verificationLink = IsFrontendOrigin(origin ?? string.Empty)
                         ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
                         : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
@@ -373,9 +373,9 @@ namespace Infrastructure.Content.Services
 
             //string body = EmailTemplates.MailTemplate;
 
-            if (!string.IsNullOrEmpty(body))
+            if (string.IsNullOrEmpty(body))
             {
-                body = body;
+                body = string.Empty;
             }
 
             //replace static variable on the template
@@ -468,10 +468,10 @@ namespace Infrastructure.Content.Services
             if (user.EmailConfirmed)
                 return "Email already confirmed";
 
-            // Check if this is a development environment or localhost origin
-            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
-                               origin?.Contains("localhost") == true ||
-                               origin?.Contains("127.0.0.1") == true;
+            // SECURITY: Only auto-confirm in Development environment (server-side check, NOT client-controlled)
+            var resendEnvironment = configuration["ASPNETCORE_ENVIRONMENT"] ?? "Production";
+            var isDevelopment = string.Equals(resendEnvironment, "Development", StringComparison.OrdinalIgnoreCase) &&
+                               configuration.GetValue<bool>("Development:AutoConfirmEmail", false);
 
             if (isDevelopment)
             {
@@ -486,7 +486,7 @@ namespace Infrastructure.Content.Services
 
             try
             {
-                var jwtSecretKey = configuration["JwtSettings:Secret"];
+                var jwtSecretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret Key is not configured");
                 var token = tokenHandler.GenerateEmailVerificationToken(
                     user.AppUserId.ToString(),
                     user.Email,
@@ -494,14 +494,14 @@ namespace Infrastructure.Content.Services
                 );
 
                 string verificationLink;
-                verificationLink = IsFrontendOrigin(origin)
+                verificationLink = IsFrontendOrigin(origin ?? string.Empty)
                     ? $"{origin}/confirm-email?token={HttpUtility.UrlEncode(token)}"
                     : $"{origin}/api/CareGivers/confirm-email?token={HttpUtility.UrlEncode(token)}";
 
                 await emailService.SendSignUpVerificationEmailAsync(
                     user.Email,
                     verificationLink,
-                    user.FirstName
+                    user.FirstName ?? "User"
                 );
 
                 return "A new confirmation link has been sent to your email.";
@@ -555,8 +555,10 @@ namespace Infrastructure.Content.Services
                     ProfileImage = caregiver.ProfileImage,
                     AuthProvider = caregiver.AuthProvider,
 
-
                     CreatedAt = caregiver.CreatedAt,
+                    IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
+                    IdentityVerificationStatus = caregiver.IdentityVerificationStatus,
+                    IdentityVerifiedAt = caregiver.IdentityVerifiedAt,
                 };
 
 
@@ -619,6 +621,9 @@ namespace Infrastructure.Content.Services
                 IsDeleted = caregiver.IsDeleted,
                 Status = caregiver.Status,
                 HomeAddress = caregiver.HomeAddress,
+                ServiceAddress = caregiver.ServiceAddress,
+                ServiceCity = caregiver.ServiceCity,
+                ServiceState = caregiver.ServiceState,
                 AboutMe = caregiver.AboutMe,
                 AboutMeIntro = string.IsNullOrWhiteSpace(caregiver.AboutMe)
                     ? null
@@ -638,8 +643,13 @@ namespace Infrastructure.Content.Services
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
                 AuthProvider = caregiver.AuthProvider,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
 
                 CreatedAt = caregiver.CreatedAt,
+                IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
+                IdentityVerificationStatus = caregiver.IdentityVerificationStatus,
+                IdentityVerifiedAt = caregiver.IdentityVerifiedAt,
             };
 
             return caregiverDTO;
@@ -677,7 +687,10 @@ namespace Infrastructure.Content.Services
                     Location = caregiver.Location,
                     IntroVideo = caregiver.IntroVideo,
                     ProfileImage = caregiver.ProfileImage,
+                    Latitude = caregiver.Latitude,
+                    Longitude = caregiver.Longitude,
                     CreatedAt = caregiver.CreatedAt,
+                    IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
                 };
 
                 caregiversDTOs.Add(caregiverDTO);
@@ -739,7 +752,10 @@ namespace Infrastructure.Content.Services
                 TotalEarning = totalEarning,
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
                 CreatedAt = caregiver.CreatedAt,
+                IsIdentityVerified = caregiver.IsIdentityVerified ?? false,
             };
 
             return caregiverDTO;
@@ -785,7 +801,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -816,7 +832,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -874,7 +890,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -923,7 +939,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.CareGivers.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -957,7 +973,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingCaregiver = await careProDbContext.CareGivers.FindAsync(objectId);
-            if (existingCaregiver == null)
+            if (existingCaregiver == null || existingCaregiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
@@ -972,13 +988,12 @@ namespace Infrastructure.Content.Services
             {
                 UserId = caregiverId,
                 UserType = "Caregiver",
-                Address = request.Address
+                Address = request.Address,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude
             };
 
             var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
-
-            // The location service automatically updates the caregiver entity's location fields
-            // through its UpdateUserEntityLocation method, so we don't need to manually update here
 
             return locationResult;
         }
@@ -987,7 +1002,8 @@ namespace Infrastructure.Content.Services
 
         public async Task ChangePasswordAsync(ResetPasswordRequest resetPasswordRequest)
         {
-            var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == resetPasswordRequest.Email.ToLower());
+            var normalizedEmail = resetPasswordRequest.Email?.ToLower() ?? throw new ArgumentException("Email is required");
+            var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
 
             if (user == null)
                 throw new InvalidOperationException("User not found.");
@@ -1003,15 +1019,16 @@ namespace Infrastructure.Content.Services
 
         public async Task GeneratePasswordResetTokenAsync(PasswordResetRequestDto passwordResetRequestDto, string? origin)
         {
-            var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == passwordResetRequestDto.Email.ToLower());
+            var normalizedEmail = passwordResetRequestDto.Email?.ToLower() ?? throw new ArgumentException("Email is required");
+            var user = await careProDbContext.AppUsers.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
 
             if (user == null)
                 throw new InvalidOperationException("User not found, kindly enter a registered email.");
 
-            var token = tokenHandler.GeneratePasswordResetToken(user.AppUserId.ToString(), passwordResetRequestDto.Email);
+            var token = tokenHandler.GeneratePasswordResetToken(user.AppUserId.ToString(), normalizedEmail);
 
             string resetLink;
-            resetLink = IsFrontendOrigin(origin)
+            resetLink = IsFrontendOrigin(origin ?? string.Empty)
                 ? $"{origin}/forgot-password?token={HttpUtility.UrlEncode(token)}"
                 : $"{origin}/api/CareGivers/resetPassword?token={HttpUtility.UrlEncode(token)}";
 
@@ -1048,7 +1065,7 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Attempt to send email with timeout and error handling
-                await emailService.SendPasswordResetEmailAsync(passwordResetRequestDto.Email, resetLink, user.FirstName);
+                await emailService.SendPasswordResetEmailAsync(normalizedEmail, resetLink, user.FirstName ?? "User");
             }
             catch (Exception emailEx)
             {
@@ -1073,7 +1090,7 @@ namespace Infrastructure.Content.Services
         public async Task ResetPasswordWithJwtAsync(PasswordResetDto request)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"]);
+            var key = Encoding.UTF8.GetBytes(configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret Key is not configured"));
 
             try
             {
@@ -1103,8 +1120,13 @@ namespace Infrastructure.Content.Services
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 user.Password = hashedPassword;
+                user.EmailConfirmed = true;
 
-
+                var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(c => c.Email == user.Email);
+                if (caregiver != null)
+                {
+                    caregiver.Password = hashedPassword;
+                }
 
                 await careProDbContext.SaveChangesAsync();
             }

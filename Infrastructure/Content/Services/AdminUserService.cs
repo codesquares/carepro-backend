@@ -4,11 +4,6 @@ using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
 {
@@ -23,13 +18,34 @@ namespace Infrastructure.Content.Services
 
         public async Task<string> CreateAdminUserAsync(AddAdminUserRequest addAdminUserRequest)
         {
+            var normalizedEmail = addAdminUserRequest.Email.ToLower();
+
+            // Check for duplicate email across ALL collections (case-insensitive)
+            var adminUserExist = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (adminUserExist != null)
+                throw new InvalidOperationException("User already exists. Kindly login or use 'Forgot Password'!");
+
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (appUserExist != null)
+                throw new InvalidOperationException("This email is already registered. Please use a different email.");
+
+            var clientExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (clientExist != null)
+                throw new InvalidOperationException("This email is already registered as a Client. Please use a different email.");
+
+            var caregiverExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
+            if (caregiverExist != null)
+                throw new InvalidOperationException("This email is already registered as a Caregiver. Please use a different email.");
+
             var hashedPassword = BCrypt.Net.BCrypt.HashPassword(addAdminUserRequest.Password);
 
-            var adminUserExist = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Email == addAdminUserRequest.Email);
-
-            if (adminUserExist != null)
+            // Validate department for Admin role
+            if (addAdminUserRequest.Role == "Admin")
             {
-                throw new InvalidOperationException("User already exists. Kindly login or use 'Forgot Password'!");
+                if (string.IsNullOrWhiteSpace(addAdminUserRequest.Department))
+                    throw new InvalidOperationException("Department is required for Admin role.");
+                if (!AdminDepartments.IsValid(addAdminUserRequest.Department))
+                    throw new InvalidOperationException($"Invalid department. Must be one of: {string.Join(", ", AdminDepartments.All)}");
             }
 
             /// CONVERT DTO TO DOMAIN OBJECT            
@@ -45,11 +61,12 @@ namespace Infrastructure.Content.Services
                 // Assign new ID
                 Id = ObjectId.GenerateNewId(),
                 Role = addAdminUserRequest.Role,
+                Department = addAdminUserRequest.Role == "SuperAdmin" ? null : addAdminUserRequest.Department,
                 // Status = true,
                 IsDeleted = false,
 
 
-                CreatedAt = DateTime.Now,
+                CreatedAt = DateTime.UtcNow,
             };
 
             await careProDbContext.AdminUsers.AddAsync(adminUser);
@@ -84,11 +101,11 @@ namespace Infrastructure.Content.Services
 
         public async Task<AdminUserResponse> GetAdminUserByIdAsync(string adminUserId)
         {
-            var adminUser = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == adminUserId);
+            var adminUser = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Id.ToString() == adminUserId);
 
             if (adminUser == null)
             {
-                throw new KeyNotFoundException($"Caregiver with ID '{adminUserId}' not found.");
+                throw new KeyNotFoundException($"Admin user with ID '{adminUserId}' not found.");
             }
 
 
@@ -101,7 +118,9 @@ namespace Infrastructure.Content.Services
                 Email = adminUser.Email,
                 PhoneNo = adminUser.PhoneNo,
                 Role = adminUser.Role,
+                Department = adminUser.Department,
                 IsDeleted = adminUser.IsDeleted,
+                Status = adminUser.Status,
 
                 CreatedAt = adminUser.CreatedAt,
             };
@@ -130,6 +149,7 @@ namespace Infrastructure.Content.Services
                     Email = adminUser.Email,
                     PhoneNo = adminUser.PhoneNo,
                     Role = adminUser.Role,
+                    Department = adminUser.Department,
                     IsDeleted = adminUser.IsDeleted,
                     Status = adminUser.Status,
 
@@ -143,6 +163,34 @@ namespace Infrastructure.Content.Services
             }
 
             return adminUsersDTO;
+        }
+
+        public async Task<DashboardStatsResponse> GetDashboardStatsAsync()
+        {
+            var totalCaregivers = await careProDbContext.CareGivers.CountAsync(x => !x.IsDeleted);
+            var totalClients = await careProDbContext.Clients.CountAsync(x => !x.IsDeleted);
+            var totalOrders = await careProDbContext.ClientOrders.CountAsync();
+            var totalGigs = await careProDbContext.Gigs.CountAsync(x => x.IsDeleted != true);
+            var pendingCertificates = await careProDbContext.Certifications
+                .CountAsync(x => x.VerificationStatus == DocumentVerificationStatus.PendingVerification
+                              || x.VerificationStatus == DocumentVerificationStatus.ManualReviewRequired);
+            var activeSubscriptions = await careProDbContext.Subscriptions
+                .CountAsync(x => x.Status == SubscriptionStatus.Active);
+            var pendingWithdrawals = await careProDbContext.WithdrawalRequests
+                .CountAsync(x => x.Status == "Pending");
+            var totalAdmins = await careProDbContext.AdminUsers.CountAsync(x => !x.IsDeleted);
+
+            return new DashboardStatsResponse
+            {
+                TotalCaregivers = totalCaregivers,
+                TotalClients = totalClients,
+                TotalOrders = totalOrders,
+                TotalGigs = totalGigs,
+                PendingCertificates = pendingCertificates,
+                ActiveSubscriptions = activeSubscriptions,
+                PendingWithdrawals = pendingWithdrawals,
+                TotalAdmins = totalAdmins,
+            };
         }
     }
 }

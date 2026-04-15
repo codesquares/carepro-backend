@@ -18,6 +18,7 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime? VerifiedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
+        public DateTime? RejectedAt { get; set; }
         public string? AdminNotes { get; set; }
         public string? AdminId { get; set; }
         public string? AccountNumber { get; set; }
@@ -55,6 +56,7 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime? VerifiedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
+        public DateTime? RejectedAt { get; set; }
         public string? AdminNotes { get; set; }
         public string? AdminId { get; set; }
         public string? AdminName { get; set; }
@@ -89,8 +91,9 @@ namespace Application.DTOs
 
     public class AdminWithdrawalVerificationRequest
     {
-        public string Token { get; set; }
-        public string AdminId { get; set; }
+        public string? Token { get; set; }
+        public string? WithdrawalId { get; set; }
+        public string? AdminId { get; set; }
         public string? AdminNotes { get; set; }
     }
 

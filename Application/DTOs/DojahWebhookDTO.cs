@@ -346,7 +346,7 @@ namespace Application.DTOs
 
     public class DojahIpInfo
     {
-        public string As { get; set; } = string.Empty;
+        public int As { get; set; }
         public string Isp { get; set; } = string.Empty;
         public double Lat { get; set; }
         public double Lon { get; set; }

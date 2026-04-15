@@ -1,9 +1,11 @@
-﻿using Application.DTOs;
+﻿using Application.Commands;
+using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Infrastructure.Content.Helpers;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -23,7 +25,7 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<CertificationService> logger;
         private readonly CloudinaryService cloudinaryService;
         private readonly DojahDocumentVerificationService dojahVerificationService;
-        private readonly INotificationService notificationService;
+        private readonly IMediator mediator;
         private readonly IEmailService emailService;
 
         public CertificationService(
@@ -32,7 +34,7 @@ namespace Infrastructure.Content.Services
             ILogger<CertificationService> logger,
             CloudinaryService cloudinaryService,
             DojahDocumentVerificationService dojahVerificationService,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService)
         {
             this.careProDbContext = careProDbContext;
@@ -40,7 +42,7 @@ namespace Infrastructure.Content.Services
             this.logger = logger;
             this.cloudinaryService = cloudinaryService;
             this.dojahVerificationService = dojahVerificationService;
-            this.notificationService = notificationService;
+            this.mediator = mediator;
             this.emailService = emailService;
         }
 
@@ -149,14 +151,14 @@ namespace Infrastructure.Content.Services
                 // Send notification to caregiver that cert is pending review
                 try
                 {
-                    await notificationService.CreateNotificationAsync(
-                        recipientId: addCertificationRequest.CaregiverId,
-                        senderId: "System",
-                        type: "CertificateUploaded",
-                        content: $"Your {certification.CertificateName} has been uploaded successfully and is pending admin review. You will be notified once it has been reviewed.",
+                    await mediator.Send(new SendNotificationCommand(
+                        RecipientId: addCertificationRequest.CaregiverId,
+                        SenderId: "System",
+                        Type: NotificationTypes.CertificateUploaded,
+                        Content: $"Your {certification.CertificateName} has been uploaded successfully and is pending admin review. You will be notified once it has been reviewed.",
                         Title: "Certificate Uploaded - Pending Review",
-                        relatedEntityId: certification.Id.ToString()
-                    );
+                        RelatedEntityId: certification.Id.ToString()
+                    ));
                 }
                 catch (Exception notifEx)
                 {
@@ -604,14 +606,14 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Send in-app notification
-                await notificationService.CreateNotificationAsync(
-                    recipientId: certification.CaregiverId,
-                    senderId: "System",
-                    type: "CertificateVerification",
-                    content: notificationContent,
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: certification.CaregiverId,
+                    SenderId: "System",
+                    Type: NotificationTypes.CertificateVerification,
+                    Content: notificationContent,
                     Title: notificationTitle,
-                    relatedEntityId: certification.Id.ToString()
-                );
+                    RelatedEntityId: certification.Id.ToString()
+                ));
 
                 // Send email notification
                 await emailService.SendGenericNotificationEmailAsync(
@@ -663,6 +665,57 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error fetching all certificates");
+                throw;
+            }
+        }
+
+        public async Task<PaginatedResponse<AdminCertificationResponse>> GetAllCertificatesPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null)
+        {
+            try
+            {
+                var query = careProDbContext.Certifications.AsQueryable();
+
+                if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<DocumentVerificationStatus>(status, true, out var parsedStatus))
+                    query = query.Where(c => c.VerificationStatus == parsedStatus);
+
+                var totalCount = await query.CountAsync();
+
+                var certificates = await query
+                    .OrderByDescending(c => c.SubmittedOn)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var adminCertificateResponses = new List<AdminCertificationResponse>();
+
+                foreach (var certificate in certificates)
+                {
+                    CaregiverResponse? caregiver = null;
+                    try
+                    {
+                        caregiver = await careGiverService.GetCaregiverUserAsync(certificate.CaregiverId);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, $"Could not fetch caregiver details for certificate {certificate.Id}");
+                    }
+
+                    var adminResponse = MapToAdminCertificationResponse(certificate, caregiver);
+                    adminCertificateResponses.Add(adminResponse);
+                }
+
+                return new PaginatedResponse<AdminCertificationResponse>
+                {
+                    Items = adminCertificateResponses,
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize,
+                    HasMore = (page * pageSize) < totalCount,
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error fetching paginated certificates");
                 throw;
             }
         }
@@ -866,14 +919,14 @@ namespace Infrastructure.Content.Services
                 emailContent += "You can now proceed with your profile activities.\n\n" +
                     "Best regards,\nCarePro Team";
 
-                await notificationService.CreateNotificationAsync(
-                    recipientId: caregiver.Id,
-                    senderId: "System",
-                    type: "CertificateManualApproval",
-                    content: notificationContent,
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: caregiver.Id,
+                    SenderId: "System",
+                    Type: NotificationTypes.CertificateManualApproval,
+                    Content: notificationContent,
                     Title: notificationTitle,
-                    relatedEntityId: certificate.Id.ToString()
-                );
+                    RelatedEntityId: certificate.Id.ToString()
+                ));
 
                 await emailService.SendGenericNotificationEmailAsync(
                     toEmail: caregiver.Email,
@@ -909,14 +962,14 @@ namespace Infrastructure.Content.Services
                     "If you have questions or need assistance, please contact our support team.\n\n" +
                     "Best regards,\nCarePro Team";
 
-                await notificationService.CreateNotificationAsync(
-                    recipientId: caregiver.Id,
-                    senderId: "System",
-                    type: "CertificateManualRejection",
-                    content: notificationContent,
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: caregiver.Id,
+                    SenderId: "System",
+                    Type: NotificationTypes.CertificateManualRejection,
+                    Content: notificationContent,
                     Title: notificationTitle,
-                    relatedEntityId: certificate.Id.ToString()
-                );
+                    RelatedEntityId: certificate.Id.ToString()
+                ));
 
                 await emailService.SendGenericNotificationEmailAsync(
                     toEmail: caregiver.Email,
@@ -1098,14 +1151,14 @@ namespace Infrastructure.Content.Services
                 }
 
                 // Send in-app notification
-                await notificationService.CreateNotificationAsync(
-                    recipientId: certification.CaregiverId,
-                    senderId: "System",
-                    type: "CertificateReview",
-                    content: notificationContent,
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: certification.CaregiverId,
+                    SenderId: "System",
+                    Type: NotificationTypes.CertificateReview,
+                    Content: notificationContent,
                     Title: notificationTitle,
-                    relatedEntityId: certification.Id.ToString()
-                );
+                    RelatedEntityId: certification.Id.ToString()
+                ));
 
                 // Send email notification
                 await emailService.SendGenericNotificationEmailAsync(

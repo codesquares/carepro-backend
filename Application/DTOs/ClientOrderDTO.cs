@@ -43,10 +43,17 @@ namespace Application.DTOs
         public int Amount { get; set; }
         public string? TransactionId { get; set; }
         public string? ClientOrderStatus { get; set; }
+        public bool IsOrderStatusApproved { get; set; }
         public DateTime OrderCreatedOn { get; set; }
 
         public string? DeclineReason { get; set; }
         public bool? IsDeclined { get; set; }
+
+        // Recurring service tracking
+        public int FrequencyPerWeek { get; set; } = 1;
+        public string ServiceType { get; set; } = "one-time";
+        public int? BillingCycleNumber { get; set; }
+        public string? SubscriptionId { get; set; }
 
 
         // public decimal TotalEarning { get; set; }
@@ -68,8 +75,18 @@ namespace Application.DTOs
         public string? GigId { get; set; }
         public string? PaymentOption { get; set; }
         public int Amount { get; set; }
+
+        /// <summary>
+        /// The base service cost (caregiver's OrderFee) before platform/gateway fees.
+        /// Used for wallet crediting.
+        /// </summary>
+        public decimal OrderFee { get; set; }
+
         public string? TransactionId { get; set; }
         public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
+        public int? FrequencyPerWeek { get; set; }
+        public string? ServiceType { get; set; }
+        public int? BillingCycleNumber { get; set; }
     }
 
     public class UpdateClientOrderStatusRequest
@@ -84,5 +101,10 @@ namespace Application.DTOs
         public string? ClientOrderStatus { get; set; }
         public string? DisputeReason { get; set; }
         public string? UserId { get; set; }
+    }
+
+    public class CancelOrderRequest
+    {
+        public string? Reason { get; set; }
     }
 }

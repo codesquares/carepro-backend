@@ -27,6 +27,8 @@ namespace Domain.Entities
 
         public double Longitude { get; set; }
 
+        public string? PostalCode { get; set; }
+
         public bool IsActive { get; set; }
 
         public bool IsDeleted { get; set; }

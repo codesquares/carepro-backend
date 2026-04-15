@@ -20,12 +20,12 @@ namespace Domain.Entities
         /// <summary>
         /// "MultipleChoice" or "ScenarioBased"
         /// </summary>
-        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? QuestionType { get; set; } = "MultipleChoice";
 
         /// <summary>
         /// "Easy", "Medium", "Hard"
         /// </summary>
-        public string DifficultyLevel { get; set; } = "Medium";
+        public string? DifficultyLevel { get; set; } = "Medium";
 
         public string Question { get; set; }
         public List<string> Options { get; set; } // A, B, C, D options

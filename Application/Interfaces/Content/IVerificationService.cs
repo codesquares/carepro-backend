@@ -21,5 +21,7 @@ namespace Application.Interfaces.Content
 
         Task<string> AddVerificationAsync(AddVerificationRequest addVerificationRequest);
 
+        Task<int> BackfillCaregiverVerificationStateAsync();
+
     }
 }

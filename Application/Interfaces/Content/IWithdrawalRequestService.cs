@@ -23,6 +23,7 @@ namespace Application.Interfaces.Content
 
         Task<WithdrawalRequestResponse> VerifyWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request);
         Task<WithdrawalRequestResponse> CompleteWithdrawalRequestAsync(string token, string adminId);
+        Task<WithdrawalRequestResponse> CompleteWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request);
         Task<WithdrawalRequestResponse> RejectWithdrawalRequestAsync(AdminWithdrawalVerificationRequest request);
         Task<bool> TokenExists(string token);
         Task<bool> HasPendingRequest(string caregiverId);

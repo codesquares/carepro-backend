@@ -30,5 +30,19 @@ namespace Domain.Entities
         public bool? IsUpdatedToPause { get; set; }
         public bool? IsDeleted { get; set; }
         public DateTime? DeletedOn { get; set; }
+
+        // ── Special Gig fields (auto-generated from Care Request hire flow) ──
+
+        /// <summary>True if this gig was auto-generated from a care request hire action</summary>
+        public bool? IsSpecialGig { get; set; }
+
+        /// <summary>The care request that triggered this special gig</summary>
+        public string? CareRequestId { get; set; }
+
+        /// <summary>The CareRequestResponse that was hired</summary>
+        public string? CareRequestResponseId { get; set; }
+
+        /// <summary>The client who hired this caregiver (scoped access)</summary>
+        public string? ScopedClientId { get; set; }
     }
 }

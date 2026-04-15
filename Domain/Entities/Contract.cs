@@ -19,6 +19,9 @@ namespace Domain.Entities
         public PackageSelection SelectedPackage { get; set; } = new PackageSelection();
         public List<ClientTask> Tasks { get; set; } = new List<ClientTask>();
 
+        // Proposed tasks during contract negotiation (client or caregiver can propose)
+        public List<ContractProposedTask> ProposedTasks { get; set; } = new List<ContractProposedTask>();
+
         // Contract Terms (LLM generated)
         public string GeneratedTerms { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
@@ -28,11 +31,21 @@ namespace Domain.Entities
         public string? SubmittedByCaregiverId { get; set; }
         public DateTime? SubmittedAt { get; set; }
 
+        // NEW: Client-initiated contract generation
+        public string? SubmittedByClientId { get; set; }
+
+        /// <summary>
+        /// Which role created the contract: "Client" or "Caregiver". Null for legacy contracts (treated as "Caregiver").
+        /// </summary>
+        public string? InitiatedByRole { get; set; } = "Caregiver";
+
         // NEW: Agreed Schedule (caregiver submits after negotiation with client)
         public List<ScheduledVisit> Schedule { get; set; } = new List<ScheduledVisit>();
 
         // NEW: Caregiver Notes (details from client-caregiver discussion)
         public string? ServiceAddress { get; set; }
+        public double? ServiceLatitude { get; set; }
+        public double? ServiceLongitude { get; set; }
         public string? SpecialClientRequirements { get; set; }
         public string? AccessInstructions { get; set; }
         public string? CaregiverAdditionalNotes { get; set; }
@@ -104,12 +117,17 @@ namespace Domain.Entities
     public enum ContractStatus
     {
         // NEW: Caregiver-initiated flow statuses
-        Draft,                    // Caregiver is preparing contract
-        PendingClientApproval,    // Contract sent to client for approval
-        ClientReviewRequested,    // Client requested changes (Round 1)
-        Revised,                  // Caregiver revised and resubmitted (Round 2)
-        Approved,                 // Client approved the contract - now active
+        Draft,                    // Someone is preparing contract
+        PendingClientApproval,    // Contract sent to client for approval (caregiver-initiated)
+        ClientReviewRequested,    // Client requested changes (Round 1, caregiver-initiated)
+        Revised,                  // Counterparty revised and resubmitted (Round 2)
+        Approved,                 // Contract approved - now active
         ClientRejected,           // Client rejected after Round 2 (requests new caregiver)
+
+        // NEW: Client-initiated flow statuses
+        PendingCaregiverApproval, // Contract sent to caregiver for approval (client-initiated)
+        CaregiverReviewRequested, // Caregiver requested changes (Round 1, client-initiated)
+        CaregiverRejected,        // Caregiver rejected after Round 2 (client-initiated)
 
         // LEGACY: Keeping for backward compatibility with existing contracts
         Generated,      // Contract created after payment (old flow)
@@ -123,7 +141,8 @@ namespace Domain.Entities
         // Lifecycle statuses (used by both flows)
         Expired,       // Contract expired without response
         Completed,     // Service completed
-        Terminated     // Contract terminated early
+        Terminated,    // Contract terminated early
+        Cancelled      // Auto-cancelled during migration to negotiation flow
     }
 
     public enum TaskCategory
@@ -145,5 +164,24 @@ namespace Domain.Entities
         Medium,
         High,
         Critical
+    }
+
+    /// <summary>
+    /// A task proposed during contract negotiation by either client or caregiver.
+    /// Must be accepted by the other party before it becomes part of the contract.
+    /// </summary>
+    public class ContractProposedTask
+    {
+        public string Id { get; set; } = ObjectId.GenerateNewId().ToString();
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public TaskCategory Category { get; set; } = TaskCategory.Other;
+        public TaskPriority Priority { get; set; } = TaskPriority.Medium;
+        public string ProposedBy { get; set; } = string.Empty;       // userId
+        public string ProposedByRole { get; set; } = string.Empty;   // "Client" or "Caregiver"
+        public string Status { get; set; } = "Proposed";              // "Proposed", "Accepted", "Rejected"
+        public string? ResponseNote { get; set; }
+        public DateTime ProposedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? RespondedAt { get; set; }
     }
 }

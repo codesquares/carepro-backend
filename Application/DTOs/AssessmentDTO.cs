@@ -53,7 +53,7 @@ namespace Application.DTOs
         /// </summary>
         public string? SessionId { get; set; }
 
-        public List<AssessmentQuestion> Questions { get; set; }
+        public List<AssessmentQuestionSubmitDTO> Questions { get; set; }
         public string Status { get; set; }
         public int Score { get; set; }
     }

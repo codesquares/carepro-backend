@@ -45,6 +45,7 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AdminUser>().ToCollection("AdminUsers");
             modelBuilder.Entity<AdminUser>().HasKey(au => au.Id);
             modelBuilder.Entity<AdminUser>().Property(au => au.Id).HasElementName("_id");
+            modelBuilder.Entity<AdminUser>().HasIndex(au => au.Email).IsUnique();
             modelBuilder.Entity<Gig>().ToCollection("Gigs");
             modelBuilder.Entity<ClientOrder>().ToCollection("ClientOrders");
             modelBuilder.Entity<Certification>().ToCollection("Certifications");
@@ -102,6 +103,96 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AssessmentSession>().ToCollection("AssessmentSessions");
             modelBuilder.Entity<AssessmentSession>().HasKey(s => s.Id);
             modelBuilder.Entity<AssessmentSession>().Property(s => s.Id).HasElementName("_id");
+            modelBuilder.Entity<AssessmentSession>().Property(s => s.QuestionIds).HasElementName("QuestionIds");
+
+            modelBuilder.Entity<CaregiverWallet>().ToCollection("CaregiverWallets");
+            modelBuilder.Entity<CaregiverWallet>().HasKey(w => w.Id);
+            modelBuilder.Entity<CaregiverWallet>().Property(w => w.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverWallet>().HasIndex(w => w.CaregiverId).IsUnique();
+
+            modelBuilder.Entity<EarningsLedger>().ToCollection("EarningsLedger");
+            modelBuilder.Entity<EarningsLedger>().HasKey(el => el.Id);
+            modelBuilder.Entity<EarningsLedger>().Property(el => el.Id).HasElementName("_id");
+
+            modelBuilder.Entity<BillingRecord>().ToCollection("BillingRecords");
+            modelBuilder.Entity<BillingRecord>().HasKey(br => br.Id);
+            modelBuilder.Entity<BillingRecord>().Property(br => br.Id).HasElementName("_id");
+
+            modelBuilder.Entity<CaregiverBankAccount>().ToCollection("CaregiverBankAccounts");
+            modelBuilder.Entity<CaregiverBankAccount>().HasKey(ba => ba.Id);
+            modelBuilder.Entity<CaregiverBankAccount>().Property(ba => ba.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverBankAccount>().HasIndex(ba => ba.CaregiverId).IsUnique();
+
+            modelBuilder.Entity<BookingCommitment>().ToCollection("BookingCommitments");
+            modelBuilder.Entity<BookingCommitment>().HasKey(bc => bc.Id);
+            modelBuilder.Entity<BookingCommitment>().Property(bc => bc.Id).HasElementName("_id");
+
+            modelBuilder.Entity<TaskSheet>().ToCollection("TaskSheets");
+            modelBuilder.Entity<TaskSheet>().HasKey(ts => ts.Id);
+            modelBuilder.Entity<TaskSheet>().Property(ts => ts.Id).HasElementName("_id");
+
+            modelBuilder.Entity<VisitCheckin>().ToCollection("VisitCheckins");
+            modelBuilder.Entity<VisitCheckin>().HasKey(vc => vc.Id);
+            modelBuilder.Entity<VisitCheckin>().Property(vc => vc.Id).HasElementName("_id");
+
+            modelBuilder.Entity<ObservationReport>().ToCollection("ObservationReports");
+            modelBuilder.Entity<ObservationReport>().HasKey(or => or.Id);
+            modelBuilder.Entity<ObservationReport>().Property(or => or.Id).HasElementName("_id");
+
+            modelBuilder.Entity<IncidentReport>().ToCollection("IncidentReports");
+            modelBuilder.Entity<IncidentReport>().HasKey(ir => ir.Id);
+            modelBuilder.Entity<IncidentReport>().Property(ir => ir.Id).HasElementName("_id");
+
+            modelBuilder.Entity<Dispute>().ToCollection("Disputes");
+            modelBuilder.Entity<Dispute>().HasKey(d => d.Id);
+            modelBuilder.Entity<Dispute>().Property(d => d.Id).HasElementName("_id");
+
+            modelBuilder.Entity<ChatViolation>().ToCollection("ChatViolations");
+            modelBuilder.Entity<ChatViolation>().HasKey(cv => cv.Id);
+            modelBuilder.Entity<ChatViolation>().Property(cv => cv.Id).HasElementName("_id");
+
+            modelBuilder.Entity<OrderNegotiation>().ToCollection("OrderNegotiations");
+            modelBuilder.Entity<OrderNegotiation>().HasKey(n => n.Id);
+            modelBuilder.Entity<OrderNegotiation>().Property(n => n.Id).HasElementName("_id");
+
+            modelBuilder.Entity<ClientWallet>().ToCollection("ClientWallets");
+            modelBuilder.Entity<ClientWallet>().HasKey(cw => cw.Id);
+            modelBuilder.Entity<ClientWallet>().Property(cw => cw.Id).HasElementName("_id");
+            modelBuilder.Entity<ClientWallet>().HasIndex(cw => cw.ClientId).IsUnique();
+
+            modelBuilder.Entity<ClientWalletLedger>().ToCollection("ClientWalletLedgers");
+            modelBuilder.Entity<ClientWalletLedger>().HasKey(cl => cl.Id);
+            modelBuilder.Entity<ClientWalletLedger>().Property(cl => cl.Id).HasElementName("_id");
+
+            modelBuilder.Entity<CareRequestResponse>().ToCollection("CareRequestResponses");
+            modelBuilder.Entity<CareRequestResponse>().HasKey(crr => crr.Id);
+            modelBuilder.Entity<CareRequestResponse>().Property(crr => crr.Id).HasElementName("_id");
+
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().ToCollection("CareRequestNotifiedCaregivers");
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().HasKey(cn => cn.Id);
+            modelBuilder.Entity<CareRequestNotifiedCaregiver>().Property(cn => cn.Id).HasElementName("_id");
+
+            modelBuilder.Entity<RefundRequest>().ToCollection("RefundRequests");
+            modelBuilder.Entity<RefundRequest>().HasKey(rr => rr.Id);
+            modelBuilder.Entity<RefundRequest>().Property(rr => rr.Id).HasElementName("_id");
+
+            modelBuilder.Entity<GigTemplateCategory>().ToCollection("GigTemplateCategories");
+            modelBuilder.Entity<GigTemplateCategory>().HasKey(gt => gt.Id);
+            modelBuilder.Entity<GigTemplateCategory>().Property(gt => gt.Id).HasElementName("_id");
+
+            // ── GDPR Global Query Filters ──
+            // Automatically exclude soft-deleted records from all LINQ queries.
+            // Note: FindAsync() bypasses these filters by EF Core design.
+            // Gig uses bool? (nullable) — existing records may have null, so use != true
+            modelBuilder.Entity<Gig>().HasQueryFilter(g => g.IsDeleted != true);
+            // All other entities use non-nullable bool — defaults to false for existing records
+            modelBuilder.Entity<Caregiver>().HasQueryFilter(c => !c.IsDeleted);
+            modelBuilder.Entity<AppUser>().HasQueryFilter(u => !u.IsDeleted);
+            modelBuilder.Entity<Client>().HasQueryFilter(c => !c.IsDeleted);
+            modelBuilder.Entity<AdminUser>().HasQueryFilter(a => !a.IsDeleted);
+            modelBuilder.Entity<ChatMessage>().HasQueryFilter(m => !m.IsDeleted);
+            modelBuilder.Entity<Location>().HasQueryFilter(l => !l.IsDeleted);
+            modelBuilder.Entity<CareRequest>().HasQueryFilter(cr => cr.DeletedAt == null);
 
         }
 
@@ -136,5 +227,23 @@ namespace Infrastructure.Content.Data
         public DbSet<Subscription> Subscriptions { get; set; }
         public DbSet<ServiceRequirement> ServiceRequirements { get; set; }
         public DbSet<AssessmentSession> AssessmentSessions { get; set; }
+        public DbSet<CaregiverWallet> CaregiverWallets { get; set; }
+        public DbSet<EarningsLedger> EarningsLedger { get; set; }
+        public DbSet<BillingRecord> BillingRecords { get; set; }
+        public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
+        public DbSet<BookingCommitment> BookingCommitments { get; set; }
+        public DbSet<TaskSheet> TaskSheets { get; set; }
+        public DbSet<VisitCheckin> VisitCheckins { get; set; }
+        public DbSet<ObservationReport> ObservationReports { get; set; }
+        public DbSet<IncidentReport> IncidentReports { get; set; }
+        public DbSet<Dispute> Disputes { get; set; }
+        public DbSet<ChatViolation> ChatViolations { get; set; }
+        public DbSet<OrderNegotiation> OrderNegotiations { get; set; }
+        public DbSet<ClientWallet> ClientWallets { get; set; }
+        public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
+        public DbSet<CareRequestResponse> CareRequestResponses { get; set; }
+        public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
+        public DbSet<RefundRequest> RefundRequests { get; set; }
+        public DbSet<GigTemplateCategory> GigTemplateCategories { get; set; }
     }
 }

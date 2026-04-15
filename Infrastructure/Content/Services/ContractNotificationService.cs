@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.Interfaces.Content;
 using Application.DTOs;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Application.Interfaces.Email;
@@ -12,18 +14,18 @@ namespace Infrastructure.Content.Services
     public class ContractNotificationService : IContractNotificationService
     {
         private readonly CareProDbContext _context;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<ContractNotificationService> _logger;
 
         public ContractNotificationService(
             CareProDbContext context,
-            INotificationService notificationService,
+            IMediator mediator,
             IEmailService emailService,
             ILogger<ContractNotificationService> logger)
         {
             _context = context;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
         }
@@ -53,21 +55,23 @@ namespace Infrastructure.Content.Services
                     $"Package: {contract.SelectedPackage.VisitsPerWeek} visits/week for {contract.SelectedPackage.DurationWeeks} weeks. " +
                     $"Total: ${contract.TotalAmount:F2}";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.CaregiverId,
-                    senderId: contract.ClientId,
-                    type: "contract_received",
-                    content: notificationMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.CaregiverId,
+                    SenderId: contract.ClientId,
+                    Type: NotificationTypes.ContractReceived,
+                    Content: notificationMessage,
                     Title: "New Care Contract",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 // Create dashboard notification for contract response
                 await CreateDashboardNotificationAsync(
                     contract.CaregiverId,
                     "You have received a new care contract. Please review and respond.",
-                    "contract_pending",
-                    contractId
+                    NotificationTypes.ContractPending,
+                    contractId,
+                    contract.OrderId
                 );
 
                 _logger.LogInformation("Contract notification sent to caregiver {CaregiverId} for contract {ContractId}",
@@ -141,31 +145,32 @@ namespace Infrastructure.Content.Services
                 {
                     case "accept":
                         notificationMessage = $"{caregiverName} has accepted your care contract. Your service is confirmed!";
-                        notificationType = "contract_accepted";
+                        notificationType = NotificationTypes.ContractAccepted;
                         break;
                     case "reject":
                         notificationMessage = $"{caregiverName} has declined your care contract. View alternative caregivers.";
-                        notificationType = "contract_rejected";
+                        notificationType = NotificationTypes.ContractRejected;
                         break;
                     case "review":
                         notificationMessage = $"{caregiverName} has requested to review your care contract terms.";
-                        notificationType = "contract_review_requested";
+                        notificationType = NotificationTypes.ContractReviewRequested;
                         break;
                     default:
                         notificationMessage = $"{caregiverName} has responded to your care contract.";
-                        notificationType = "contract_response";
+                        notificationType = NotificationTypes.ContractResponse;
                         break;
                 }
 
                 // Create in-app notification
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.ClientId,
-                    senderId: contract.CaregiverId,
-                    type: notificationType,
-                    content: notificationMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: contract.CaregiverId,
+                    Type: notificationType,
+                    Content: notificationMessage,
                     Title: "Care Contract Response",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 // Send email notification
                 if (!string.IsNullOrEmpty(client.Email))
@@ -202,14 +207,15 @@ namespace Infrastructure.Content.Services
                 var reminderMessage = "Reminder: You have a pending care contract awaiting your response. " +
                     "Please review and respond to avoid expiry.";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.CaregiverId,
-                    senderId: "system",
-                    type: "contract_reminder",
-                    content: reminderMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.CaregiverId,
+                    SenderId: "system",
+                    Type: NotificationTypes.ContractReminder,
+                    Content: reminderMessage,
                     Title: "Contract Response Reminder",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 return true;
             }
@@ -233,14 +239,15 @@ namespace Infrastructure.Content.Services
                 var expiryMessage = "Your care contract has expired without a response. " +
                     "You can view alternative caregivers or create a new contract.";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.ClientId,
-                    senderId: "system",
-                    type: "contract_expired",
-                    content: expiryMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.ContractExpired,
+                    Content: expiryMessage,
                     Title: "Contract Expired",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 return true;
             }
@@ -282,18 +289,19 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        public async Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId)
+        public async Task<bool> CreateDashboardNotificationAsync(string userId, string message, string type, string contractId, string? orderId = null)
         {
             try
             {
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: userId,
-                    senderId: "system",
-                    type: type,
-                    content: message,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: userId,
+                    SenderId: "system",
+                    Type: type,
+                    Content: message,
                     Title: "Contract Update",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: orderId
+                ));
 
                 return true;
             }
@@ -331,21 +339,34 @@ namespace Infrastructure.Content.Services
                 var caregiverName = $"{caregiver.FirstName} {caregiver.LastName}";
                 var isRevision = contract.NegotiationRound > 1;
 
+                // Check for proposed task responses in revision
+                var acceptedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Accepted") ?? 0;
+                var rejectedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Rejected") ?? 0;
+                var taskResponseInfo = "";
+                if (isRevision && (acceptedCount > 0 || rejectedCount > 0))
+                {
+                    var parts = new List<string>();
+                    if (acceptedCount > 0) parts.Add($"accepted {acceptedCount}");
+                    if (rejectedCount > 0) parts.Add($"rejected {rejectedCount}");
+                    taskResponseInfo = $" They {string.Join(" and ", parts)} of your proposed task(s).";
+                }
+
                 var notificationMessage = isRevision
-                    ? $"{caregiverName} has revised the care contract based on your feedback. Please review and approve or reject."
+                    ? $"{caregiverName} has revised the care contract based on your feedback.{taskResponseInfo} Please review and approve or reject."
                     : $"{caregiverName} has sent you a care contract for approval. Package: {contract.SelectedPackage.VisitsPerWeek} visits/week. Total: ${contract.TotalAmount:F2}";
 
-                var notificationType = isRevision ? "contract_revised" : "contract_pending_approval";
+                var notificationType = isRevision ? NotificationTypes.ContractRevised : NotificationTypes.ContractPendingApproval;
                 var title = isRevision ? "Revised Care Contract" : "New Care Contract for Approval";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.ClientId,
-                    senderId: contract.CaregiverId,
-                    type: notificationType,
-                    content: notificationMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: contract.CaregiverId,
+                    Type: notificationType,
+                    Content: notificationMessage,
                     Title: title,
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 // Create dashboard notification
                 await CreateDashboardNotificationAsync(
@@ -353,8 +374,9 @@ namespace Infrastructure.Content.Services
                     isRevision 
                         ? "A revised care contract is awaiting your approval." 
                         : "You have a new care contract to review and approve.",
-                    "contract_pending_client_approval",
-                    contractId
+                    NotificationTypes.ContractPendingClientApproval,
+                    contractId,
+                    contract.OrderId
                 );
 
                 _logger.LogInformation("Contract notification sent to client {ClientId} for contract {ContractId} (Round {Round})",
@@ -428,41 +450,47 @@ namespace Infrastructure.Content.Services
                 {
                     case "approved":
                         notificationMessage = $"Great news! {clientName} has approved your care contract. The service is now confirmed!";
-                        notificationType = "contract_client_approved";
+                        notificationType = NotificationTypes.ContractClientApproved;
                         title = "Contract Approved";
                         break;
                     case "review_requested":
-                        notificationMessage = $"{clientName} has requested changes to the contract. Please review their feedback and submit a revised schedule.";
-                        notificationType = "contract_review_requested";
-                        title = "Contract Review Requested";
+                        var proposedCount = contract.ProposedTasks?.Count(pt => pt.Status == "Proposed") ?? 0;
+                        var taskInfo = proposedCount > 0
+                            ? $" They also proposed {proposedCount} new task(s) for your review."
+                            : "";
+                        notificationMessage = $"{clientName} has requested changes to the contract.{taskInfo} Please review their feedback and submit a revised schedule.";
+                        notificationType = NotificationTypes.ContractReviewRequested;
+                        title = proposedCount > 0 ? "Contract Review Requested with Task Proposals" : "Contract Review Requested";
                         break;
                     case "rejected":
                         notificationMessage = $"{clientName} has rejected the revised contract. They may be looking for a different caregiver.";
-                        notificationType = "contract_client_rejected";
+                        notificationType = NotificationTypes.ContractClientRejected;
                         title = "Contract Rejected";
                         break;
                     default:
                         notificationMessage = $"{clientName} has responded to your care contract.";
-                        notificationType = "contract_client_response";
+                        notificationType = NotificationTypes.ContractClientResponse;
                         title = "Contract Response";
                         break;
                 }
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.CaregiverId,
-                    senderId: contract.ClientId,
-                    type: notificationType,
-                    content: notificationMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.CaregiverId,
+                    SenderId: contract.ClientId,
+                    Type: notificationType,
+                    Content: notificationMessage,
                     Title: title,
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 // Create dashboard notification
                 await CreateDashboardNotificationAsync(
                     contract.CaregiverId,
                     notificationMessage,
                     notificationType,
-                    contractId
+                    contractId,
+                    contract.OrderId
                 );
 
                 // Send email if caregiver has email
@@ -500,20 +528,176 @@ namespace Infrastructure.Content.Services
                 var reminderMessage = "Reminder: You have a care contract awaiting your approval. " +
                     "Please review and respond to finalize your care service.";
 
-                await _notificationService.CreateNotificationAsync(
-                    recipientId: contract.ClientId,
-                    senderId: "system",
-                    type: "contract_client_reminder",
-                    content: reminderMessage,
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.ContractClientReminder,
+                    Content: reminderMessage,
                     Title: "Contract Approval Reminder",
-                    relatedEntityId: contractId
-                );
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
 
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending contract reminder to client for contract {ContractId}", contractId);
+                return false;
+            }
+        }
+
+        // ========================================
+        // CLIENT-INITIATED FLOW: Notification Methods
+        // ========================================
+
+        public async Task<bool> SendContractNotificationToCaregiverForApprovalAsync(string contractId)
+        {
+            try
+            {
+                var contract = await GetContractWithDetailsAsync(contractId);
+                if (contract == null)
+                {
+                    _logger.LogWarning("Contract {ContractId} not found for caregiver approval notification", contractId);
+                    return false;
+                }
+
+                var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(contract.ClientId));
+                var caregiver = await _context.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(contract.CaregiverId));
+
+                if (client == null || caregiver == null)
+                {
+                    _logger.LogWarning("Client or Caregiver not found for contract {ContractId}", contractId);
+                    return false;
+                }
+
+                var clientName = $"{client.FirstName} {client.LastName}";
+                var isRevision = contract.NegotiationRound > 1;
+
+                var notificationMessage = isRevision
+                    ? $"{clientName} has revised the care contract. Please review and approve, request changes, or reject."
+                    : $"{clientName} has sent you a care contract for approval. Package: {contract.SelectedPackage.VisitsPerWeek} visits/week. Total: ${contract.TotalAmount:F2}";
+
+                var title = isRevision ? "Revised Care Contract" : "New Care Contract for Your Approval";
+
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.CaregiverId,
+                    SenderId: contract.ClientId,
+                    Type: NotificationTypes.ContractPendingApproval,
+                    Content: notificationMessage,
+                    Title: title,
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
+
+                await CreateDashboardNotificationAsync(
+                    contract.CaregiverId,
+                    isRevision
+                        ? "A revised care contract is awaiting your approval."
+                        : "You have a new care contract to review and approve.",
+                    NotificationTypes.ContractPending,
+                    contractId,
+                    contract.OrderId
+                );
+
+                if (!string.IsNullOrEmpty(caregiver.Email))
+                {
+                    await _emailService.SendNotificationEmailAsync(
+                        caregiver.Email,
+                        caregiver.FirstName,
+                        1
+                    );
+                }
+
+                _logger.LogInformation("Caregiver approval notification sent for contract {ContractId} to caregiver {CaregiverId}",
+                    contractId, contract.CaregiverId);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending caregiver approval notification for contract {ContractId}", contractId);
+                return false;
+            }
+        }
+
+        public async Task<bool> NotifyClientOfCaregiverResponseAsync(string contractId, string response)
+        {
+            try
+            {
+                var contract = await GetContractWithDetailsAsync(contractId);
+                if (contract == null) return false;
+
+                var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(contract.ClientId));
+                var caregiver = await _context.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(contract.CaregiverId));
+
+                if (client == null || caregiver == null) return false;
+
+                var caregiverName = $"{caregiver.FirstName} {caregiver.LastName}";
+                string notificationMessage;
+                string notificationType;
+                string title;
+
+                switch (response.ToLower())
+                {
+                    case "approved":
+                        notificationMessage = $"Great news! {caregiverName} has approved your care contract. The service is now confirmed!";
+                        notificationType = NotificationTypes.ContractAccepted;
+                        title = "Contract Approved by Caregiver";
+                        break;
+                    case "review_requested":
+                        notificationMessage = $"{caregiverName} has requested changes to your care contract. Please review their feedback and revise.";
+                        notificationType = NotificationTypes.ContractReviewRequested;
+                        title = "Contract Review Requested";
+                        break;
+                    case "rejected":
+                        notificationMessage = $"{caregiverName} has rejected your care contract. You may look for alternative caregivers.";
+                        notificationType = NotificationTypes.ContractRejected;
+                        title = "Contract Rejected";
+                        break;
+                    default:
+                        notificationMessage = $"{caregiverName} has responded to your care contract.";
+                        notificationType = NotificationTypes.ContractResponse;
+                        title = "Contract Response";
+                        break;
+                }
+
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: contract.CaregiverId,
+                    Type: notificationType,
+                    Content: notificationMessage,
+                    Title: title,
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
+
+                // Create dashboard notification
+                await CreateDashboardNotificationAsync(
+                    contract.ClientId,
+                    notificationMessage,
+                    notificationType,
+                    contractId,
+                    contract.OrderId
+                );
+
+                if (!string.IsNullOrEmpty(client.Email))
+                {
+                    await _emailService.SendNotificationEmailAsync(
+                        client.Email,
+                        client.FirstName,
+                        1
+                    );
+                }
+
+                _logger.LogInformation("Client notified of caregiver response for contract {ContractId}: {Response}",
+                    contractId, response);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error notifying client of caregiver response for contract {ContractId}", contractId);
                 return false;
             }
         }

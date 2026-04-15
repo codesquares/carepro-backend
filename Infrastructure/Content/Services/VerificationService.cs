@@ -214,6 +214,12 @@ namespace Infrastructure.Content.Services
                     return null;
                 }
 
+                // Get the latest webhook log timestamp for this user
+                var lastWebhookLog = await careProDbContext.WebhookLogs
+                    .Where(w => w.UserId == userId)
+                    .OrderByDescending(w => w.ReceivedAt)
+                    .FirstOrDefaultAsync();
+
                 var verificationResponse = new VerificationResponse()
                 {
                     VerificationId = verification.VerificationId.ToString(),
@@ -224,6 +230,7 @@ namespace Infrastructure.Content.Services
                     IsVerified = verification.IsVerified,
                     VerifiedOn = verification.VerifiedOn,
                     UpdatedOn = verification.UpdatedOn,
+                    LastWebhookReceivedAt = lastWebhookLog?.ReceivedAt,
                 };
 
                 return verificationResponse;
@@ -257,6 +264,10 @@ namespace Infrastructure.Content.Services
                 // Check for existing verification
                 var existingVerification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId == addVerificationRequest.UserId);
 
+                bool isVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
+                                  addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
+                                  addVerificationRequest.VerificationStatus?.ToLower() == "success";
+
                 if (existingVerification != null)
                 {
                     // Update existing verification instead of throwing error
@@ -265,17 +276,16 @@ namespace Infrastructure.Content.Services
                     existingVerification.VerificationMethod = addVerificationRequest.VerificationMethod;
                     existingVerification.VerificationStatus = addVerificationRequest.VerificationStatus;
                     existingVerification.VerificationNo = addVerificationRequest.VerificationNo;
-                    existingVerification.UpdatedOn = DateTime.Now;
-
-                    // Update verified status based on status
-                    existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                                      addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
-                                                      addVerificationRequest.VerificationStatus?.ToLower() == "success";
+                    existingVerification.UpdatedOn = DateTime.UtcNow;
+                    existingVerification.IsVerified = isVerified;
 
                     await careProDbContext.SaveChangesAsync();
 
                     logger.LogInformation("Successfully updated verification for UserId: {UserId} with status: {Status}",
                         addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
+
+                    // Update caregiver profile with verification state
+                    await UpdateCaregiverVerificationStateAsync(addVerificationRequest.UserId, isVerified, addVerificationRequest.VerificationStatus);
 
                     return existingVerification.VerificationId.ToString();
                 }
@@ -290,10 +300,8 @@ namespace Infrastructure.Content.Services
                     VerificationStatus = addVerificationRequest.VerificationStatus,
                     UserId = addVerificationRequest.UserId,
                     VerificationId = ObjectId.GenerateNewId(),
-                    IsVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                 addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
-                                 addVerificationRequest.VerificationStatus?.ToLower() == "success",
-                    VerifiedOn = DateTime.Now,
+                    IsVerified = isVerified,
+                    VerifiedOn = DateTime.UtcNow,
                 };
 
                 await careProDbContext.Verifications.AddAsync(verification);
@@ -302,6 +310,9 @@ namespace Infrastructure.Content.Services
                 logger.LogInformation("Successfully created verification for UserId: {UserId} with status: {Status}",
                     addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
 
+                // Update caregiver profile with verification state
+                await UpdateCaregiverVerificationStateAsync(addVerificationRequest.UserId, isVerified, addVerificationRequest.VerificationStatus);
+
                 return verification.VerificationId.ToString();
             }
             catch (Exception ex)
@@ -309,6 +320,69 @@ namespace Infrastructure.Content.Services
                 logger.LogError(ex, "Error processing verification for UserId: {UserId}", addVerificationRequest.UserId);
                 throw;
             }
+        }
+
+        private async Task UpdateCaregiverVerificationStateAsync(string userId, bool isVerified, string? verificationStatus)
+        {
+            try
+            {
+                var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == userId);
+                if (caregiver == null)
+                {
+                    logger.LogWarning("Caregiver not found for userId {UserId}, skipping profile verification update", userId);
+                    return;
+                }
+
+                caregiver.IsIdentityVerified = isVerified;
+                caregiver.IdentityVerificationStatus = verificationStatus;
+                if (isVerified)
+                {
+                    caregiver.IdentityVerifiedAt = DateTime.UtcNow;
+                }
+
+                await careProDbContext.SaveChangesAsync();
+                logger.LogInformation("Updated caregiver profile verification state for UserId: {UserId}, IsIdentityVerified: {IsVerified}", userId, isVerified);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to update caregiver profile verification state for UserId: {UserId}", userId);
+                // Don't throw - verification record was already saved, this is a secondary update
+            }
+        }
+
+        public async Task<int> BackfillCaregiverVerificationStateAsync()
+        {
+            var verifiedRecords = await careProDbContext.Verifications
+                .Where(v => v.IsVerified)
+                .ToListAsync();
+
+            int updated = 0;
+
+            foreach (var verification in verifiedRecords)
+            {
+                try
+                {
+                    var caregiver = await careProDbContext.CareGivers
+                        .FirstOrDefaultAsync(c => c.Id.ToString() == verification.UserId);
+
+                    if (caregiver == null || caregiver.IsIdentityVerified == true)
+                        continue;
+
+                    caregiver.IsIdentityVerified = true;
+                    caregiver.IdentityVerificationStatus = verification.VerificationStatus;
+                    caregiver.IdentityVerifiedAt = verification.UpdatedOn ?? verification.VerifiedOn;
+
+                    await careProDbContext.SaveChangesAsync();
+                    updated++;
+                    logger.LogInformation("Backfilled verification state for caregiver: {UserId}", verification.UserId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to backfill verification state for caregiver: {UserId}", verification.UserId);
+                }
+            }
+
+            return updated;
         }
     }
 }

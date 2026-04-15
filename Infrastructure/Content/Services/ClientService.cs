@@ -104,7 +104,7 @@ namespace Infrastructure.Content.Services
                 AuthProvider = "local",
                 Status = true,
                 IsDeleted = false,
-                CreatedAt = DateTime.Now,
+                CreatedAt = DateTime.UtcNow,
             };
 
             await careProDbContext.Clients.AddAsync(clientUser);
@@ -154,14 +154,14 @@ namespace Infrastructure.Content.Services
 
             #region EmailVerificationHandling
 
-            // Check if this is a development environment or localhost origin
-            var isDevelopment = configuration.GetValue<bool>("Development:AutoConfirmEmail", false) ||
-                               origin?.Contains("localhost") == true ||
-                               origin?.Contains("127.0.0.1") == true;
+            // SECURITY: Only auto-confirm in Development environment (server-side check, NOT client-controlled)
+            var environment = configuration["ASPNETCORE_ENVIRONMENT"] ?? "Production";
+            var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase) &&
+                               configuration.GetValue<bool>("Development:AutoConfirmEmail", false);
 
             if (isDevelopment)
             {
-                // Auto-confirm email for development/localhost
+                // Auto-confirm email for development only
                 careProAppUser.EmailConfirmed = true;
                 careProDbContext.AppUsers.Update(careProAppUser);
                 await careProDbContext.SaveChangesAsync();
@@ -441,8 +441,11 @@ namespace Infrastructure.Content.Services
                 Role = client.Role,
                 Status = client.Status,
                 HomeAddress = client.HomeAddress,
+                Address = client.Address,
                 ProfileImage = client.ProfileImage,
                 AuthProvider = client.AuthProvider,
+                Latitude = client.Latitude,
+                Longitude = client.Longitude,
 
                 CreatedAt = client.CreatedAt,
             };
@@ -474,8 +477,11 @@ namespace Infrastructure.Content.Services
                     IsDeleted = clientUser.IsDeleted,
                     Status = clientUser.Status,
                     HomeAddress = clientUser.HomeAddress,
+                    Address = clientUser.Address,
                     ProfileImage = clientUser.ProfileImage,
                     AuthProvider = clientUser.AuthProvider,
+                    Latitude = clientUser.Latitude,
+                    Longitude = clientUser.Longitude,
                     CreatedAt = clientUser.CreatedAt,
                 };
                 clientUsersDTOs.Add(clientUserDTO);
@@ -492,7 +498,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingClient = await careProDbContext.Clients.FindAsync(objectId);
-            if (existingClient == null)
+            if (existingClient == null || existingClient.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
@@ -523,6 +529,13 @@ namespace Infrastructure.Content.Services
                 existingClient.PhoneNo = updateClientUserRequest.PhoneNo;
             }
 
+            // If frontend sent direct GPS coordinates, store them on the client
+            if (updateClientUserRequest.Latitude.HasValue && updateClientUserRequest.Longitude.HasValue)
+            {
+                existingClient.Latitude = updateClientUserRequest.Latitude.Value;
+                existingClient.Longitude = updateClientUserRequest.Longitude.Value;
+            }
+
             careProDbContext.Clients.Update(existingClient);
             await careProDbContext.SaveChangesAsync();
 
@@ -541,7 +554,7 @@ namespace Infrastructure.Content.Services
 
             var existingCareGiver = await careProDbContext.Clients.FindAsync(objectId);
 
-            if (existingCareGiver == null)
+            if (existingCareGiver == null || existingCareGiver.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
@@ -733,6 +746,7 @@ namespace Infrastructure.Content.Services
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 user.Password = hashedPassword;
+                user.EmailConfirmed = true;
 
                 var client = await careProDbContext.Clients.FirstOrDefaultAsync(c => c.Email == user.Email);
                 if (client != null)
@@ -766,7 +780,7 @@ namespace Infrastructure.Content.Services
             }
 
             var existingClient = await careProDbContext.Clients.FindAsync(objectId);
-            if (existingClient == null)
+            if (existingClient == null || existingClient.IsDeleted)
             {
                 throw new KeyNotFoundException($"Client with ID '{clientId}' not found.");
             }
@@ -781,13 +795,12 @@ namespace Infrastructure.Content.Services
             {
                 UserId = clientId,
                 UserType = "Client",
-                Address = request.Address
+                Address = request.Address,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude
             };
 
             var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
-
-            // The location service automatically updates the client entity's location fields
-            // through its UpdateUserEntityLocation method, so we don't need to manually update here
 
             return locationResult;
         }

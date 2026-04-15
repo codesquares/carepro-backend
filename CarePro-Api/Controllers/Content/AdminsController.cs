@@ -140,16 +140,61 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// GET ALL ORDERS - Admin endpoint to retrieve all orders in the system
+        /// GET DASHBOARD STATS - Admin endpoint to retrieve aggregated dashboard statistics
+        /// </summary>
+        [HttpGet]
+        [Route("DashboardStats")]
+        public async Task<IActionResult> GetDashboardStatsAsync()
+        {
+            try
+            {
+                var stats = await adminUserService.GetDashboardStatsAsync();
+                return Ok(new
+                {
+                    success = true,
+                    data = stats
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error retrieving dashboard stats");
+                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// GET ALL ORDERS - Admin endpoint to retrieve all orders in the system.
+        /// Supports optional pagination via query parameters.
         /// </summary>
         [HttpGet]
         [Route("AllOrders")]
         //[Authorize(Roles = "SuperAdmin,Admin")]
-        public async Task<IActionResult> GetAllOrdersAsync()
+        public async Task<IActionResult> GetAllOrdersAsync(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? search = null)
         {
             try
             {
                 logger.LogInformation("Admin retrieving all orders");
+
+                // If pagination params are provided, use paginated endpoint
+                if (page.HasValue || pageSize.HasValue)
+                {
+                    var paginatedOrders = await clientOrderService.GetAllOrdersPaginatedAsync(
+                        page ?? 1, pageSize ?? 20, status, search);
+                    return Ok(new
+                    {
+                        success = true,
+                        data = paginatedOrders.Items,
+                        totalCount = paginatedOrders.TotalCount,
+                        page = paginatedOrders.Page,
+                        pageSize = paginatedOrders.PageSize,
+                        hasMore = paginatedOrders.HasMore,
+                    });
+                }
+
                 var orders = await clientOrderService.GetAllOrdersAsync();
                 
                 return Ok(new
@@ -175,6 +220,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpPost]
         [Route("SendEmail")]
+        [RequestSizeLimit(157_286_400)] // 150MB
         //[Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<IActionResult> SendCustomEmailAsync([FromForm] SendCustomEmailRequest request)
         {
@@ -192,21 +238,27 @@ namespace CarePro_Api.Controllers.Content
                 
                 if (request.Attachments != null && request.Attachments.Any())
                 {
+                    // Validate all attachments upfront
+                    var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                    var validation = cloudinaryService.ValidateEmailAttachments(
+                        request.Attachments, maxCount: 10, maxFileSizeMB: 50, maxTotalSizeMB: 150);
+
+                    if (validation.HasErrors)
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Some attachments were rejected",
+                            errors = validation.Errors.Select(e => new
+                            {
+                                fileName = e.FileName,
+                                reason = e.ErrorMessage
+                            })
+                        });
+                    }
+
                     try
                     {
-                        // Validate attachment count (max 5)
-                        if (request.Attachments.Count > 5)
-                        {
-                            return BadRequest(new
-                            {
-                                success = false,
-                                message = "Maximum 5 attachments allowed per email"
-                            });
-                        }
-
-                        // Upload attachments using CloudinaryService
-                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
-                        
                         // Use recipient email as userId for organization
                         var userId = request.RecipientEmail.Replace("@", "_").Replace(".", "_");
                         
@@ -214,7 +266,7 @@ namespace CarePro_Api.Controllers.Content
                             request.Attachments, 
                             userId, 
                             expirationDays: 7,
-                            maxTotalSizeMB: 100
+                            maxTotalSizeMB: 150
                         );
 
                         logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for email to {request.RecipientEmail}");
@@ -242,7 +294,13 @@ namespace CarePro_Api.Controllers.Content
                 {
                     success = true,
                     message = $"Email sent successfully to {request.RecipientEmail}",
-                    attachmentCount = attachments.Count
+                    attachmentCount = attachments.Count,
+                    attachments = attachments.Select(a => new
+                    {
+                        fileName = a.FileName,
+                        fileSize = a.FileSize,
+                        mimeType = a.FileType
+                    })
                 });
             }
             catch (Exception ex)
@@ -263,6 +321,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpPost]
         [Route("SendBulkEmail")]
+        [RequestSizeLimit(157_286_400)] // 150MB
         //[Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<IActionResult> SendBulkEmailAsync([FromForm] SendBulkEmailRequest request)
         {
@@ -363,21 +422,27 @@ namespace CarePro_Api.Controllers.Content
                 
                 if (request.Attachments != null && request.Attachments.Any())
                 {
+                    // Validate all attachments upfront
+                    var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                    var validation = cloudinaryService.ValidateEmailAttachments(
+                        request.Attachments, maxCount: 10, maxFileSizeMB: 50, maxTotalSizeMB: 150);
+
+                    if (validation.HasErrors)
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Some attachments were rejected",
+                            errors = validation.Errors.Select(e => new
+                            {
+                                fileName = e.FileName,
+                                reason = e.ErrorMessage
+                            })
+                        });
+                    }
+
                     try
                     {
-                        // Validate attachment count (max 5)
-                        if (request.Attachments.Count > 5)
-                        {
-                            return BadRequest(new
-                            {
-                                success = false,
-                                message = "Maximum 5 attachments allowed per email"
-                            });
-                        }
-
-                        // Upload attachments using CloudinaryService
-                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
-                        
                         // Use "bulk-email" as userId for organization
                         var userId = $"bulk-email-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
                         
@@ -385,7 +450,7 @@ namespace CarePro_Api.Controllers.Content
                             request.Attachments, 
                             userId, 
                             expirationDays: 7,
-                            maxTotalSizeMB: 100
+                            maxTotalSizeMB: 150
                         );
 
                         logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for bulk email to {recipients.Count} recipients");
@@ -434,7 +499,13 @@ namespace CarePro_Api.Controllers.Content
                     TotalRecipients = recipients.Count,
                     SuccessfulSends = successCount,
                     FailedSends = failCount,
-                    Errors = errors
+                    Errors = errors,
+                    Attachments = attachments.Select(a => new AttachmentMetadata
+                    {
+                        FileName = a.FileName,
+                        FileSize = a.FileSize,
+                        MimeType = a.FileType
+                    }).ToList()
                 });
             }
             catch (Exception ex)
@@ -449,17 +520,76 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
-        #region Certificate Management Endpoints
-
         /// <summary>
-        /// Get all certificates system-wide with caregiver details
+        /// Upload a single image asset for inline use in email body.
+        /// Returns a public URL that can be embedded as an img tag in HTML email content.
         /// </summary>
-        [HttpGet("Certificates/All")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
-        public async Task<IActionResult> GetAllCertificatesAsync()
+        [HttpPost]
+        [Route("UploadEmailAsset")]
+        [RequestSizeLimit(10_485_760)] // 10MB
+        //[Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> UploadEmailAssetAsync(IFormFile file)
         {
             try
             {
+                if (file == null || file.Length == 0)
+                {
+                    return BadRequest(new { success = false, message = "No file provided" });
+                }
+
+                var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                var result = await cloudinaryService.UploadEmailAssetAsync(file);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error uploading email asset");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to upload email asset",
+                    error = ex.Message
+                });
+            }
+        }
+
+        #region Certificate Management Endpoints
+
+        /// <summary>
+        /// Get all certificates system-wide with caregiver details.
+        /// Supports optional pagination via query parameters.
+        /// </summary>
+        [HttpGet("Certificates/All")]
+        // [Authorize(Roles = "Admin,SuperAdmin")]
+        public async Task<IActionResult> GetAllCertificatesAsync(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? search = null)
+        {
+            try
+            {
+                if (page.HasValue || pageSize.HasValue)
+                {
+                    var paginatedCertificates = await certificationService.GetAllCertificatesPaginatedAsync(
+                        page ?? 1, pageSize ?? 20, status, search);
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Certificates retrieved successfully",
+                        data = paginatedCertificates.Items,
+                        totalCount = paginatedCertificates.TotalCount,
+                        page = paginatedCertificates.Page,
+                        pageSize = paginatedCertificates.PageSize,
+                        hasMore = paginatedCertificates.HasMore,
+                    });
+                }
+
                 var certificates = await certificationService.GetAllCertificatesAsync();
                 
                 return Ok(new

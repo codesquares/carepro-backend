@@ -40,6 +40,9 @@ namespace Application.Interfaces.Email
         Task SendContractReminderEmailAsync(string toEmail, string firstName, string subject, string message, 
             ContractDetails? contractDetails, EmailType reminderLevel);
 
+        // Contract PDF email
+        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes);
+
         // Admin custom email methods
         Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent, 
             List<Application.DTOs.Email.EmailAttachmentInfo>? attachments = null);

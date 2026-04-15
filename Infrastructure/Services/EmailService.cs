@@ -25,12 +25,14 @@ namespace Infrastructure.Services
         private readonly MailSettings emailSettings;
         private readonly CareProDbContext careProDbContext;
         private readonly ITokenHandler tokenHandler;
+        private readonly ILogger<EmailService> _logger;
 
-        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler)
+        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler, ILogger<EmailService> logger)
         {
             this.emailSettings = emailSettingsOptions.Value;
             this.careProDbContext = careProDbContext;
             this.tokenHandler = tokenHandler;
+            this._logger = logger;
         }
 
         public async Task SendNotificationEmailAsync(string toEmail, string firstName, int messageCount)
@@ -58,11 +60,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         public async Task SendPasswordResetEmailAsync(string toEmail, string resetLink, string firstName)
@@ -88,15 +86,8 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-
-            using var client = new MailKit.Net.Smtp.SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
-
-
 
         public async Task SendSignUpVerificationEmailAsync(string toEmail, string verificationLink, string firstName)
         {
@@ -120,11 +111,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         public async Task SendCaregiverWelcomeEmailAsync(string toEmail, string firstName)
@@ -198,11 +185,7 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            await SendEmailAsync(message);
         }
 
         // New immediate notification methods
@@ -533,6 +516,36 @@ namespace Infrastructure.Services
             await SendEmailAsync(emailMessage);
         }
 
+        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes)
+        {
+            var emailMessage = new MimeMessage();
+            emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            emailMessage.To.Add(MailboxAddress.Parse(toEmail));
+            emailMessage.Subject = $"Your Care Service Contract — {gigTitle} - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {firstName},</h3>
+                        <br />
+                        <h4 style='color: #28a745;'>📄 Your Care Service Contract is Ready</h4>
+                        <p>Your care service contract has been generated and is now active. Please find the full contract document attached as a PDF.</p>
+                        <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #0066cc;'>
+                            <p><strong>Service:</strong> {gigTitle}</p>
+                            <p><strong>Contract ID:</strong> {contractId}</p>
+                        </div>
+                        <p>You can also view and download the contract anytime from your CarePro dashboard.</p>
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            builder.Attachments.Add($"CarePro-Contract-{contractId}.pdf", pdfBytes, new MimeKit.ContentType("application", "pdf"));
+
+            emailMessage.Body = builder.ToMessageBody();
+            await SendEmailAsync(emailMessage);
+        }
+
         // Order notification methods
         public async Task SendOrderReceivedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string clientName, string orderId)
         {
@@ -647,14 +660,35 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
-        // Helper method to reduce code duplication
+        // Centralized SMTP send with full logging
         private async Task SendEmailAsync(MimeMessage message)
         {
-            using var client = new SmtpClient();
-            await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            var to = message.To.ToString();
+            var subject = message.Subject;
+            _logger.LogInformation("SMTP: Preparing to send email to {To}, Subject: {Subject}", to, subject);
+            _logger.LogInformation("SMTP: Server={Server}, Port={Port}, From={From}", emailSettings.SmtpServer, emailSettings.SmtpPort, emailSettings.FromEmail);
+
+            try
+            {
+                using var client = new SmtpClient();
+                _logger.LogInformation("SMTP: Connecting to {Server}:{Port} with StartTls...", emailSettings.SmtpServer, emailSettings.SmtpPort);
+                await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+                _logger.LogInformation("SMTP: Connected successfully. Authenticating as {User}...", emailSettings.FromEmail);
+
+                await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
+                _logger.LogInformation("SMTP: Authenticated successfully. Sending email to {To}...", to);
+
+                await client.SendAsync(message);
+                _logger.LogInformation("SMTP: Email sent successfully to {To}, Subject: {Subject}", to, subject);
+
+                await client.DisconnectAsync(true);
+                _logger.LogInformation("SMTP: Disconnected from server.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SMTP: Failed to send email to {To}, Subject: {Subject}. Error: {Error}", to, subject, ex.Message);
+                throw;
+            }
         }
 
         // Admin custom email methods
@@ -727,8 +761,10 @@ namespace Infrastructure.Services
             return fileType.ToLower() switch
             {
                 var t when t.Contains("pdf") => "📄",
-                var t when t.Contains("image") || t.Contains("jpeg") || t.Contains("jpg") => "🖼️",
-                var t when t.Contains("video") || t.Contains("mp4") => "🎬",
+                var t when t.Contains("image") || t.Contains("jpeg") || t.Contains("jpg") || t.Contains("png") || t.Contains("gif") || t.Contains("webp") || t.Contains("svg") => "🖼️",
+                var t when t.Contains("video") || t.Contains("mp4") || t.Contains("quicktime") || t.Contains("webm") || t.Contains("avi") => "🎬",
+                var t when t.Contains("word") || t.Contains("msword") || t.Contains("doc") => "📝",
+                var t when t.Contains("excel") || t.Contains("spreadsheet") || t.Contains("xls") || t.Contains("csv") => "📊",
                 _ => "📎"
             };
         }

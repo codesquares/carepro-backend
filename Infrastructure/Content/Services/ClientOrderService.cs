@@ -1,8 +1,11 @@
-﻿using Application.DTOs;
+﻿using Application.Commands;
+using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -23,9 +26,14 @@ namespace Infrastructure.Content.Services
         private readonly ICareGiverService careGiverService;
         private readonly IClientService clientService;
         private readonly ILogger<GigServices> logger;
-        private readonly INotificationService notificationService;
+        private readonly IMediator mediator;
         private readonly IOrderTasksService orderTasksService;
         private readonly IContractService contractService;
+        private readonly ICaregiverWalletService walletService;
+        private readonly IEarningsLedgerService ledgerService;
+        private readonly IBookingCommitmentService bookingCommitmentService;
+        private readonly IEmailService emailService;
+        private readonly IClientWalletService clientWalletService;
 
         public ClientOrderService(
             CareProDbContext careProDbContext,
@@ -33,18 +41,28 @@ namespace Infrastructure.Content.Services
             ICareGiverService careGiverService,
             IClientService clientService,
             ILogger<GigServices> logger,
-            INotificationService notificationService,
+            IMediator mediator,
             IOrderTasksService orderTasksService,
-            IContractService contractService)
+            IContractService contractService,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService,
+            IBookingCommitmentService bookingCommitmentService,
+            IEmailService emailService,
+            IClientWalletService clientWalletService)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
             this.careGiverService = careGiverService;
             this.clientService = clientService;
             this.logger = logger;
-            this.notificationService = notificationService;
+            this.mediator = mediator;
             this.orderTasksService = orderTasksService;
             this.contractService = contractService;
+            this.walletService = walletService;
+            this.ledgerService = ledgerService;
+            this.bookingCommitmentService = bookingCommitmentService;
+            this.emailService = emailService;
+            this.clientWalletService = clientWalletService;
         }
 
         public async Task<Result<ClientOrderDTO>> CreateClientOrderAsync(AddClientOrderRequest addClientOrderRequest)
@@ -64,6 +82,13 @@ namespace Infrastructure.Content.Services
 
             if (errors.Any())
             {
+                return Result<ClientOrderDTO>.Failure(errors);
+            }
+
+            // Validate OrderFee: must be positive
+            if (addClientOrderRequest.OrderFee <= 0)
+            {
+                errors.Add("OrderFee must be greater than zero.");
                 return Result<ClientOrderDTO>.Failure(errors);
             }
 
@@ -91,6 +116,7 @@ namespace Infrastructure.Content.Services
                 GigId = gig!.Id,
                 PaymentOption = addClientOrderRequest.PaymentOption ?? string.Empty,
                 Amount = addClientOrderRequest.Amount,
+                OrderFee = addClientOrderRequest.OrderFee,
                 TransactionId = addClientOrderRequest.TransactionId ?? string.Empty,
 
                 // Assign new ID
@@ -100,6 +126,9 @@ namespace Infrastructure.Content.Services
                 IsOrderStatusApproved = false,
                 HasDispute = false,
                 OrderCreatedAt = DateTime.Now,
+                FrequencyPerWeek = addClientOrderRequest.FrequencyPerWeek,
+                ServiceType = addClientOrderRequest.ServiceType,
+                BillingCycleNumber = addClientOrderRequest.BillingCycleNumber,
             };
 
             await careProDbContext.ClientOrders.AddAsync(clientOrder);
@@ -139,14 +168,45 @@ namespace Infrastructure.Content.Services
             {
                 string notificationContent = $"New order received for your service: {gig!.Title} - Amount: ₦{clientOrder.Amount} from {client!.FirstName} {client.LastName}";
 
-                await notificationService.CreateNotificationAsync(
+                await mediator.Send(new SendNotificationCommand(
                     clientOrder.CaregiverId,
                     clientOrder.ClientId ?? string.Empty,
-                    "OrderReceived",
+                    NotificationTypes.OrderReceived,
                     notificationContent,
                     "New Order Received",
                     clientOrder.Id.ToString()
-                );
+                ));
+            }
+
+            // ── EVENT: Credit caregiver wallet on order creation ──
+            // Caregiver receives OrderFee minus 20% platform commission → PendingBalance.
+            // Funds are released per-visit as each TaskSheet is approved by the client.
+            try
+            {
+                bool isRecurring = clientOrder.PaymentOption == "monthly";
+                int cycleNumber = clientOrder.BillingCycleNumber ?? 1;
+                string serviceType = isRecurring ? "monthly" : "one-time";
+
+                // Platform takes 20% commission from OrderFee
+                decimal caregiverAmount = Math.Round((clientOrder.OrderFee ?? 0m) * 0.80m, 2);
+
+                string description = isRecurring
+                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber} (₦{caregiverAmount} after 20% platform fee)"
+                    : $"One-time service payment received for {gig!.Title} (₦{caregiverAmount} after 20% platform fee)";
+
+                await walletService.CreditOrderReceivedAsync(
+                    clientOrder.CaregiverId, caregiverAmount, isRecurring, cycleNumber);
+
+                await ledgerService.RecordOrderReceivedAsync(
+                    clientOrder.CaregiverId, caregiverAmount, clientOrder.Id.ToString(),
+                    clientOrder.SubscriptionId, clientOrder.BillingCycleNumber,
+                    serviceType, description);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error crediting wallet for order {OrderId}. Order was created successfully.",
+                    clientOrder.Id.ToString());
+                // Don't fail the order creation — wallet can be reconciled later
             }
 
             var clientOrderDTO = new ClientOrderDTO
@@ -215,52 +275,66 @@ namespace Infrastructure.Content.Services
 
             foreach (var caregiverOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(caregiverOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(caregiverOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", caregiverOrder.GigId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", caregiverId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(caregiverOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", caregiverOrder.ClientId, caregiverOrder.Id);
+                        continue;
+                    }
+
+                    totalEarning += caregiverOrder.Amount;
+
+                    var caregiverOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = caregiverOrder.Id.ToString(),
+                        ClientId = caregiverOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = caregiverOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigImage = gig.Image1,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = caregiverOrder.PaymentOption,
+                        Amount = caregiverOrder.Amount,
+                        TransactionId = caregiverOrder.TransactionId,
+                        ClientOrderStatus = caregiverOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = caregiverOrder.IsOrderStatusApproved,
+                        OrderCreatedOn = caregiverOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = caregiverOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = caregiverOrder.ServiceType ?? caregiverOrder.PaymentOption ?? "one-time",
+                    };
+
+                    caregiverOrders.Add(caregiverOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", caregiverOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(caregiverOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(caregiverOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                totalEarning += caregiverOrder.Amount;
-
-                var caregiverOrderDTO = new ClientOrderResponse()
-                {
-                    Id = caregiverOrder.Id.ToString(),
-                    ClientId = caregiverOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = caregiverOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigImage = gig.Image1,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = caregiverOrder.PaymentOption,
-                    Amount = caregiverOrder.Amount,
-                    TransactionId = caregiverOrder.TransactionId,
-                    ClientOrderStatus = caregiverOrder.ClientOrderStatus,
-                    OrderCreatedOn = caregiverOrder.OrderCreatedAt,
-
-                };
-
-                caregiverOrders.Add(caregiverOrderDTO);
             }
 
             return new CaregiverClientOrdersSummaryResponse
@@ -282,51 +356,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;
@@ -384,10 +472,15 @@ namespace Infrastructure.Content.Services
                         Amount = clientOrder.Amount,
                         TransactionId = clientOrder.TransactionId,
                         ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
                         NoOfOrders = clientOrdersDTOs.Count(),
                         OrderCreatedOn = clientOrder.OrderCreatedAt,
                         DeclineReason = clientOrder.DisputeReason,
                         IsDeclined = clientOrder.HasDispute,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
                     };
 
                     clientOrdersDTOs.Add(clientOrderDTO);
@@ -402,6 +495,81 @@ namespace Infrastructure.Content.Services
             return clientOrdersDTOs;
         }
 
+        public async Task<PaginatedResponse<ClientOrderResponse>> GetAllOrdersPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null)
+        {
+            var query = careProDbContext.ClientOrders.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(x => x.ClientOrderStatus == status);
+
+            var totalCount = await query.CountAsync();
+
+            var orders = await query
+                .OrderByDescending(x => x.OrderCreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var clientOrdersDTOs = new List<ClientOrderResponse>();
+
+            foreach (var clientOrder in orders)
+            {
+                try
+                {
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null) continue;
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null) continue;
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null) continue;
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+                        DeclineReason = clientOrder.DisputeReason,
+                        IsDeclined = clientOrder.HasDispute,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+                    clientOrdersDTOs.Add(clientOrderDTO);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, $"Error processing order {clientOrder.Id}");
+                    continue;
+                }
+            }
+
+            return new PaginatedResponse<ClientOrderResponse>
+            {
+                Items = clientOrdersDTOs,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize,
+                HasMore = (page * pageSize) < totalCount,
+            };
+        }
+
         public async Task<IEnumerable<ClientOrderResponse>> GetCaregiverOrdersAsync(string caregiverId)
         {
             var orders = await careProDbContext.ClientOrders
@@ -413,51 +581,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;
@@ -474,51 +656,65 @@ namespace Infrastructure.Content.Services
 
             foreach (var clientOrder in orders)
             {
-                var gig = await gigServices.GetGigAsync(clientOrder.GigId);
-                if (gig == null)
+                try
                 {
-                    throw new KeyNotFoundException("The GigID entered is not a Valid ID");
+                    var gig = await gigServices.GetGigAsync(clientOrder.GigId);
+                    if (gig == null)
+                    {
+                        logger.LogWarning("Gig with ID {GigId} not found for order {OrderId}", clientOrder.GigId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                    if (caregiver == null)
+                    {
+                        logger.LogWarning("Caregiver with ID {CaregiverId} not found for order {OrderId}", gig.CaregiverId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
+                    if (client == null)
+                    {
+                        logger.LogWarning("Client with ID {ClientId} not found for order {OrderId}", clientOrder.ClientId, clientOrder.Id);
+                        continue;
+                    }
+
+                    var clientOrderDTO = new ClientOrderResponse()
+                    {
+                        Id = clientOrder.Id.ToString(),
+                        ClientId = clientOrder.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+
+                        CaregiverId = gig.CaregiverId,
+                        CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
+
+                        GigId = clientOrder.GigId,
+                        GigTitle = gig.Title,
+                        GigImage = gig.Image1,
+                        GigPackageDetails = gig.PackageDetails,
+                        GigStatus = gig.Status,
+
+
+                        PaymentOption = clientOrder.PaymentOption,
+                        Amount = clientOrder.Amount,
+                        TransactionId = clientOrder.TransactionId,
+                        ClientOrderStatus = clientOrder.ClientOrderStatus,
+                        IsOrderStatusApproved = clientOrder.IsOrderStatusApproved,
+                        NoOfOrders = clientOrdersDTOs.Count(),
+                        OrderCreatedOn = clientOrder.OrderCreatedAt,
+
+                        // Recurring service tracking (fallback for existing orders)
+                        FrequencyPerWeek = clientOrder.FrequencyPerWeek ?? 1,
+                        ServiceType = clientOrder.ServiceType ?? clientOrder.PaymentOption ?? "one-time",
+                    };
+
+                    clientOrdersDTOs.Add(clientOrderDTO);
                 }
-
-                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
-                if (caregiver == null)
+                catch (Exception ex)
                 {
-                    throw new KeyNotFoundException("The UserId entered is not a Valid ID");
+                    logger.LogError(ex, "Error processing order {OrderId}", clientOrder.Id);
+                    continue;
                 }
-
-                //var client = await careGiverService.GetCaregiverUserAsync(clientOrder.ClientId);
-                var client = await clientService.GetClientUserAsync(clientOrder.ClientId);
-                if (client == null)
-                {
-                    throw new KeyNotFoundException("The ClientId entered is not a Valid ID");
-                }
-
-                var clientOrderDTO = new ClientOrderResponse()
-                {
-                    Id = clientOrder.Id.ToString(),
-                    ClientId = clientOrder.ClientId,
-                    ClientName = client.FirstName + " " + client.LastName,
-
-                    CaregiverId = gig.CaregiverId,
-                    CaregiverName = caregiver.FirstName + " " + caregiver.LastName,
-
-                    GigId = clientOrder.GigId,
-                    GigTitle = gig.Title,
-                    GigImage = gig.Image1,
-                    GigPackageDetails = gig.PackageDetails,
-                    GigStatus = gig.Status,
-
-
-                    PaymentOption = clientOrder.PaymentOption,
-                    Amount = clientOrder.Amount,
-                    TransactionId = clientOrder.TransactionId,
-                    ClientOrderStatus = clientOrder.ClientOrderStatus,
-                    NoOfOrders = clientOrdersDTOs.Count(),
-                    OrderCreatedOn = clientOrder.OrderCreatedAt,
-
-                };
-
-                clientOrdersDTOs.Add(clientOrderDTO);
             }
 
             return clientOrdersDTOs;
@@ -638,7 +834,14 @@ namespace Infrastructure.Content.Services
                 Amount = order.Amount,
                 TransactionId = order.TransactionId,
                 ClientOrderStatus = order.ClientOrderStatus,
+                IsOrderStatusApproved = order.IsOrderStatusApproved,
                 OrderCreatedOn = order.OrderCreatedAt,
+
+                // Recurring service tracking (fallback for existing orders that predate these fields)
+                FrequencyPerWeek = order.FrequencyPerWeek ?? 1,
+                ServiceType = order.ServiceType ?? order.PaymentOption ?? "one-time",
+                BillingCycleNumber = order.BillingCycleNumber,
+                SubscriptionId = order.SubscriptionId,
 
             };
 
@@ -704,6 +907,10 @@ namespace Infrastructure.Content.Services
                 careProDbContext.ClientOrders.Update(existingOrder);
                 await careProDbContext.SaveChangesAsync();
 
+                // Note: Funds are now released per-visit as each TaskSheet is approved by the client.
+                // This order-level approval no longer triggers a bulk wallet release.
+                logger.LogInformation("Order {OrderId} approved by client. Funds release is per-visit via TaskSheet approvals.", orderId);
+
                 return $"Order with ID '{orderId}' updated successfully.";
             }
             catch (Exception ex)
@@ -711,6 +918,47 @@ namespace Infrastructure.Content.Services
                 LogException(ex);
                 throw new Exception(ex.Message);
             }
+        }
+
+        public async Task<string> ReleaseFundsAsync(string orderId, string clientUserId)
+        {
+            if (!ObjectId.TryParse(orderId, out var objectId))
+            {
+                throw new ArgumentException("Invalid order ID format.");
+            }
+
+            var existingOrder = await careProDbContext.ClientOrders.FindAsync(objectId);
+
+            if (existingOrder == null)
+            {
+                throw new KeyNotFoundException($"Order with ID '{orderId}' not found.");
+            }
+
+            // IDOR: Verify the client owns this order
+            if (!string.IsNullOrEmpty(clientUserId) && existingOrder.ClientId != clientUserId)
+            {
+                throw new UnauthorizedAccessException("You are not authorized to release funds for this order.");
+            }
+
+            // Only allow release on completed orders
+            if (existingOrder.ClientOrderStatus != "Completed")
+            {
+                throw new InvalidOperationException($"Funds can only be released for completed orders. Current status: {existingOrder.ClientOrderStatus}");
+            }
+
+            // Note: Funds are now released per-visit as each TaskSheet is approved.
+            // This endpoint marks the order as approved if not already.
+            if (!existingOrder.IsOrderStatusApproved)
+            {
+                existingOrder.IsOrderStatusApproved = true;
+                existingOrder.OrderUpdatedOn = DateTime.Now;
+                careProDbContext.ClientOrders.Update(existingOrder);
+                await careProDbContext.SaveChangesAsync();
+            }
+
+            logger.LogInformation("ReleaseFunds called for order {OrderId} by client {ClientId}. Funds are released per-visit.", orderId, clientUserId);
+
+            return $"Order '{orderId}' approved. Funds are released per visit as each task sheet is approved.";
         }
 
         public async Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
@@ -748,6 +996,44 @@ namespace Infrastructure.Content.Services
                 careProDbContext.ClientOrders.Update(existingOrder);
                 await careProDbContext.SaveChangesAsync();
 
+                // ── EVENT: Record dispute hold to block auto-release ──
+                try
+                {
+                    await ledgerService.RecordDisputeHoldAsync(
+                        existingOrder.CaregiverId, existingOrder.Amount, orderId,
+                        $"Dispute raised on order {orderId}: {updateClientOrderStatusHasDisputeRequest.DisputeReason}");
+                }
+                catch (Exception walletEx)
+                {
+                    logger.LogError(walletEx, "Error recording dispute hold for order {OrderId}", orderId);
+                }
+
+                // ── Create a Dispute record for tracking & resolution ──
+                try
+                {
+                    var dispute = new Domain.Entities.Dispute
+                    {
+                        OrderId = orderId,
+                        DisputeType = Domain.Entities.DisputeType.Order,
+                        Category = Domain.Entities.DisputeCategory.Other,
+                        Reason = updateClientOrderStatusHasDisputeRequest.DisputeReason ?? "No reason provided",
+                        RaisedBy = updateClientOrderStatusHasDisputeRequest.UserId ?? string.Empty,
+                        ClientId = existingOrder.ClientId,
+                        CaregiverId = existingOrder.CaregiverId,
+                        Status = Domain.Entities.DisputeStatus.Open
+                    };
+
+                    careProDbContext.Disputes.Add(dispute);
+                    await careProDbContext.SaveChangesAsync();
+
+                    // ── Notify admins, caregiver, and client ──
+                    await NotifyDisputeParticipantsAsync(dispute, existingOrder);
+                }
+                catch (Exception disputeEx)
+                {
+                    logger.LogError(disputeEx, "Error creating dispute record for order {OrderId}", orderId);
+                }
+
                 LogAuditEvent($"Order Status updated (ID: {orderId})", updateClientOrderStatusHasDisputeRequest.UserId);
                 return $"Order with ID '{orderId}' updated successfully.";
             }
@@ -755,6 +1041,61 @@ namespace Infrastructure.Content.Services
             {
                 LogException(ex);
                 throw new Exception(ex.Message);
+            }
+        }
+
+        private async System.Threading.Tasks.Task NotifyDisputeParticipantsAsync(Domain.Entities.Dispute dispute, ClientOrder order)
+        {
+            try
+            {
+                var client = await careProDbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                var clientName = client != null ? $"{client.FirstName} {client.LastName}" : "A client";
+
+                var title = "Order Dispute Raised";
+                var content = $"{clientName} has raised a dispute on Order {order.Id}. Reason: {dispute.Reason}";
+
+                // Notify all admins
+                var admins = await careProDbContext.AdminUsers
+                    .Where(a => !a.IsDeleted)
+                    .ToListAsync();
+
+                foreach (var admin in admins)
+                {
+                    await mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: dispute.RaisedBy,
+                        Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                        Content: $"[ACTION REQUIRED] {content}",
+                        Title: title,
+                        RelatedEntityId: dispute.Id.ToString(),
+                        OrderId: dispute.OrderId));
+                }
+
+                // Notify caregiver
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.CaregiverId,
+                    SenderId: dispute.RaisedBy,
+                    Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    Content: $"A dispute has been raised on Order {order.Id}. An admin will review this shortly.",
+                    Title: title,
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
+
+                // Confirm to client
+                await mediator.Send(new SendNotificationCommand(
+                    RecipientId: order.ClientId,
+                    SenderId: dispute.RaisedBy,
+                    Type: Application.DTOs.NotificationTypes.DisputeRaised,
+                    Content: $"Your dispute on Order {order.Id} has been submitted. An admin will review it shortly.",
+                    Title: "Dispute Submitted",
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
+
+                logger.LogInformation("Dispute notifications sent for order {OrderId} to {AdminCount} admins, caregiver, and client", order.Id, admins.Count);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to send dispute notifications for order {OrderId}", order.Id);
             }
         }
 
@@ -767,6 +1108,228 @@ namespace Infrastructure.Content.Services
         private void LogAuditEvent(object message, string? userId)
         {
             logger.LogInformation($"Audit Event: {message}. User ID: {userId}. Timestamp: {DateTime.UtcNow}");
+        }
+
+        public async Task<Result<string>> CancelOrderAsync(string orderId, string clientUserId, string? reason = null)
+        {
+            if (!ObjectId.TryParse(orderId, out var objectId))
+            {
+                return Result<string>.Failure(new List<string> { "Invalid order ID format." });
+            }
+
+            var order = await careProDbContext.ClientOrders.FindAsync(objectId);
+            if (order == null)
+            {
+                return Result<string>.Failure(new List<string> { $"Order with ID '{orderId}' not found." });
+            }
+
+            // IDOR: verify the caller owns this order
+            if (order.ClientId != clientUserId)
+            {
+                logger.LogWarning("Client {UserId} attempted to cancel order {OrderId} belonging to client {OwnerId}.",
+                    clientUserId, orderId, order.ClientId);
+                return Result<string>.Failure(new List<string> { "You are not authorized to cancel this order." });
+            }
+
+            // Only allow cancellation of active orders
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            if (terminalStatuses.Contains(order.ClientOrderStatus, StringComparer.OrdinalIgnoreCase))
+            {
+                return Result<string>.Failure(new List<string>
+                {
+                    $"Order cannot be cancelled — it is already '{order.ClientOrderStatus}'."
+                });
+            }
+
+            var gig = await gigServices.GetGigAsync(order.GigId);
+            var gigTitle = gig?.Title ?? "a gig";
+
+            // ── 1. Calculate unreleased earnings ──
+            int currentBillingCycle = order.BillingCycleNumber ?? 1;
+            bool isOneTime = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
+            int maxVisits = isOneTime ? 1 : (order.FrequencyPerWeek ?? 1) * 4;
+
+            decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+            decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+
+            // Count approved visits (already released to WithdrawableBalance)
+            int approvedVisitCount = await careProDbContext.EarningsLedger
+                .CountAsync(e => e.ClientOrderId == orderId
+                    && e.Type == LedgerEntryType.VisitApproved
+                    && e.BillingCycleNumber == currentBillingCycle);
+
+            decimal releasedAmount = perVisitAmount * approvedVisitCount;
+            // Account for rounding on last visit
+            if (approvedVisitCount >= maxVisits)
+                releasedAmount = caregiverTotal;
+
+            decimal unreleasedAmount = Math.Max(0, caregiverTotal - releasedAmount);
+
+            // ── 2. Update order status ──
+            order.ClientOrderStatus = "Cancelled";
+            order.OrderUpdatedOn = DateTime.UtcNow;
+            careProDbContext.ClientOrders.Update(order);
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Order {OrderId} cancelled by client {ClientId}. Released: ₦{Released}, Unreleased: ₦{Unreleased} (visits: {Approved}/{MaxVisits})",
+                orderId, clientUserId, releasedAmount, unreleasedAmount, approvedVisitCount, maxVisits);
+
+            // ── 3. Invalidate booking commitment fee ──
+            try
+            {
+                await bookingCommitmentService.InvalidateCommitmentForOrderAsync(orderId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error invalidating commitment for cancelled order {OrderId}", orderId);
+            }
+
+            // ── 4. Debit unreleased earnings from caregiver wallet ──
+            if (unreleasedAmount > 0)
+            {
+                try
+                {
+                    await walletService.DebitOrderCancellationAsync(order.CaregiverId, unreleasedAmount);
+
+                    string serviceType = string.IsNullOrEmpty(order.SubscriptionId) ? "one-time" : "monthly";
+                    await ledgerService.RecordOrderCancellationAsync(
+                        order.CaregiverId, unreleasedAmount, orderId,
+                        order.SubscriptionId, order.BillingCycleNumber, serviceType,
+                        $"Order cancelled — ₦{unreleasedAmount} unreleased earnings removed ({approvedVisitCount}/{maxVisits} visits completed for {gigTitle})");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error debiting unreleased earnings for cancelled order {OrderId}", orderId);
+                }
+            }
+
+            // ── 5. Credit client wallet with the undelivered portion ──
+            // The client paid the full OrderFee. For completed visits, the caregiver earned their share.
+            // The remaining undelivered portion goes back to the client's wallet.
+            decimal clientRefundAmount = 0m;
+            if ((order.OrderFee ?? 0m) > 0 && maxVisits > 0)
+            {
+                decimal orderFee = order.OrderFee ?? 0m;
+                decimal perVisitCost = Math.Round(orderFee / maxVisits, 2);
+                int deliveredVisits = approvedVisitCount;
+                decimal deliveredCost = perVisitCost * deliveredVisits;
+                if (deliveredVisits >= maxVisits) deliveredCost = orderFee;
+                clientRefundAmount = Math.Max(0, orderFee - deliveredCost);
+            }
+
+            if (clientRefundAmount > 0)
+            {
+                try
+                {
+                    await clientWalletService.CreditAsync(
+                        order.ClientId, clientRefundAmount,
+                        $"Order cancelled — ₦{clientRefundAmount} credited for {maxVisits - approvedVisitCount} undelivered visit(s) on {gigTitle}",
+                        orderId, null, ClientLedgerEntryType.OrderCancellationCredit);
+
+                    logger.LogInformation(
+                        "Client {ClientId} wallet credited ₦{Amount} for cancelled order {OrderId}",
+                        order.ClientId, clientRefundAmount, orderId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error crediting client wallet for cancelled order {OrderId}", orderId);
+                }
+            }
+
+            // ── 6. Cancel future/pending task sheets ──
+            try
+            {
+                var pendingTaskSheets = await careProDbContext.TaskSheets
+                    .Where(ts => ts.OrderId == orderId
+                        && ts.Status != "submitted"
+                        && ts.Status != "cancelled")
+                    .ToListAsync();
+
+                foreach (var ts in pendingTaskSheets)
+                {
+                    ts.Status = "cancelled";
+                    ts.UpdatedAt = DateTime.UtcNow;
+                }
+
+                if (pendingTaskSheets.Any())
+                {
+                    careProDbContext.TaskSheets.UpdateRange(pendingTaskSheets);
+                    await careProDbContext.SaveChangesAsync();
+                    logger.LogInformation("Cancelled {Count} pending task sheets for order {OrderId}",
+                        pendingTaskSheets.Count, orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling task sheets for order {OrderId}", orderId);
+            }
+
+            // ── 6. Send notifications to client and caregiver ──
+            try
+            {
+                var client = await clientService.GetClientUserAsync(order.ClientId);
+                var caregiver = await careGiverService.GetCaregiverUserAsync(order.CaregiverId);
+
+                string cancelReason = reason ?? "Cancelled by client";
+
+                // In-app notification to client
+                string clientNotification = $"Your order for {gigTitle} has been cancelled. " +
+                    (approvedVisitCount > 0
+                        ? $"{approvedVisitCount} visit(s) were completed before cancellation. "
+                        : "No visits were completed. ") +
+                    (clientRefundAmount > 0
+                        ? $"₦{clientRefundAmount} has been credited to your wallet. "
+                        : "") +
+                    "You will need to pay a new booking fee to re-engage this service. " +
+                    "You can request a refund from your wallet to get these funds back to your bank account.";
+
+                await mediator.Send(new SendNotificationCommand(
+                    order.ClientId, order.ClientId,
+                    NotificationTypes.OrderCancelled,
+                    clientNotification, "Order Cancelled",
+                    orderId));
+
+                // In-app notification to caregiver
+                string caregiverNotification = $"Order for {gigTitle} has been cancelled by the client. " +
+                    (approvedVisitCount > 0
+                        ? $"You earned ₦{releasedAmount} for {approvedVisitCount} completed visit(s). "
+                        : "") +
+                    (unreleasedAmount > 0
+                        ? $"₦{unreleasedAmount} in unreleased earnings has been removed from your pending balance."
+                        : "");
+
+                await mediator.Send(new SendNotificationCommand(
+                    order.CaregiverId, order.ClientId,
+                    NotificationTypes.OrderCancelled,
+                    caregiverNotification, "Order Cancelled",
+                    orderId));
+
+                // Email to client
+                if (client?.Email != null)
+                {
+                    await emailService.SendOrderCancelledEmailAsync(
+                        client.Email, client.FirstName ?? "Client", gigTitle, cancelReason, orderId);
+                }
+
+                // Email to caregiver
+                if (caregiver?.Email != null)
+                {
+                    await emailService.SendOrderCancelledEmailAsync(
+                        caregiver.Email, caregiver.FirstName ?? "Caregiver", gigTitle, cancelReason, orderId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error sending cancellation notifications for order {OrderId}", orderId);
+            }
+
+            LogAuditEvent($"Order cancelled (ID: {orderId}), client credited ₦{clientRefundAmount}, caregiver debited ₦{unreleasedAmount}", clientUserId);
+
+            return Result<string>.Success(
+                $"Order cancelled successfully. {approvedVisitCount} visit(s) were completed. " +
+                (clientRefundAmount > 0 ? $"₦{clientRefundAmount} has been credited to your wallet. " : "") +
+                "Booking commitment fee has been invalidated. You can request a refund from your wallet.");
         }
 
 

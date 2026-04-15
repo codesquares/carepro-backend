@@ -20,12 +20,21 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly ICareGiverService _careGiverService;
         private readonly IClientOrderService clientOrderService;
+        private readonly ICaregiverWalletService _walletService;
+        private readonly IEarningsLedgerService _ledgerService;
 
-        public EarningsService(CareProDbContext dbContext, ICareGiverService careGiverService, IClientOrderService clientOrderService)
+        public EarningsService(
+            CareProDbContext dbContext,
+            ICareGiverService careGiverService,
+            IClientOrderService clientOrderService,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService)
         {
             _dbContext = dbContext;
             _careGiverService = careGiverService;
             this.clientOrderService = clientOrderService;
+            _walletService = walletService;
+            _ledgerService = ledgerService;
         }
 
         public async Task<EarningsResponse> GetEarningsByIdAsync(string id)
@@ -83,47 +92,14 @@ namespace Infrastructure.Content.Services
 
         public async Task<CaregiverEarningSummaryResponse> GetEarningByCaregiverIdAsync(string caregiverId)
         {
-            var earnings = await _dbContext.Earnings
-                    .Where(e => e.CaregiverId == caregiverId)
-                    .OrderByDescending(n => n.CreatedAt)
-                    .ToListAsync();
+            // Redirect to CaregiverWallet for accurate, persistent balances
+            var walletSummary = await _walletService.GetWalletSummaryAsync(caregiverId);
 
-            //  var earningsDTO = new List<EarningsResponse>();
-            decimal WithdrawableAmount = 0;
-            decimal totalEarnings = 0;
-
-            foreach (var earning in earnings)
-            {
-                WithdrawableAmount += earning.Amount;
-                totalEarnings += earning.Amount;
-
-            }
-
-            // return earningsDTO;
             return new CaregiverEarningSummaryResponse
             {
-                // Earnings = earningsDTO,
-                WithdrawableAmount = WithdrawableAmount,
-                TotalEarning = totalEarnings
+                WithdrawableAmount = walletSummary.WithdrawableBalance,
+                TotalEarning = walletSummary.TotalEarned
             };
-
-            ////var earnings = await _dbContext.Earnings.Find(e => e.CaregiverId == caregiverId).FirstOrDefaultAsync();
-            ////var earnings = await _dbContext.Earnings.FirstOrDefaultAsync(e => e.CaregiverId == caregiverId);
-            //if (earnings == null)
-            //    return null;
-
-            //var caregiver = await _careGiverService.GetCaregiverUserAsync(caregiverId);
-
-            //return new EarningsResponse
-            //{
-            //    Id = earnings.Id.ToString(),
-            //    CaregiverId = earnings.CaregiverId,
-            //    CaregiverName = $"{caregiver.FirstName} {caregiver.LastName}",
-            //    //TotalEarned = earnings.TotalEarned,
-            //    //WithdrawableAmount = earnings.WithdrawableAmount,
-            //    //WithdrawnAmount = earnings.WithdrawnAmount,
-            //    //LastUpdated = earnings.UpdatedAt
-            //};
         }
 
 
@@ -234,23 +210,16 @@ namespace Infrastructure.Content.Services
 
         public async Task<bool> UpdateWithdrawalAmountsAsync(string caregiverId, decimal withdrawalAmount)
         {
-            // Find earnings by caregiver ID
-            var earnings = await _dbContext.Earnings
-                .FirstOrDefaultAsync(e => e.CaregiverId == caregiverId);
-
-            //if (earnings == null || earnings.WithdrawableAmount < withdrawalAmount)
-            //    return false;
-
-            // Update values
-            //earnings.WithdrawableAmount -= withdrawalAmount;
-            //earnings.WithdrawnAmount += withdrawalAmount;
-            //earnings.UpdatedAt = DateTime.UtcNow;
-
-            // Save changes
-            _dbContext.Earnings.Update(earnings);
-            await _dbContext.SaveChangesAsync();
-
-            return true;
+            // Redirect to CaregiverWallet for persistent balance tracking
+            try
+            {
+                await _walletService.DebitWithdrawalAsync(caregiverId, withdrawalAmount);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
 
@@ -305,43 +274,9 @@ namespace Infrastructure.Content.Services
 
         public async Task<IEnumerable<TransactionHistoryResponse>> GetCaregiverTransactionHistoryAsync(string caregiverId)
         {
-            var transactionHistory = new List<TransactionHistoryResponse>();
-
-            // 1. Get all withdrawals in one query
-            var withdrawals = await _dbContext.WithdrawalRequests
-                .Where(x => x.CaregiverId == caregiverId)
-                .Select(w => new TransactionHistoryResponse
-                {
-                    Id = w.Id.ToString(),
-                    CaregiverId = w.CaregiverId,
-                    Amount = w.AmountRequested,
-                    Activity = "Withdrawal",
-                    Description = w.Status,
-                    CreatedAt = w.CreatedAt
-                })
-                .ToListAsync();
-
-            transactionHistory.AddRange(withdrawals);
-
-            // 2. Get all earnings with related data in one query
-            var earnings = await _dbContext.Earnings
-                .Where(x => x.CaregiverId == caregiverId)
-
-                .Select(e => new TransactionHistoryResponse
-                {
-                    Id = e.Id.ToString(),
-                    CaregiverId = e.CaregiverId,
-                    Amount = e.Amount,
-                    Activity = "Earning",
-                    Description = e.ClientOrderStatus,
-                    CreatedAt = e.CreatedAt
-                })
-                .ToListAsync();
-
-            transactionHistory.AddRange(earnings);
-
-            // 3. Return combined list sorted by date (latest first)
-            return transactionHistory.OrderByDescending(t => t.CreatedAt);
+            // Redirect to EarningsLedger for comprehensive, event-driven history
+            var ledgerHistory = await _ledgerService.GetTransactionHistoryAsync(caregiverId);
+            return ledgerHistory;
         }
 
     }

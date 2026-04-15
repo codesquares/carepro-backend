@@ -1,10 +1,13 @@
 using Application.DTOs;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
+using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -18,6 +21,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly IVerificationService _verificationService;
         private readonly IDojahApiService _dojahApiService;
         private readonly IWebhookLogService _webhookLogService;
+        private readonly IHubContext<NotificationHub> _notificationHubContext;
         private readonly IConfiguration _config;
         private readonly ILogger<DojahController> _logger;
 
@@ -28,6 +32,7 @@ namespace CarePro_Api.Controllers.Content
             IVerificationService verificationService,
             IDojahApiService dojahApiService,
             IWebhookLogService webhookLogService,
+            IHubContext<NotificationHub> notificationHubContext,
             IConfiguration config,
             ILogger<DojahController> logger)
         {
@@ -37,6 +42,7 @@ namespace CarePro_Api.Controllers.Content
             _verificationService = verificationService;
             _dojahApiService = dojahApiService;
             _webhookLogService = webhookLogService;
+            _notificationHubContext = notificationHubContext;
             _config = config;
             _logger = logger;
         }
@@ -355,6 +361,28 @@ namespace CarePro_Api.Controllers.Content
                             );
                         }
 
+                        // Push real-time verification status to frontend via SignalR
+                        try
+                        {
+                            var updatedVerification = await _verificationService.GetUserVerificationStatusAsync(userId);
+                            await _notificationHubContext.Clients
+                                .Group($"notifications_{userId}")
+                                .SendAsync("VerificationStatusChanged", new
+                                {
+                                    userId = userId,
+                                    verificationStatus = formattedData.VerificationStatus,
+                                    isVerified = updatedVerification?.IsVerified ?? false,
+                                    verificationMethod = formattedData.VerificationMethod,
+                                    timestamp = DateTime.UtcNow
+                                });
+                            _logger.LogInformation("Pushed VerificationStatusChanged via SignalR for user: {UserId}", userId);
+                        }
+                        catch (Exception signalREx)
+                        {
+                            _logger.LogError(signalREx, "Failed to push SignalR verification update for user: {UserId}", userId);
+                            // Don't fail the webhook - the verification record is already saved
+                        }
+
                         _logger.LogInformation("Verification processed successfully for user: {UserId}", userId);
                     }
                     else
@@ -400,8 +428,8 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("status")]
-        [AllowAnonymous] // Temporary for testing
-        public async Task<IActionResult> GetVerificationStatus([FromQuery] string userId, [FromQuery] string userType, [FromQuery] string token)
+        [Authorize]
+        public async Task<IActionResult> GetVerificationStatus([FromQuery] string userId)
         {
             try
             {
@@ -410,13 +438,22 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { error = "User ID is required" });
                 }
 
+                // Verify the caller owns this userId or is an admin
+                var callerUserId = User.FindFirst("userId")?.Value;
+                var callerRole = User.FindFirstValue(ClaimTypes.Role);
+                var isAdmin = callerRole == "Admin" || callerRole == "SuperAdmin";
+
+                if (!isAdmin && callerUserId != userId)
+                {
+                    _logger.LogWarning("User {CallerUserId} attempted to access verification status for {TargetUserId}", callerUserId, userId);
+                    return Forbid();
+                }
+
                 var verification = await _verificationService.GetUserVerificationStatusAsync(userId);
 
-                // Return 200 OK even when no verification is found - this is expected behavior
-                // Frontend should handle this gracefully rather than treating it as an error
                 if (verification == null)
                 {
-                    _logger.LogInformation("No verification record found for user {UserId} - this is expected for users who haven't completed verification yet", userId);
+                    _logger.LogInformation("No verification record found for user {UserId}", userId);
                     return Ok(new { message = "No verification found for user", status = "not_found" });
                 }
 
@@ -514,6 +551,23 @@ namespace CarePro_Api.Controllers.Content
             {
                 _logger.LogError(ex, "Error getting all webhook data");
                 return StatusCode(500, new { error = "Internal server error", details = ex.Message });
+            }
+        }
+
+        [HttpPost("admin/backfill-caregiver-verification")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> BackfillCaregiverVerificationState()
+        {
+            try
+            {
+                _logger.LogInformation("Admin triggered backfill of caregiver verification state");
+                var updatedCount = await _verificationService.BackfillCaregiverVerificationStateAsync();
+                return Ok(new { message = $"Backfill complete. Updated {updatedCount} caregiver profiles.", updatedCount });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during caregiver verification backfill");
+                return StatusCode(500, new { error = "Internal server error" });
             }
         }
 

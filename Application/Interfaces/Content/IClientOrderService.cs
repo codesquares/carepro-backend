@@ -18,6 +18,8 @@ namespace Application.Interfaces.Content
         Task<IEnumerable<ClientOrderResponse>> GetAllClientOrdersByGigIdAsync(string gigId);
         Task<IEnumerable<ClientOrderResponse>> GetAllOrdersAsync();
 
+        Task<PaginatedResponse<ClientOrderResponse>> GetAllOrdersPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null);
+
         Task<ClientOrderResponse> GetClientOrderAsync(string orderId);
 
         Task<CaregiverClientOrdersSummaryResponse> GetAllCaregiverOrderAsync(string caregiverId);
@@ -26,9 +28,15 @@ namespace Application.Interfaces.Content
 
         Task<string> UpdateOrderStatusToApproveAsync(string orderId);
 
+        Task<string> ReleaseFundsAsync(string orderId, string clientUserId);
 
         Task<string> UpdateClientOrderStatusHasDisputeAsync(string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusDeclinedRequest);
 
+        /// <summary>
+        /// Cancels an order: invalidates booking commitment, debits unreleased earnings from caregiver,
+        /// cancels future task sheets, and sends notifications to both client and caregiver.
+        /// </summary>
+        Task<Result<string>> CancelOrderAsync(string orderId, string clientUserId, string? reason = null);
 
     }
 }

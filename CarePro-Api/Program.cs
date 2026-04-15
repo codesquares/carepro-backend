@@ -22,6 +22,7 @@ using Serilog;
 using System.Text;
 using CarePro_Api.Middleware;
 using CarePro_Api.Filters;
+using Infrastructure.Content.Services.Handlers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -118,10 +119,22 @@ builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
+builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Care request matching engine
+builder.Services.AddScoped<ICareRequestMatchingService, CareRequestMatchingService>();
+
+// Wallet, Ledger & Billing services (must be registered before services that depend on them)
+builder.Services.AddSingleton<WalletLockManager>(); // Per-caregiver mutex for wallet race condition protection
+builder.Services.AddScoped<ICaregiverWalletService, CaregiverWalletService>();
+builder.Services.AddScoped<IEarningsLedgerService, EarningsLedgerService>();
+builder.Services.AddScoped<IBillingRecordService, BillingRecordService>();
+
 builder.Services.AddScoped<IEarningsService, EarningsService>();
 builder.Services.AddScoped<IWithdrawalRequestService, WithdrawalRequestService>();
+builder.Services.AddScoped<ICaregiverBankAccountService, CaregiverBankAccountService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
@@ -130,12 +143,19 @@ builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
 
+// Booking commitment (gig access fee) services
+builder.Services.AddScoped<IBookingCommitmentService, BookingCommitmentService>();
+
 // Subscription & recurring billing services
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHostedService<RecurringBillingService>();
 
 // Content sanitization (XSS prevention)
 builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
+
+// Contact pattern detection & chat compliance (off-platform leakage prevention)
+builder.Services.AddSingleton<IContactPatternDetector, ContactPatternDetector>();
+builder.Services.AddScoped<IChatComplianceService, ChatComplianceService>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
@@ -146,9 +166,30 @@ builder.Services.AddHttpClient<GeocodingService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
 builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
+builder.Services.AddScoped<IContractTemplateService, ContractTemplateService>();
+builder.Services.AddScoped<IContractPdfService, ContractPdfService>();
 
 // Order Tasks services (Enhanced Contract Generation feature)
 builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
+
+// Order Negotiation services (Pre-Contract Negotiation Phase)
+builder.Services.AddScoped<IOrderNegotiationService, OrderNegotiationService>();
+
+// Task Sheets services (Caregiver visit session tracking)
+builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
+
+// Visit Management services (GPS check-in, observation & incident reports)
+builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
+builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
+builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
+builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
+builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
+builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
+
+builder.Services.AddScoped<IDisputeService, DisputeService>();
+
+// Gig templates (template-driven gig creation)
+builder.Services.AddScoped<IGigTemplateService, GigTemplateService>();
 
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
@@ -176,6 +217,18 @@ builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
 
+// Care request matching background processor
+builder.Services.AddHostedService<CareRequestMatchingProcessor>();
+
+// GDPR: Hard-delete gigs past 30-day grace period (runs daily)
+builder.Services.AddHostedService<GigHardDeleteProcessor>();
+
+// GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
+builder.Services.AddHostedService<GigDeletionReminderProcessor>();
+
+// Cleanup orphaned email inline-image assets older than 90 days (runs daily)
+builder.Services.AddHostedService<EmailAssetCleanupProcessor>();
+
 
 
 builder.Services.AddScoped<ITokenHandler, Infrastructure.Content.Services.Authentication.TokenHandler>();
@@ -185,6 +238,9 @@ builder.Services.AddScoped<IOriginValidationService, OriginValidationService>();
 
 // Add SignalR
 builder.Services.AddSignalR();
+
+// Register MediatR — scans Infrastructure assembly for all handlers
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<SendNotificationCommandHandler>());
 
 
 
@@ -223,7 +279,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var accessToken = context.Request.Query["access_token"];
                 if (!string.IsNullOrEmpty(accessToken) &&
-                    context.HttpContext.Request.Path.StartsWithSegments("/chathub"))
+                    (context.HttpContext.Request.Path.StartsWithSegments("/chathub") ||
+                     context.HttpContext.Request.Path.StartsWithSegments("/notificationHub")))
                 {
                     context.Token = accessToken;
                 }
@@ -293,7 +350,7 @@ builder.Services.AddCors(options =>
     {
         builder.WithOrigins("https://oncarepro.com", "https://www.oncarepro.com", "http://oncarepro.com", "http://www.oncarepro.com",
             "https://api.oncarepro.com", "http://api.oncarepro.com",
-            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173",
+            "https://care-pro-frontend.onrender.com", "https://localhost:5173", "http://localhost:5173", "https://staging.oncarepro.com", "http://staging.oncarepro.com",
             "https://localhost:5174", "http://localhost:5174", "https://budmfp9jxr.us-east-1.awsapprunner.com",
             "http://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com", "https://carepro-frontend-staging.s3-website-us-east-1.amazonaws.com",
             "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:3000")
@@ -388,5 +445,43 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
+
+// One-time startup migration: sync existing verified users to caregiver profiles
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var verificationService = scope.ServiceProvider.GetRequiredService<IVerificationService>();
+        var migrationLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var updated = await verificationService.BackfillCaregiverVerificationStateAsync();
+        if (updated > 0)
+        {
+            migrationLogger.LogInformation("Startup migration: backfilled {Count} caregiver verification states", updated);
+        }
+    }
+    catch (Exception ex)
+    {
+        var migrationLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        migrationLogger.LogError(ex, "Startup migration failed for caregiver verification backfill - app will continue normally");
+    }
+}
+
+// Seed gig template data from predefined templates
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var gigTemplateService = scope.ServiceProvider.GetRequiredService<IGigTemplateService>();
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var seedData = GigTemplateSeedData.GetSeedData();
+        await gigTemplateService.SeedTemplatesAsync(seedData);
+        seedLogger.LogInformation("Gig template seed check completed");
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        seedLogger.LogError(ex, "Gig template seeding failed - app will continue normally");
+    }
+}
 
 app.Run();

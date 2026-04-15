@@ -15,5 +15,7 @@ namespace Application.Interfaces.Content
 
         Task<AdminUserResponse> GetAdminUserByIdAsync(string adminUserId);
 
+        Task<DashboardStatsResponse> GetDashboardStatsAsync();
+
     }
 }

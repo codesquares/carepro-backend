@@ -309,6 +309,11 @@ namespace Domain.Entities
         /// <summary>
         /// Subscription expired naturally (non-renewing plan ended)
         /// </summary>
-        Expired
+        Expired,
+
+        /// <summary>
+        /// A recurring charge is currently being processed (prevents double-charge)
+        /// </summary>
+        Charging
     }
 }

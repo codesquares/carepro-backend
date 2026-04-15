@@ -26,6 +26,8 @@ namespace Infrastructure.Content.Services
         // Flutterwave local card fee rate (1.4%, capped at 2000 NGN)
         private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
         private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
+        private readonly IBillingRecordService _billingRecordService;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
 
         public PendingPaymentService(
             CareProDbContext dbContext,
@@ -34,7 +36,9 @@ namespace Infrastructure.Content.Services
             FlutterwaveService flutterwaveService,
             ISubscriptionService subscriptionService,
             ILogger<PendingPaymentService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IBillingRecordService billingRecordService,
+            IBookingCommitmentService bookingCommitmentService)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -43,6 +47,8 @@ namespace Infrastructure.Content.Services
             _subscriptionService = subscriptionService;
             _logger = logger;
             _configuration = configuration;
+            _billingRecordService = billingRecordService;
+            _bookingCommitmentService = bookingCommitmentService;
         }
 
         public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
@@ -56,8 +62,8 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(request.ServiceType))
                 errors.Add("ServiceType is required.");
             
-            if (!new[] { "one-time", "weekly", "monthly" }.Contains(request.ServiceType?.ToLower()))
-                errors.Add("ServiceType must be 'one-time', 'weekly', or 'monthly'.");
+            if (!new[] { "one-time", "monthly" }.Contains(request.ServiceType?.ToLower()))
+                errors.Add("ServiceType must be 'one-time' or 'monthly'.");
             
             if (request.FrequencyPerWeek < 1 || request.FrequencyPerWeek > 7)
                 errors.Add("FrequencyPerWeek must be between 1 and 7.");
@@ -84,9 +90,142 @@ namespace Infrastructure.Content.Services
                 return Result<PendingPaymentResponse>.Failure(new List<string> { "This gig is not currently available for purchase." });
             }
 
+            // ── DUPLICATE PAYMENT GUARD ──────────────────────────────────────
+            // 1. Block if the client already has a genuinely active order for this gig.
+            //    Cancelled, Terminated, and Completed orders are terminal — client can re-purchase.
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            var existingActiveOrder = await _dbContext.ClientOrders
+                .FirstOrDefaultAsync(o => o.ClientId == clientId
+                                       && o.GigId == request.GigId
+                                       && o.ClientOrderStatus != null
+                                       && !terminalStatuses.Contains(o.ClientOrderStatus));
+
+            if (existingActiveOrder != null)
+            {
+                _logger.LogWarning(
+                    "Duplicate payment blocked. ClientId: {ClientId}, GigId: {GigId}, ExistingOrderId: {OrderId}, Status: {Status}",
+                    clientId, request.GigId, existingActiveOrder.Id, existingActiveOrder.ClientOrderStatus);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You already have an active order for this gig. You cannot pay for the same gig twice while an order is still in progress."
+                });
+            }
+
+            // 2. Allow re-purchase only if the most recent order was one-time AND completed
+            var lastCompletedOrder = await _dbContext.ClientOrders
+                .Where(o => o.ClientId == clientId
+                         && o.GigId == request.GigId
+                         && o.ClientOrderStatus == "Completed")
+                .OrderByDescending(o => o.OrderCreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (lastCompletedOrder != null
+                && !string.Equals(lastCompletedOrder.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "Re-purchase blocked for non-one-time completed order. ClientId: {ClientId}, GigId: {GigId}, PaymentOption: {PaymentOption}",
+                    clientId, request.GigId, lastCompletedOrder.PaymentOption);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You have already purchased this gig on a recurring plan. You cannot purchase it again."
+                });
+            }
+
+            // 3. Reuse or expire stale pending payments for this client+gig
+            var existingPendingPayment = await _dbContext.PendingPayments
+                .FirstOrDefaultAsync(p => p.ClientId == clientId
+                                       && p.GigId == request.GigId
+                                       && p.Status == PendingPaymentStatus.Pending);
+
+            if (existingPendingPayment != null)
+            {
+                var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
+                if (age.TotalMinutes < 5 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
+                {
+                    // Verify the commitment is still valid before returning a cached link
+                    var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
+                    if (cachedCommitment == null)
+                    {
+                        // Commitment no longer valid — expire this pending payment and force re-initiation
+                        existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                        existingPendingPayment.ErrorMessage = "Expired: booking commitment no longer valid.";
+                        await _dbContext.SaveChangesAsync();
+
+                        _logger.LogWarning(
+                            "Expired cached pending payment — commitment invalid. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
+                            existingPendingPayment.TransactionReference, clientId, request.GigId);
+                        return Result<PendingPaymentResponse>.Failure(new List<string>
+                        {
+                            "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
+                        });
+                    }
+
+                    // Payment link is still fresh — return it instead of creating a new one
+                    _logger.LogInformation(
+                        "Returning existing pending payment link. TxRef: {TxRef}, Age: {AgeMinutes}m",
+                        existingPendingPayment.TransactionReference, (int)age.TotalMinutes);
+
+                    return Result<PendingPaymentResponse>.Success(new PendingPaymentResponse
+                    {
+                        Success = true,
+                        Message = "A payment for this gig is already in progress. Use the existing payment link.",
+                        TransactionReference = existingPendingPayment.TransactionReference,
+                        PaymentLink = existingPendingPayment.PaymentLink,
+                        Breakdown = new PaymentBreakdown
+                        {
+                            BasePrice = existingPendingPayment.BasePrice,
+                            ServiceType = existingPendingPayment.ServiceType,
+                            FrequencyPerWeek = existingPendingPayment.FrequencyPerWeek,
+                            OrderFee = existingPendingPayment.OrderFee,
+                            ServiceCharge = existingPendingPayment.ServiceCharge,
+                            FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
+                            TotalAmount = existingPendingPayment.TotalAmount,
+                            Currency = existingPendingPayment.Currency,
+                            CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted ?? 0m
+                        }
+                    });
+                }
+                else
+                {
+                    // Stale pending payment — expire it so a fresh one can be created
+                    existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                    existingPendingPayment.ErrorMessage = "Expired: superseded by a new payment attempt.";
+                    _logger.LogInformation(
+                        "Expired stale pending payment. TxRef: {TxRef}, Age: {AgeHours}h",
+                        existingPendingPayment.TransactionReference, (int)age.TotalHours);
+                }
+            }
+            // ── END DUPLICATE PAYMENT GUARD ──────────────────────────────────
+
             // Calculate amounts
             decimal basePrice = gig.Price;
-            decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType.ToLower(), request.FrequencyPerWeek);
+            decimal orderFee = CalculateOrderFee(basePrice, request.ServiceType?.ToLower() ?? "one-time", request.FrequencyPerWeek);
+
+            // ── BOOKING COMMITMENT FEE GATE + DEDUCTION ─────────────────────
+            // Client MUST have paid the ₦5,000 booking commitment for this gig
+            // before they can proceed to pay for the gig itself.
+            decimal commitmentFeeDeducted = 0m;
+            string? bookingCommitmentId = null;
+            var applicableCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
+            if (applicableCommitment == null)
+            {
+                _logger.LogWarning(
+                    "Gig payment blocked — no booking commitment found. ClientId: {ClientId}, GigId: {GigId}",
+                    clientId, request.GigId);
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
+                });
+            }
+
+            commitmentFeeDeducted = applicableCommitment.Amount; // ₦5,000
+            orderFee = Math.Max(0, orderFee - commitmentFeeDeducted);
+            bookingCommitmentId = applicableCommitment.Id.ToString();
+            _logger.LogInformation(
+                "Booking commitment {CommitmentId} found. Deducting ₦{Amount} from order fee for GigId: {GigId}",
+                bookingCommitmentId, commitmentFeeDeducted, request.GigId);
+            // ── END BOOKING COMMITMENT FEE GATE + DEDUCTION ─────────────────
+
             decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
             decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);
             decimal totalAmount = orderFee + serviceCharge + flutterwaveFees;
@@ -102,7 +241,7 @@ namespace Infrastructure.Content.Services
                 GigId = request.GigId,
                 ClientId = clientId,
                 Email = request.Email,
-                ServiceType = request.ServiceType.ToLower(),
+                ServiceType = request.ServiceType?.ToLower() ?? "one-time",
                 FrequencyPerWeek = request.FrequencyPerWeek,
                 BasePrice = basePrice,
                 OrderFee = orderFee,
@@ -112,7 +251,9 @@ namespace Infrastructure.Content.Services
                 Currency = "NGN",
                 RedirectUrl = request.RedirectUrl,
                 Status = PendingPaymentStatus.Pending,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                BookingCommitmentId = bookingCommitmentId,
+                CommitmentFeeDeducted = commitmentFeeDeducted
             };
 
             // Call Flutterwave to initiate payment
@@ -153,13 +294,14 @@ namespace Infrastructure.Content.Services
                     Breakdown = new PaymentBreakdown
                     {
                         BasePrice = basePrice,
-                        ServiceType = request.ServiceType.ToLower(),
+                        ServiceType = request.ServiceType?.ToLower() ?? "one-time",
                         FrequencyPerWeek = request.FrequencyPerWeek,
                         OrderFee = orderFee,
                         ServiceCharge = serviceCharge,
                         FlutterwaveFees = flutterwaveFees,
                         TotalAmount = totalAmount,
-                        Currency = "NGN"
+                        Currency = "NGN",
+                        CommitmentFeeDeducted = commitmentFeeDeducted
                     }
                 });
             }
@@ -185,6 +327,24 @@ namespace Infrastructure.Content.Services
                 return Result<PendingPayment>.Failure(new List<string> { "Payment record not found." });
             }
 
+            // IDEMPOTENCY GUARD: If payment is already completed, return success (webhook replay protection)
+            if (pendingPayment.Status == PendingPaymentStatus.Completed)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Duplicate CompletePayment attempt for TxRef: {TxRef}. Already completed at {CompletedAt}. Returning existing result.",
+                    transactionReference, pendingPayment.CompletedAt);
+                return Result<PendingPayment>.Success(pendingPayment);
+            }
+
+            // Reject if already explicitly failed or flagged as amount mismatch
+            if (pendingPayment.Status == PendingPaymentStatus.AmountMismatch)
+            {
+                _logger.LogWarning(
+                    "SECURITY: CompletePayment retry for previously flagged TxRef: {TxRef} (AmountMismatch). Blocked.",
+                    transactionReference);
+                return Result<PendingPayment>.Failure(new List<string> { "This payment was previously flagged for amount mismatch." });
+            }
+
             // CRITICAL SECURITY CHECK: Verify the paid amount matches expected amount
             // Allow small tolerance for rounding (0.01)
             if (Math.Abs(paidAmount - pendingPayment.TotalAmount) > 0.01m)
@@ -207,7 +367,10 @@ namespace Infrastructure.Content.Services
                 GigId = pendingPayment.GigId,
                 PaymentOption = pendingPayment.ServiceType,
                 Amount = (int)pendingPayment.TotalAmount,
-                TransactionId = flutterwaveTransactionId
+                OrderFee = pendingPayment.OrderFee,
+                TransactionId = flutterwaveTransactionId,
+                FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
+                ServiceType = pendingPayment.ServiceType
             });
 
             if (!orderResult.IsSuccess)
@@ -234,10 +397,68 @@ namespace Infrastructure.Content.Services
                 "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
                 transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
 
-            // For recurring service types (weekly/monthly), create a subscription
+            // ── Create BillingRecord for this payment ──
+            try
+            {
+                var gig = await _gigServices.GetGigAsync(pendingPayment.GigId);
+                var caregiverId = gig?.CaregiverId ?? string.Empty;
+
+                await _billingRecordService.CreateBillingRecordAsync(
+                    orderId: orderResult.Value?.Id ?? string.Empty,
+                    clientId: pendingPayment.ClientId,
+                    caregiverId: caregiverId,
+                    gigId: pendingPayment.GigId,
+                    serviceType: pendingPayment.ServiceType,
+                    frequencyPerWeek: pendingPayment.FrequencyPerWeek,
+                    amountPaid: pendingPayment.TotalAmount,
+                    orderFee: pendingPayment.OrderFee,
+                    serviceCharge: pendingPayment.ServiceCharge,
+                    gatewayFees: pendingPayment.FlutterwaveFees,
+                    paymentTransactionId: flutterwaveTransactionId,
+                    billingCycleNumber: 1
+                );
+
+                _logger.LogInformation(
+                    "BillingRecord created for OrderId: {OrderId}, TxRef: {TxRef}",
+                    orderResult.Value?.Id, transactionReference);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create BillingRecord for TxRef: {TxRef}. Payment was successful.", transactionReference);
+            }
+
+            // For recurring service types (monthly), create a subscription
             if (pendingPayment.ServiceType != "one-time")
             {
                 await CreateSubscriptionForRecurringPaymentAsync(pendingPayment, flutterwaveTransactionId, orderResult.Value?.Id);
+            }
+
+            // ── Re-verify and mark booking commitment as applied ──
+            if (!string.IsNullOrEmpty(pendingPayment.BookingCommitmentId))
+            {
+                var commitmentApplied = await _bookingCommitmentService.MarkCommitmentAppliedAsync(
+                    pendingPayment.BookingCommitmentId,
+                    orderResult.Value?.Id ?? string.Empty);
+
+                if (!commitmentApplied)
+                {
+                    _logger.LogError(
+                        "SECURITY: Failed to mark commitment {CommitmentId} as applied to order {OrderId}. " +
+                        "Commitment may be reused. Requires manual investigation.",
+                        pendingPayment.BookingCommitmentId, orderResult.Value?.Id);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Booking commitment {CommitmentId} applied to order {OrderId}",
+                        pendingPayment.BookingCommitmentId, orderResult.Value?.Id);
+                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "SECURITY: Payment completed without a booking commitment. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
+                    transactionReference, pendingPayment.ClientId, pendingPayment.GigId);
             }
 
             return Result<PendingPayment>.Success(pendingPayment);
@@ -285,7 +506,8 @@ namespace Infrastructure.Content.Services
                     ServiceCharge = pendingPayment.ServiceCharge,
                     FlutterwaveFees = pendingPayment.FlutterwaveFees,
                     TotalAmount = pendingPayment.TotalAmount,
-                    Currency = pendingPayment.Currency
+                    Currency = pendingPayment.Currency,
+                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted ?? 0m
                 },
                 ErrorMessage = pendingPayment.ErrorMessage
             });
@@ -325,7 +547,7 @@ namespace Infrastructure.Content.Services
                     GigId = payment.GigId,
                     OrderId = orderId ?? payment.ClientOrderId ?? string.Empty,
                     Email = payment.Email,
-                    BillingCycle = payment.ServiceType, // "weekly" or "monthly"
+                    BillingCycle = payment.ServiceType, // "monthly" (only recurring type)
                     FrequencyPerWeek = payment.FrequencyPerWeek,
                     PricePerVisit = payment.BasePrice,
                     RecurringAmount = payment.TotalAmount,
@@ -372,8 +594,7 @@ namespace Infrastructure.Content.Services
             return serviceType switch
             {
                 "one-time" => basePrice,
-                "weekly" => basePrice * frequencyPerWeek,
-                "monthly" => basePrice * frequencyPerWeek * 4,
+                "monthly" => basePrice * frequencyPerWeek * 4, // basePrice × visits/week × 4 weeks
                 _ => basePrice
             };
         }

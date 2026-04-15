@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -14,9 +16,12 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IClientOrderService _clientOrderService;
         private readonly FlutterwaveService _flutterwaveService;
-        private readonly INotificationService _notificationService;
+        private readonly IMediator _mediator;
         private readonly ILogger<SubscriptionService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly ICaregiverWalletService _walletService;
+        private readonly IEarningsLedgerService _ledgerService;
+        private readonly IBillingRecordService _billingRecordService;
 
         // Same fee structure as PendingPaymentService
         private const decimal SERVICE_CHARGE_RATE = 0.10m;
@@ -27,16 +32,22 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IClientOrderService clientOrderService,
             FlutterwaveService flutterwaveService,
-            INotificationService notificationService,
+            IMediator mediator,
             ILogger<SubscriptionService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService,
+            IBillingRecordService billingRecordService)
         {
             _dbContext = dbContext;
             _clientOrderService = clientOrderService;
             _flutterwaveService = flutterwaveService;
-            _notificationService = notificationService;
+            _mediator = mediator;
             _logger = logger;
             _configuration = configuration;
+            _walletService = walletService;
+            _ledgerService = ledgerService;
+            _billingRecordService = billingRecordService;
         }
 
         // ══════════════════════════════════════════
@@ -51,8 +62,8 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(request.CaregiverId)) errors.Add("CaregiverId is required.");
             if (string.IsNullOrEmpty(request.GigId)) errors.Add("GigId is required.");
             if (string.IsNullOrEmpty(request.OrderId)) errors.Add("OrderId is required.");
-            if (!new[] { "weekly", "monthly" }.Contains(request.BillingCycle))
-                errors.Add("BillingCycle must be 'weekly' or 'monthly'.");
+            if (request.BillingCycle != "monthly")
+                errors.Add("BillingCycle must be 'monthly'.");
             if (request.RecurringAmount <= 0) errors.Add("RecurringAmount must be positive.");
 
             if (errors.Any())
@@ -74,9 +85,7 @@ namespace Infrastructure.Content.Services
             }
 
             var now = DateTime.UtcNow;
-            var periodEnd = request.BillingCycle == "weekly"
-                ? now.AddDays(7)
-                : now.AddDays(30);
+            var periodEnd = now.AddDays(30); // Monthly billing only
 
             var subscription = new Subscription
             {
@@ -137,13 +146,13 @@ namespace Infrastructure.Content.Services
                 subscription.Id, request.ClientId, request.GigId, request.BillingCycle, request.RecurringAmount);
 
             // Notify client
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 request.ClientId,
                 "system",
-                "subscription_created",
+                NotificationTypes.SubscriptionCreated,
                 $"Your {request.BillingCycle} subscription has been activated. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Activated",
-                subscription.Id);
+                subscription.Id));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -199,8 +208,7 @@ namespace Infrastructure.Content.Services
             return new ClientSubscriptionSummary
             {
                 TotalActiveSubscriptions = active.Count,
-                TotalMonthlySpend = active.Sum(s =>
-                    s.BillingCycle == "weekly" ? s.RecurringAmount * 4.33m : s.RecurringAmount),
+                TotalMonthlySpend = active.Sum(s => s.RecurringAmount),
                 NextPaymentDate = nextPayment?.NextChargeDate,
                 NextPaymentAmount = nextPayment?.RecurringAmount ?? 0,
                 Subscriptions = subscriptions.Select(MapToDTO).ToList()
@@ -245,22 +253,22 @@ namespace Infrastructure.Content.Services
                 subscriptionId, subscription.CurrentPeriodEnd);
 
             // Notify client
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_cancellation_scheduled",
+                NotificationTypes.SubscriptionCancellationScheduled,
                 $"Your subscription will be cancelled on {subscription.CurrentPeriodEnd:MMM dd, yyyy}. Service continues until then.",
                 "Cancellation Scheduled",
-                subscriptionId);
+                subscriptionId));
 
             // Notify caregiver
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
-                "subscription_cancellation_notice",
+                NotificationTypes.SubscriptionCancellationNotice,
                 $"A client's subscription for your service will end on {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                 "Subscription Ending",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -300,13 +308,13 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} reactivated by {UserId}", subscriptionId, userId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_reactivated",
+                NotificationTypes.SubscriptionReactivated,
                 "Your subscription has been reactivated. Auto-renewal is back on.",
                 "Subscription Reactivated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -355,7 +363,29 @@ namespace Infrastructure.Content.Services
                         refundAmount, subscription.Currency, subscriptionId,
                         subscription.RemainingDaysInPeriod, subscription.TotalDaysInPeriod);
 
-                    // Refund is recorded; admin processes manual refund via Flutterwave dashboard
+                    // Debit the caregiver's wallet for the refund amount (order fee portion only)
+                    try
+                    {
+                        // Calculate what portion of the refund is the caregiver's order fee (exclude service charge & gateway fees)
+                        var totalWithoutFees = subscription.PriceBreakdown.OrderFee;
+                        var totalWithFees = subscription.PriceBreakdown.TotalAmount;
+                        var caregiverRefundPortion = totalWithFees > 0
+                            ? refundAmount * (totalWithoutFees / totalWithFees)
+                            : refundAmount;
+                        caregiverRefundPortion = Math.Round(caregiverRefundPortion, 2);
+
+                        await _walletService.DebitRefundAsync(subscription.CaregiverId, caregiverRefundPortion);
+                        await _ledgerService.RecordRefundAsync(
+                            subscription.CaregiverId,
+                            caregiverRefundPortion,
+                            subscription.OriginalOrderId,
+                            subscriptionId,
+                            $"Pro-rated refund for terminated subscription {subscriptionId}. Refund: {subscription.Currency} {refundAmount:N2}");
+                    }
+                    catch (Exception walletEx)
+                    {
+                        _logger.LogError(walletEx, "Failed to debit wallet for refund on subscription {SubscriptionId}", subscriptionId);
+                    }
                 }
             }
 
@@ -379,26 +409,45 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            // ── EXPIRE BOOKING COMMITMENT ────────────────────────────────────
+            // When an order is terminated, expire the booking commitment that was
+            // applied to it so the client must pay a new commitment fee to re-engage.
+            if (!string.IsNullOrEmpty(subscription.OriginalOrderId))
+            {
+                var linkedCommitment = await _dbContext.BookingCommitments
+                    .FirstOrDefaultAsync(bc => bc.AppliedToOrderId == subscription.OriginalOrderId
+                                            && bc.Status == BookingCommitmentStatus.Completed);
+                if (linkedCommitment != null)
+                {
+                    linkedCommitment.Status = BookingCommitmentStatus.Expired;
+                    await _dbContext.SaveChangesAsync();
+                    _logger.LogInformation(
+                        "Booking commitment {CommitmentId} expired due to subscription termination. Client {ClientId} must pay again to re-engage caregiver {CaregiverId}",
+                        linkedCommitment.Id, subscription.ClientId, subscription.CaregiverId);
+                }
+            }
+            // ── END EXPIRE BOOKING COMMITMENT ────────────────────────────────
+
             // Notify both parties
             var refundMsg = subscription.RefundAmount > 0
                 ? $" A pro-rated refund of {subscription.Currency} {subscription.RefundAmount:N2} will be processed."
                 : "";
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_terminated",
+                NotificationTypes.SubscriptionTerminated,
                 $"Your subscription has been terminated immediately.{refundMsg}",
                 "Subscription Terminated",
-                subscriptionId);
+                subscriptionId));
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
-                "subscription_terminated",
+                NotificationTypes.SubscriptionTerminated,
                 "A subscription for your service has been terminated.",
                 "Subscription Terminated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -425,8 +474,8 @@ namespace Infrastructure.Content.Services
             var newCycle = request.NewBillingCycle?.ToLower() ?? subscription.BillingCycle;
             var newFrequency = request.NewFrequencyPerWeek ?? subscription.FrequencyPerWeek;
 
-            if (!new[] { "weekly", "monthly" }.Contains(newCycle))
-                return Result<PlanChangeResponse>.Failure(new List<string> { "BillingCycle must be 'weekly' or 'monthly'." });
+            if (newCycle != "monthly")
+                return Result<PlanChangeResponse>.Failure(new List<string> { "BillingCycle must be 'monthly'." });
 
             if (newFrequency < 1 || newFrequency > 7)
                 return Result<PlanChangeResponse>.Failure(new List<string> { "FrequencyPerWeek must be between 1 and 7." });
@@ -488,14 +537,14 @@ namespace Infrastructure.Content.Services
                 subscriptionId, planChange.PreviousBillingCycle, planChange.PreviousFrequencyPerWeek,
                 newCycle, newFrequency, changeType, planChange.EffectiveDate);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_plan_changed",
+                NotificationTypes.SubscriptionPlanChanged,
                 $"Your plan has been {changeType}d. New amount: {subscription.Currency} {newTotal:N2}/{newCycle}. " +
                 $"Changes take effect on {planChange.EffectiveDate:MMM dd, yyyy}.",
                 "Plan Changed",
-                subscriptionId);
+                subscriptionId));
 
             return Result<PlanChangeResponse>.Success(new PlanChangeResponse
             {
@@ -616,13 +665,13 @@ namespace Infrastructure.Content.Services
                 "Payment method updated for subscription {SubscriptionId}. Card: {Brand} ****{Last4}",
                 subscriptionId, cardBrand, cardLastFour);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "payment_method_updated",
+                NotificationTypes.PaymentMethodUpdated,
                 $"Your payment method has been updated to {cardBrand} ****{cardLastFour}.",
                 "Payment Method Updated",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -654,13 +703,13 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} paused by {UserId}", subscriptionId, userId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_paused",
+                NotificationTypes.SubscriptionPaused,
                 "Your subscription has been paused. No charges will be made until you resume.",
                 "Subscription Paused",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -680,9 +729,7 @@ namespace Infrastructure.Content.Services
                 return Result<SubscriptionDTO>.Failure(new List<string> { "Only paused subscriptions can be resumed." });
 
             var now = DateTime.UtcNow;
-            var periodEnd = subscription.BillingCycle == "weekly"
-                ? now.AddDays(7)
-                : now.AddDays(30);
+            var periodEnd = now.AddDays(30); // Monthly billing only
 
             subscription.Status = SubscriptionStatus.Active;
             subscription.CurrentPeriodStart = now;
@@ -696,13 +743,13 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation("Subscription {SubscriptionId} resumed by {UserId}. Next charge: {NextCharge}",
                 subscriptionId, userId, periodEnd);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_resumed",
+                NotificationTypes.SubscriptionResumed,
                 $"Your subscription has been resumed. Next charge: {periodEnd:MMM dd, yyyy}.",
                 "Subscription Resumed",
-                subscriptionId);
+                subscriptionId));
 
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
@@ -735,6 +782,24 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrEmpty(subscription.FlutterwavePaymentToken))
                 return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "No payment token available." });
 
+            // ── DOUBLE-CHARGE GUARD ──
+            // If a charge is already in progress (status set to "charging"), skip.
+            // This protects against the background service picking up the same subscription
+            // on concurrent runs or when a charge takes longer than the check interval.
+            if (subscription.Status == SubscriptionStatus.Charging)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Skipping subscription {SubscriptionId} — charge already in progress (status=Charging).",
+                    subscriptionId);
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Charge already in progress." });
+            }
+
+            // Mark as "charging" to prevent concurrent processing
+            var previousStatus = subscription.Status;
+            subscription.Status = SubscriptionStatus.Charging;
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
             var txRef = $"CAREPRO-RECURRING-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
             var cycleNumber = subscription.BillingCyclesCompleted + 1;
 
@@ -765,18 +830,57 @@ namespace Infrastructure.Content.Services
                     paymentRecord.Status = "failed";
                     paymentRecord.ErrorMessage = error;
                     subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus; // Restore previous status
+                    await _dbContext.SaveChangesAsync();
                     await HandleFailedChargeAsync(subscriptionId, error);
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { error });
                 }
 
-                // Payment successful — create a new ClientOrder for this billing cycle
+                // ── SERVER-TO-SERVER VERIFICATION ──
+                // Don't trust the charge response alone — verify the transaction is genuinely successful
+                var verification = await _flutterwaveService.VerifyTransactionAsync(chargeResult.TransactionId);
+                if (verification == null || !verification.Success ||
+                    verification.Status.ToLower() != "successful")
+                {
+                    _logger.LogCritical(
+                        "SECURITY: Tokenized charge for subscription {SubscriptionId} returned success but server verification FAILED. " +
+                        "ChargeTransactionId: {TxId}, VerifyStatus: {Status}",
+                        subscriptionId, chargeResult.TransactionId, verification?.Status ?? "null");
+
+                    paymentRecord.Status = "verification_failed";
+                    paymentRecord.ErrorMessage = "Charge reported success but verification failed";
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus;
+                    await _dbContext.SaveChangesAsync();
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment verification failed. Will retry." });
+                }
+
+                // ── AMOUNT VERIFICATION ──
+                // Ensure the verified amount matches what we expected to charge
+                if (Math.Abs(verification.Amount - subscription.RecurringAmount) > 0.01m)
+                {
+                    _logger.LogCritical(
+                        "SECURITY: AMOUNT MISMATCH on recurring charge! Subscription {SubscriptionId}, Expected: {Expected}, Verified: {Verified}",
+                        subscriptionId, subscription.RecurringAmount, verification.Amount);
+
+                    paymentRecord.Status = "amount_mismatch";
+                    paymentRecord.ErrorMessage = $"Expected {subscription.RecurringAmount}, verified {verification.Amount}";
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.Status = previousStatus;
+                    await _dbContext.SaveChangesAsync();
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment amount mismatch detected." });
+                }
+
+                // Payment verified — create a new ClientOrder for this billing cycle
                 var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
                 {
                     ClientId = subscription.ClientId,
                     GigId = subscription.GigId,
                     PaymentOption = subscription.BillingCycle,
-                    Amount = (int)subscription.RecurringAmount,
-                    TransactionId = chargeResult.TransactionId
+                    Amount = (int)Math.Round(subscription.RecurringAmount, 0), // Rounded to int for ClientOrder
+                    OrderFee = subscription.PriceBreakdown.OrderFee,
+                    TransactionId = chargeResult.TransactionId,
+                    BillingCycleNumber = cycleNumber
                 });
 
                 paymentRecord.Status = "successful";
@@ -787,13 +891,12 @@ namespace Infrastructure.Content.Services
                 // Advance the billing period
                 var now = DateTime.UtcNow;
                 subscription.CurrentPeriodStart = now;
-                subscription.CurrentPeriodEnd = subscription.BillingCycle == "weekly"
-                    ? now.AddDays(7)
-                    : now.AddDays(30);
+                subscription.CurrentPeriodEnd = now.AddDays(30); // Monthly billing only
                 subscription.NextChargeDate = subscription.CurrentPeriodEnd;
                 subscription.BillingCyclesCompleted = cycleNumber;
                 subscription.FailedChargeAttempts = 0;
                 subscription.LastChargeError = null;
+                subscription.Status = SubscriptionStatus.Active; // Restore from Charging → Active
                 subscription.PaymentHistory.Add(paymentRecord);
                 subscription.UpdatedAt = now;
 
@@ -803,15 +906,43 @@ namespace Infrastructure.Content.Services
                     "Recurring charge successful for subscription {SubscriptionId}. Cycle #{Cycle}, Amount: {Amount}, OrderId: {OrderId}",
                     subscriptionId, cycleNumber, subscription.RecurringAmount, orderResult.Value?.Id);
 
+                // ── Create BillingRecord for this renewal cycle ──
+                try
+                {
+                    await _billingRecordService.CreateBillingRecordAsync(
+                        orderId: orderResult.Value?.Id ?? string.Empty,
+                        clientId: subscription.ClientId,
+                        caregiverId: subscription.CaregiverId,
+                        gigId: subscription.GigId,
+                        serviceType: subscription.BillingCycle,
+                        frequencyPerWeek: subscription.FrequencyPerWeek,
+                        amountPaid: subscription.RecurringAmount,
+                        orderFee: subscription.PriceBreakdown.OrderFee,
+                        serviceCharge: subscription.PriceBreakdown.ServiceCharge,
+                        gatewayFees: subscription.PriceBreakdown.GatewayFees,
+                        paymentTransactionId: chargeResult.TransactionId ?? txRef,
+                        subscriptionId: subscriptionId,
+                        contractId: subscription.ContractId,
+                        billingCycleNumber: cycleNumber,
+                        periodStart: subscription.CurrentPeriodStart,
+                        periodEnd: subscription.CurrentPeriodEnd,
+                        nextChargeDate: subscription.NextChargeDate
+                    );
+                }
+                catch (Exception billingEx)
+                {
+                    _logger.LogError(billingEx, "Failed to create BillingRecord for subscription {SubscriptionId} cycle {Cycle}", subscriptionId, cycleNumber);
+                }
+
                 // Notify client of successful charge
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
-                    "recurring_payment_successful",
+                    NotificationTypes.RecurringPaymentSuccessful,
                     $"Your {subscription.BillingCycle} subscription payment of {subscription.Currency} {subscription.RecurringAmount:N2} was successful. " +
                     $"Next charge: {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                     "Payment Successful",
-                    subscriptionId);
+                    subscriptionId));
 
                 return Result<SubscriptionPaymentRecordDTO>.Success(new SubscriptionPaymentRecordDTO
                 {
@@ -830,6 +961,10 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing recurring charge for subscription {SubscriptionId}", subscriptionId);
+
+                // Restore status from Charging back to previous state
+                subscription.Status = previousStatus;
+
                 paymentRecord.Status = "failed";
                 paymentRecord.ErrorMessage = ex.Message;
                 subscription.PaymentHistory.Add(paymentRecord);
@@ -861,13 +996,13 @@ namespace Infrastructure.Content.Services
                     "Subscription {SubscriptionId} SUSPENDED after {Attempts} failed charge attempts. Last error: {Error}",
                     subscriptionId, subscription.FailedChargeAttempts, errorMessage);
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
-                    "subscription_suspended",
+                    NotificationTypes.SubscriptionSuspended,
                     "Your subscription has been suspended due to repeated payment failures. Please update your payment method to continue service.",
                     "Subscription Suspended",
-                    subscriptionId);
+                    subscriptionId));
             }
             else
             {
@@ -881,13 +1016,13 @@ namespace Infrastructure.Content.Services
                     subscriptionId, subscription.FailedChargeAttempts, subscription.MaxRetryAttempts,
                     subscription.NextChargeDate, errorMessage);
 
-                await _notificationService.CreateNotificationAsync(
+                await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
-                    "payment_failed",
+                    NotificationTypes.PaymentFailed,
                     $"Your subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
                     "Payment Failed",
-                    subscriptionId);
+                    subscriptionId));
             }
 
             await _dbContext.SaveChangesAsync();
@@ -920,21 +1055,21 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Subscription {SubscriptionId} finalized as Cancelled", subscriptionId);
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
                 "system",
-                "subscription_cancelled",
+                NotificationTypes.SubscriptionCancelled,
                 "Your subscription has ended. Thank you for using CarePro.",
                 "Subscription Ended",
-                subscriptionId);
+                subscriptionId));
 
-            await _notificationService.CreateNotificationAsync(
+            await _mediator.Send(new SendNotificationCommand(
                 subscription.CaregiverId,
                 "system",
-                "subscription_ended",
+                NotificationTypes.SubscriptionEnded,
                 "A client's subscription for your service has ended.",
                 "Subscription Ended",
-                subscriptionId);
+                subscriptionId));
         }
 
         // ══════════════════════════════════════════
@@ -1078,8 +1213,7 @@ namespace Infrastructure.Content.Services
             return serviceType switch
             {
                 "one-time" => basePrice,
-                "weekly" => basePrice * frequencyPerWeek,
-                "monthly" => basePrice * frequencyPerWeek * 4,
+                "monthly" => basePrice * frequencyPerWeek * 4, // basePrice × visits/week × 4 weeks
                 _ => basePrice
             };
         }

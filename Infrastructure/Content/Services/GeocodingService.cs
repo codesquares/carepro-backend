@@ -33,9 +33,9 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation($"Geocoding address: {address}");
 
                 var apiKey = _configuration["GoogleMaps:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
+                if (string.IsNullOrEmpty(apiKey) || IsPlaceholderKey(apiKey))
                 {
-                    _logger.LogWarning("Google Maps API key not configured, using mock geocoding");
+                    _logger.LogWarning("Google Maps API key not configured or is a placeholder, using mock geocoding");
                     return await MockGeocodeAsync(address);
                 }
 
@@ -59,6 +59,7 @@ namespace Infrastructure.Content.Services
                     var city = ExtractCityFromComponents(result.AddressComponents);
                     var state = ExtractStateFromComponents(result.AddressComponents);
                     var country = ExtractCountryFromComponents(result.AddressComponents);
+                    var postalCode = ExtractPostalCodeFromComponents(result.AddressComponents);
 
                     return new GeocodeResponse
                     {
@@ -67,6 +68,7 @@ namespace Infrastructure.Content.Services
                         City = city,
                         State = state,
                         Country = country,
+                        PostalCode = postalCode,
                         FormattedAddress = result.FormattedAddress ?? address
                     };
                 }
@@ -90,9 +92,9 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation($"Reverse geocoding coordinates: {latitude}, {longitude}");
 
                 var apiKey = _configuration["GoogleMaps:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
+                if (string.IsNullOrEmpty(apiKey) || IsPlaceholderKey(apiKey))
                 {
-                    _logger.LogWarning("Google Maps API key not configured, using mock reverse geocoding");
+                    _logger.LogWarning("Google Maps API key not configured or is a placeholder, using mock reverse geocoding");
                     return await MockReverseGeocodeAsync(latitude, longitude);
                 }
 
@@ -111,6 +113,7 @@ namespace Infrastructure.Content.Services
                     var city = ExtractCityFromComponents(result.AddressComponents);
                     var state = ExtractStateFromComponents(result.AddressComponents);
                     var country = ExtractCountryFromComponents(result.AddressComponents);
+                    var postalCode = ExtractPostalCodeFromComponents(result.AddressComponents);
 
                     return new GeocodeResponse
                     {
@@ -119,6 +122,7 @@ namespace Infrastructure.Content.Services
                         City = city,
                         State = state,
                         Country = country,
+                        PostalCode = postalCode,
                         FormattedAddress = result.FormattedAddress ?? $"{latitude}, {longitude}"
                     };
                 }
@@ -195,6 +199,16 @@ namespace Infrastructure.Content.Services
             return countryComponent?.LongName ?? "";
         }
 
+        private string? ExtractPostalCodeFromComponents(IEnumerable<AddressComponent>? components)
+        {
+            if (components == null) return null;
+
+            var postalComponent = components.FirstOrDefault(c =>
+                c.Types?.Contains("postal_code") == true);
+
+            return postalComponent?.LongName;
+        }
+
         private async Task<GeocodeResponse> MockGeocodeAsync(string address)
         {
             // Mock implementation for development/testing
@@ -209,6 +223,7 @@ namespace Infrastructure.Content.Services
                 City = city,
                 State = "Lagos",
                 Country = "Nigeria",
+                PostalCode = "100001",
                 FormattedAddress = address
             };
         }
@@ -224,6 +239,7 @@ namespace Infrastructure.Content.Services
                 City = "Lagos",
                 State = "Lagos",
                 Country = "Nigeria",
+                PostalCode = "100001",
                 FormattedAddress = $"Near {latitude:F4}, {longitude:F4}"
             };
         }
@@ -240,6 +256,12 @@ namespace Infrastructure.Content.Services
             }
 
             return "Lagos"; // Default city
+        }
+
+        private static bool IsPlaceholderKey(string apiKey)
+        {
+            var lower = apiKey.ToLowerInvariant();
+            return lower.Contains("local-dev") || lower.Contains("placeholder") || lower.Contains("your-") || lower.Contains("changeme") || lower.Contains("replace");
         }
 
         #endregion

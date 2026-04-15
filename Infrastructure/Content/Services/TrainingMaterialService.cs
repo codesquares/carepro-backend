@@ -64,7 +64,7 @@ namespace Infrastructure.Content.Services
                 }
                 else
                 {
-                    throw new ArgumentException($"Unsupported file type: {fileExtension}");
+                    throw new ArgumentException($"Unsupported file Type: {fileExtension}");
                 }
 
                 // Create entity
@@ -180,7 +180,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting training materials for user type: {UserType}", userType);
+                _logger.LogError(ex, "Error getting training materials for user Type: {UserType}", userType);
                 throw;
             }
         }
@@ -200,7 +200,7 @@ namespace Infrastructure.Content.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting active training material for user type: {UserType}, material type: {MaterialType}",
+                _logger.LogError(ex, "Error getting active training material for user Type: {UserType}, material Type: {MaterialType}",
                     userType, materialType);
                 throw;
             }
@@ -269,7 +269,7 @@ namespace Infrastructure.Content.Services
                     }
                     else
                     {
-                        throw new ArgumentException($"Unsupported file type: {fileExtension}");
+                        throw new ArgumentException($"Unsupported file Type: {fileExtension}");
                     }
 
                     material.FileType = fileType;

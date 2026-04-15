@@ -46,12 +46,23 @@ namespace Domain.Entities
 
     public enum NegotiationAction
     {
-        ContractGenerated,      // Caregiver generated the contract
-        SentToClient,           // Contract sent to client for approval
-        ClientApproved,         // Client approved the contract
-        ClientRequestedReview,  // Client requested changes
-        CaregiverRevised,       // Caregiver submitted revised contract
-        ClientRejected,         // Client rejected (after round 2)
+        // Caregiver-initiated flow
+        ContractGenerated,          // Caregiver generated the contract
+        SentToClient,               // Contract sent to client for approval
+        ClientApproved,             // Client approved the contract
+        ClientRequestedReview,      // Client requested changes
+        CaregiverRevised,           // Caregiver submitted revised contract
+        ClientRejected,             // Client rejected (after round 2)
+
+        // Client-initiated flow
+        ClientGeneratedContract,    // Client generated the contract
+        SentToCaregiver,            // Contract sent to caregiver for approval
+        CaregiverApproved,          // Caregiver approved the contract
+        CaregiverRequestedReview,   // Caregiver requested changes
+        ClientRevised,              // Client submitted revised contract
+        CaregiverRejectedContract,  // Caregiver rejected (after round 2)
+
+        // Lifecycle (both flows)
         ContractExpired,        // Contract expired without action
         ContractCompleted,      // Contract service completed
         ContractTerminated      // Contract terminated early

@@ -40,6 +40,11 @@ namespace Application.DTOs
         /// </summary>
         public string? EligibilityWarning { get; set; }
 
+        // ── Care Request Special Gig Fields ──
+        public bool? IsSpecialGig { get; set; }
+        public string? CareRequestId { get; set; }
+        public string? ScopedClientId { get; set; }
+
     }
 
     public class AddGigRequest
@@ -87,5 +92,40 @@ namespace Application.DTOs
 
         public string CaregiverId { get; set; }
 
+    }
+
+    public class AdminBulkDeleteGigsRequest
+    {
+        public List<string>? GigIds { get; set; }
+        public bool DeleteAll { get; set; }
+        public string AdminUserId { get; set; } = string.Empty;
+    }
+
+    public class AdminBulkDeleteResult
+    {
+        public int DeletedCount { get; set; }
+        public int SkippedCount { get; set; }
+        public int FailedCount { get; set; }
+        public List<string> SkippedGigIds { get; set; } = new();
+        public List<string> SkippedReasons { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
+
+    public class DeletedGigDTO
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Category { get; set; }
+        public List<string> SubCategory { get; set; }
+        public string PackageType { get; set; }
+        public string PackageName { get; set; }
+        public int Price { get; set; }
+        public string? Image1 { get; set; }
+        public string CaregiverId { get; set; }
+        public string CaregiverName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? DeletedOn { get; set; }
+        public int DaysRemaining { get; set; }
+        public bool CanRestore { get; set; }
     }
 }

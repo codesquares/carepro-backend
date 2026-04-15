@@ -30,7 +30,14 @@ namespace CarePro_Api.Middleware
             WindowSeconds = 3600,  // 3 requests per hour for password reset
             BlockDurationSeconds = 3600
         };
-        
+
+        private static readonly RateLimitConfig _registrationConfig = new()
+        {
+            MaxRequests = 3,
+            WindowSeconds = 3600,  // 3 registrations per hour per IP
+            BlockDurationSeconds = 3600  // 1 hour block after exceeding
+        };
+
         private static readonly RateLimitConfig _generalConfig = new()
         {
             MaxRequests = 100,
@@ -52,6 +59,15 @@ namespace CarePro_Api.Middleware
             "/api/caregivers/change-password",
             "/api/clients/requestpasswordreset",
             "/api/clients/resetpassword"
+        };
+
+        private static readonly string[] _registrationEndpoints =
+        {
+            "/api/clients/addclientuser",
+            "/api/clients/googlesignup",
+            "/api/caregivers/addcaregiveruser",
+            "/api/caregivers/googlesignup",
+            "/api/admins"
         };
 
         public RateLimitingMiddleware(RequestDelegate next, ILogger<RateLimitingMiddleware> logger)
@@ -116,6 +132,9 @@ namespace CarePro_Api.Middleware
             
             if (_passwordResetEndpoints.Any(e => path.Contains(e)))
                 return _passwordResetConfig;
+
+            if (_registrationEndpoints.Any(e => path.Contains(e)))
+                return _registrationConfig;
             
             return _generalConfig;
         }
@@ -127,6 +146,9 @@ namespace CarePro_Api.Middleware
             
             if (_passwordResetEndpoints.Any(e => path.Contains(e)))
                 return "password-reset";
+
+            if (_registrationEndpoints.Any(e => path.Contains(e)))
+                return "registration";
             
             return "general";
         }

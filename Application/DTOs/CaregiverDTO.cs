@@ -11,7 +11,7 @@ namespace Application.DTOs
 {
     public class CaregiverDTO
     {
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         public string FirstName { get; set; } = null!;
 
@@ -23,9 +23,10 @@ namespace Application.DTOs
 
         public string? PhoneNo { get; set; }
 
-        public string Role { get; set; }
+        public string Role { get; set; } = string.Empty;
 
-        public string Password { get; set; } = null!;
+        // SECURITY: Password hash must NEVER be returned in API responses
+        // public string Password { get; set; }
 
         public bool IsDeleted { get; set; }
 
@@ -85,7 +86,7 @@ namespace Application.DTOs
 
     public class CaregiverResponse
     {
-        public string Id { get; set; }
+        public string Id { get; set; } = string.Empty;
 
         public string FirstName { get; set; } = null!;
 
@@ -98,7 +99,7 @@ namespace Application.DTOs
         public string? PhoneNo { get; set; } = null!;
 
 
-        public string Role { get; set; }
+        public string Role { get; set; } = string.Empty;
 
         // public string Password { get; set; } = null!;
 
@@ -110,6 +111,10 @@ namespace Application.DTOs
 
 
         public string? HomeAddress { get; set; }
+
+        public string? ServiceAddress { get; set; }
+        public string? ServiceCity { get; set; }
+        public string? ServiceState { get; set; }
 
         public string? AboutMe { get; set; }
         public string? AboutMeIntro { get; set; }
@@ -130,14 +135,20 @@ namespace Application.DTOs
         public int NoOfOrders { get; set; }
         public int NoOfHoursSpent { get; set; }
 
-        public List<string> Services { get; set; }
+        public List<string> Services { get; set; } = new();
 
         public string? ProfileImage { get; set; }
 
         public string? AuthProvider { get; set; }
 
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
         public DateTime CreatedAt { get; set; }
 
+        public bool IsIdentityVerified { get; set; }
+        public string? IdentityVerificationStatus { get; set; }
+        public DateTime? IdentityVerifiedAt { get; set; }
 
     }
 
@@ -163,7 +174,10 @@ namespace Application.DTOs
         public int NoOfHoursSpent { get; set; }
         public List<string>? Services { get; set; }
         public string? ProfileImage { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool IsIdentityVerified { get; set; }
     }
 
     public class UpdateCaregiverAdditionalInfoRequest
@@ -209,6 +223,10 @@ namespace Application.DTOs
     {
         [Required]
         public string Address { get; set; } = null!;
+
+        public double? Latitude { get; set; }
+
+        public double? Longitude { get; set; }
     }
 
 

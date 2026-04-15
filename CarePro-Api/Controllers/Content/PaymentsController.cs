@@ -12,15 +12,18 @@ namespace CarePro_Api.Controllers.Content
     public class PaymentsController : ControllerBase
     {
         private readonly IPendingPaymentService _pendingPaymentService;
+        private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly ILogger<PaymentsController> _logger;
 
         public PaymentsController(
             IPendingPaymentService pendingPaymentService,
+            IBookingCommitmentService bookingCommitmentService,
             FlutterwaveService flutterwaveService,
             ILogger<PaymentsController> logger)
         {
             _pendingPaymentService = pendingPaymentService;
+            _bookingCommitmentService = bookingCommitmentService;
             _flutterwaveService = flutterwaveService;
             _logger = logger;
         }
@@ -127,6 +130,27 @@ namespace CarePro_Api.Controllers.Content
                 return BadRequest(new { success = false, message = "Transaction verification failed." });
             }
 
+            // ── ROUTE: Booking commitment payments vs regular gig payments ──────
+            if (txRef.StartsWith("CAREPRO-COMMIT-", StringComparison.OrdinalIgnoreCase))
+            {
+                var commitResult = await _bookingCommitmentService.CompleteCommitmentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!commitResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete commitment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", commitResult.Errors));
+                    return BadRequest(new { success = false, message = "Commitment processing failed." });
+                }
+
+                _logger.LogInformation("Booking commitment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Commitment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
+
             // Complete the payment (this will verify amounts and create the order)
             var result = await _pendingPaymentService.CompletePaymentAsync(
                 txRef,
@@ -138,7 +162,8 @@ namespace CarePro_Api.Controllers.Content
             {
                 _logger.LogError("Failed to complete payment for TxRef: {TxRef}. Errors: {Errors}",
                     txRef, string.Join(", ", result.Errors));
-                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
+                // Return generic message — never leak internal error details to external webhook callers
+                return BadRequest(new { success = false, message = "Payment processing failed." });
             }
 
             _logger.LogInformation("Payment completed successfully for TxRef: {TxRef}", txRef);
@@ -148,6 +173,7 @@ namespace CarePro_Api.Controllers.Content
         /// <summary>
         /// Gets the status and breakdown of a payment by transaction reference.
         /// Call this after redirect from Flutterwave to display payment details.
+        /// IDOR protected: only the payment owner or admin can view status.
         /// </summary>
         [HttpGet("status/{transactionReference}")]
         [Authorize]
@@ -157,22 +183,70 @@ namespace CarePro_Api.Controllers.Content
 
             if (!result.IsSuccess)
             {
-                return NotFound(new { success = false, message = string.Join(", ", result.Errors) });
+                return NotFound(new { success = false, message = "Payment not found." });
+            }
+
+            // IDOR protection: verify the caller owns this payment
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+            var role = User.FindFirstValue(ClaimTypes.Role);
+            var isAdmin = role == "Admin" || role == "SuperAdmin";
+
+            // GetPaymentStatusAsync doesn't expose clientId directly.
+            // Use the underlying PendingPayment record for ownership check.
+            var paymentRecord = await _pendingPaymentService.GetByTransactionReferenceAsync(transactionReference);
+            if (paymentRecord != null && !isAdmin && paymentRecord.ClientId != currentUserId)
+            {
+                return Forbid();
             }
 
             return Ok(result.Value);
         }
 
         /// <summary>
-        /// Legacy verify endpoint - use /status/{transactionReference} instead
+        /// Verifies payment with Flutterwave. IDOR protected: only the payment owner or admin.
+        /// Returns a sanitized response (no raw Flutterwave internals).
         /// </summary>
         [HttpGet("verify/{transactionId}")]
         [Authorize]
         [Obsolete("Use /status/{transactionReference} instead")]
         public async Task<IActionResult> VerifyPayment(string transactionId)
         {
-            var response = await _flutterwaveService.VerifyPayment(transactionId);
-            return Ok(response);
+            // IDOR: look up the PendingPayment that owns this Flutterwave transaction ID
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+            var role = User.FindFirstValue(ClaimTypes.Role);
+            var isAdmin = role == "Admin" || role == "SuperAdmin";
+
+            // Verify ownership via PendingPayment record
+            var verification = await _flutterwaveService.VerifyTransactionAsync(transactionId);
+            if (verification == null)
+            {
+                return NotFound(new { success = false, message = "Transaction not found." });
+            }
+
+            // Cross-check: find the PendingPayment by the tx_ref returned from Flutterwave
+            if (!string.IsNullOrEmpty(verification.TxRef))
+            {
+                var paymentRecord = await _pendingPaymentService.GetByTransactionReferenceAsync(verification.TxRef);
+                if (paymentRecord != null && !isAdmin && paymentRecord.ClientId != currentUserId)
+                {
+                    return Forbid();
+                }
+            }
+
+            // Return sanitized response — only what the client needs
+            return Ok(new
+            {
+                success = verification.Success,
+                status = verification.Status,
+                amount = verification.Amount,
+                currency = verification.Currency,
+                txRef = verification.TxRef,
+                transactionId = transactionId
+            });
         }
     }
 }

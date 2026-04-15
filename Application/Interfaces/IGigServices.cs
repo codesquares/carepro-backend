@@ -19,6 +19,8 @@ namespace Application.Interfaces
 
         Task<IEnumerable<GigDTO>> GetAllGigsAsync();
 
+        Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null);
+
         // Task<IEnumerable<GigDTO>> GetAllCaregiverServicesAsync(string caregiverId);
 
         Task<List<string>> GetAllSubCategoriesForCaregiverAsync(string caregiverId);
@@ -31,6 +33,13 @@ namespace Application.Interfaces
 
         Task<string> SoftDeleteGigAsync(string gigId, string caregiverId);
 
+        Task<AdminBulkDeleteResult> AdminBulkSoftDeleteGigsAsync(List<string>? gigIds, bool deleteAll, string adminUserId);
+
+        Task<string> RestoreGigAsync(string gigId, string caregiverId);
+
+        Task<IEnumerable<DeletedGigDTO>> GetDeletedGigsByCaregiverAsync(string caregiverId);
+
+        Task<PaginatedResponse<DeletedGigDTO>> GetAllDeletedGigsPaginatedAsync(int page = 1, int pageSize = 20, string? caregiverId = null);
 
     }
 }
