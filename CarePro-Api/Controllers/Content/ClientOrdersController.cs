@@ -6,6 +6,7 @@ using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using MongoDB.Bson;
 using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
@@ -242,6 +243,9 @@ namespace CarePro_Api.Controllers.Content
         [Authorize(Roles = "Client, Caregiver, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateClientOrderStatusAsync([FromQuery] string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
         {
+            if (!ObjectId.TryParse(orderId, out _))
+                return BadRequest(new { Message = "Invalid order ID format." });
+
             try
             {
                 // Override the UserId from the body with the JWT-authenticated identity
@@ -366,10 +370,30 @@ namespace CarePro_Api.Controllers.Content
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
         public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync([FromQuery] string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
         {
+            if (!ObjectId.TryParse(orderId, out _))
+                return BadRequest(new { Message = "Invalid order ID format." });
+
             try
             {
                 // Override UserId from body with JWT identity
                 updateClientOrderStatusHasDisputeRequest.UserId = GetCurrentUserId();
+
+                // IDOR protection: if the caller is a Client, verify they own this order
+                var currentRole = User.FindFirstValue(ClaimTypes.Role);
+                if (currentRole == "Client")
+                {
+                    var existingOrder = await clientOrderService.GetClientOrderAsync(orderId);
+                    if (existingOrder == null)
+                    {
+                        return NotFound(new { message = $"Order with ID '{orderId}' not found." });
+                    }
+                    if (existingOrder.ClientId != updateClientOrderStatusHasDisputeRequest.UserId)
+                    {
+                        logger.LogWarning("Client {UserId} attempted to raise dispute on order {OrderId} belonging to client {OwnerId}.",
+                            updateClientOrderStatusHasDisputeRequest.UserId, orderId, existingOrder.ClientId);
+                        return Forbid();
+                    }
+                }
 
                 var result = await clientOrderService.UpdateClientOrderStatusHasDisputeAsync(orderId, updateClientOrderStatusHasDisputeRequest);
                 logger.LogInformation("Dispute raised on Order {OrderId} by user {UserId}.", orderId, updateClientOrderStatusHasDisputeRequest.UserId);
