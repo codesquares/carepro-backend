@@ -239,9 +239,9 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
-        [Route("UpdateClientOrderStatus/orderId")]
+        [Route("UpdateClientOrderStatus/{orderId}")]
         [Authorize(Roles = "Client, Caregiver, Admin, SuperAdmin")]
-        public async Task<ActionResult<string>> UpdateClientOrderStatusAsync([FromQuery] string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
+        public async Task<ActionResult<string>> UpdateClientOrderStatusAsync([FromRoute] string orderId, UpdateClientOrderStatusRequest updateClientOrderStatusRequest)
         {
             if (!ObjectId.TryParse(orderId, out _))
                 return BadRequest(new { Message = "Invalid order ID format." });
@@ -366,9 +366,9 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPut]
-        [Route("UpdateClientOrderStatusHasDispute/orderId")]
+        [Route("UpdateClientOrderStatusHasDispute/{orderId}")]
         [Authorize(Roles = "Client, Admin, SuperAdmin")]
-        public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync([FromQuery] string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
+        public async Task<ActionResult<string>> UpdateClientOrderStatusHasDisputeAsync([FromRoute] string orderId, UpdateClientOrderStatusHasDisputeRequest updateClientOrderStatusHasDisputeRequest)
         {
             if (!ObjectId.TryParse(orderId, out _))
                 return BadRequest(new { Message = "Invalid order ID format." });
