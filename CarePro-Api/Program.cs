@@ -226,6 +226,9 @@ builder.Services.AddHostedService<GigHardDeleteProcessor>();
 // GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
 builder.Services.AddHostedService<GigDeletionReminderProcessor>();
 
+// Cleanup orphaned email inline-image assets older than 90 days (runs daily)
+builder.Services.AddHostedService<EmailAssetCleanupProcessor>();
+
 
 
 builder.Services.AddScoped<ITokenHandler, Infrastructure.Content.Services.Authentication.TokenHandler>();

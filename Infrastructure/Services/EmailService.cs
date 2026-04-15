@@ -761,8 +761,10 @@ namespace Infrastructure.Services
             return fileType.ToLower() switch
             {
                 var t when t.Contains("pdf") => "📄",
-                var t when t.Contains("image") || t.Contains("jpeg") || t.Contains("jpg") => "🖼️",
-                var t when t.Contains("video") || t.Contains("mp4") => "🎬",
+                var t when t.Contains("image") || t.Contains("jpeg") || t.Contains("jpg") || t.Contains("png") || t.Contains("gif") || t.Contains("webp") || t.Contains("svg") => "🖼️",
+                var t when t.Contains("video") || t.Contains("mp4") || t.Contains("quicktime") || t.Contains("webm") || t.Contains("avi") => "🎬",
+                var t when t.Contains("word") || t.Contains("msword") || t.Contains("doc") => "📝",
+                var t when t.Contains("excel") || t.Contains("spreadsheet") || t.Contains("xls") || t.Contains("csv") => "📊",
                 _ => "📎"
             };
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Application.DTOs.Email
 {
@@ -17,5 +18,13 @@ namespace Application.DTOs.Email
     {
         public bool IsValid { get; set; }
         public string ErrorMessage { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+    }
+
+    public class BatchValidationResult
+    {
+        public bool HasErrors { get; set; }
+        public List<FileValidationResult> Errors { get; set; } = new List<FileValidationResult>();
+        public List<Microsoft.AspNetCore.Http.IFormFile> ValidFiles { get; set; } = new List<Microsoft.AspNetCore.Http.IFormFile>();
     }
 }

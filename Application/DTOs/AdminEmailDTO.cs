@@ -51,5 +51,28 @@ namespace Application.DTOs
         public int SuccessfulSends { get; set; }
         public int FailedSends { get; set; }
         public List<string> Errors { get; set; } = new List<string>();
+        public List<AttachmentMetadata> Attachments { get; set; } = new List<AttachmentMetadata>();
+    }
+
+    public class AttachmentMetadata
+    {
+        public string FileName { get; set; } = string.Empty;
+        public long FileSize { get; set; }
+        public string MimeType { get; set; } = string.Empty;
+    }
+
+    public class AttachmentValidationError
+    {
+        public string FileName { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
+    }
+
+    public class UploadEmailAssetResponse
+    {
+        public bool Success { get; set; }
+        public string Url { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string MimeType { get; set; } = string.Empty;
+        public long FileSize { get; set; }
     }
 }

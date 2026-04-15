@@ -220,6 +220,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpPost]
         [Route("SendEmail")]
+        [RequestSizeLimit(157_286_400)] // 150MB
         //[Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<IActionResult> SendCustomEmailAsync([FromForm] SendCustomEmailRequest request)
         {
@@ -237,21 +238,27 @@ namespace CarePro_Api.Controllers.Content
                 
                 if (request.Attachments != null && request.Attachments.Any())
                 {
+                    // Validate all attachments upfront
+                    var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                    var validation = cloudinaryService.ValidateEmailAttachments(
+                        request.Attachments, maxCount: 10, maxFileSizeMB: 50, maxTotalSizeMB: 150);
+
+                    if (validation.HasErrors)
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Some attachments were rejected",
+                            errors = validation.Errors.Select(e => new
+                            {
+                                fileName = e.FileName,
+                                reason = e.ErrorMessage
+                            })
+                        });
+                    }
+
                     try
                     {
-                        // Validate attachment count (max 5)
-                        if (request.Attachments.Count > 5)
-                        {
-                            return BadRequest(new
-                            {
-                                success = false,
-                                message = "Maximum 5 attachments allowed per email"
-                            });
-                        }
-
-                        // Upload attachments using CloudinaryService
-                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
-                        
                         // Use recipient email as userId for organization
                         var userId = request.RecipientEmail.Replace("@", "_").Replace(".", "_");
                         
@@ -259,7 +266,7 @@ namespace CarePro_Api.Controllers.Content
                             request.Attachments, 
                             userId, 
                             expirationDays: 7,
-                            maxTotalSizeMB: 100
+                            maxTotalSizeMB: 150
                         );
 
                         logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for email to {request.RecipientEmail}");
@@ -287,7 +294,13 @@ namespace CarePro_Api.Controllers.Content
                 {
                     success = true,
                     message = $"Email sent successfully to {request.RecipientEmail}",
-                    attachmentCount = attachments.Count
+                    attachmentCount = attachments.Count,
+                    attachments = attachments.Select(a => new
+                    {
+                        fileName = a.FileName,
+                        fileSize = a.FileSize,
+                        mimeType = a.FileType
+                    })
                 });
             }
             catch (Exception ex)
@@ -308,6 +321,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpPost]
         [Route("SendBulkEmail")]
+        [RequestSizeLimit(157_286_400)] // 150MB
         //[Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<IActionResult> SendBulkEmailAsync([FromForm] SendBulkEmailRequest request)
         {
@@ -408,21 +422,27 @@ namespace CarePro_Api.Controllers.Content
                 
                 if (request.Attachments != null && request.Attachments.Any())
                 {
+                    // Validate all attachments upfront
+                    var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                    var validation = cloudinaryService.ValidateEmailAttachments(
+                        request.Attachments, maxCount: 10, maxFileSizeMB: 50, maxTotalSizeMB: 150);
+
+                    if (validation.HasErrors)
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = "Some attachments were rejected",
+                            errors = validation.Errors.Select(e => new
+                            {
+                                fileName = e.FileName,
+                                reason = e.ErrorMessage
+                            })
+                        });
+                    }
+
                     try
                     {
-                        // Validate attachment count (max 5)
-                        if (request.Attachments.Count > 5)
-                        {
-                            return BadRequest(new
-                            {
-                                success = false,
-                                message = "Maximum 5 attachments allowed per email"
-                            });
-                        }
-
-                        // Upload attachments using CloudinaryService
-                        var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
-                        
                         // Use "bulk-email" as userId for organization
                         var userId = $"bulk-email-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
                         
@@ -430,7 +450,7 @@ namespace CarePro_Api.Controllers.Content
                             request.Attachments, 
                             userId, 
                             expirationDays: 7,
-                            maxTotalSizeMB: 100
+                            maxTotalSizeMB: 150
                         );
 
                         logger.LogInformation($"Successfully uploaded {attachments.Count} attachments for bulk email to {recipients.Count} recipients");
@@ -479,7 +499,13 @@ namespace CarePro_Api.Controllers.Content
                     TotalRecipients = recipients.Count,
                     SuccessfulSends = successCount,
                     FailedSends = failCount,
-                    Errors = errors
+                    Errors = errors,
+                    Attachments = attachments.Select(a => new AttachmentMetadata
+                    {
+                        FileName = a.FileName,
+                        FileSize = a.FileSize,
+                        MimeType = a.FileType
+                    }).ToList()
                 });
             }
             catch (Exception ex)
@@ -489,6 +515,44 @@ namespace CarePro_Api.Controllers.Content
                 {
                     success = false,
                     message = "Failed to process bulk email",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Upload a single image asset for inline use in email body.
+        /// Returns a public URL that can be embedded as an img tag in HTML email content.
+        /// </summary>
+        [HttpPost]
+        [Route("UploadEmailAsset")]
+        [RequestSizeLimit(10_485_760)] // 10MB
+        //[Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> UploadEmailAssetAsync(IFormFile file)
+        {
+            try
+            {
+                if (file == null || file.Length == 0)
+                {
+                    return BadRequest(new { success = false, message = "No file provided" });
+                }
+
+                var cloudinaryService = HttpContext.RequestServices.GetRequiredService<CloudinaryService>();
+                var result = await cloudinaryService.UploadEmailAssetAsync(file);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error uploading email asset");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to upload email asset",
                     error = ex.Message
                 });
             }

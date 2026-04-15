@@ -555,7 +555,7 @@ namespace Infrastructure.Content.Services
         /// </summary>
         public Application.DTOs.Email.FileValidationResult ValidateEmailAttachment(Microsoft.AspNetCore.Http.IFormFile file, long maxFileSizeMB = 50)
         {
-            var result = new Application.DTOs.Email.FileValidationResult { IsValid = true };
+            var result = new Application.DTOs.Email.FileValidationResult { IsValid = true, FileName = file?.FileName ?? "" };
 
             if (file == null || file.Length == 0)
             {
@@ -569,18 +569,23 @@ namespace Infrastructure.Content.Services
             if (file.Length > maxFileSizeBytes)
             {
                 result.IsValid = false;
-                result.ErrorMessage = $"File size exceeds maximum allowed size of {maxFileSizeMB}MB";
+                var fileSizeMB = Math.Round((double)file.Length / (1024 * 1024), 1);
+                result.ErrorMessage = $"File size ({fileSizeMB}MB) exceeds maximum of {maxFileSizeMB}MB";
                 return result;
             }
 
             // Get file extension
             var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".mp4", ".pdf" };
+            var allowedExtensions = new[] { 
+                ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+                ".mp4", ".mov", ".webm", ".avi",
+                ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv" 
+            };
 
             if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
             {
                 result.IsValid = false;
-                result.ErrorMessage = $"File type '{extension}' is not allowed. Allowed types: JPG, JPEG, MP4, PDF";
+                result.ErrorMessage = $"File type not allowed. Accepted types: {string.Join(", ", allowedExtensions.Select(e => e.TrimStart('.')))}";
                 return result;
             }
 
@@ -589,8 +594,20 @@ namespace Infrastructure.Content.Services
             {
                 { ".jpg", new[] { "image/jpeg", "image/jpg" } },
                 { ".jpeg", new[] { "image/jpeg", "image/jpg" } },
+                { ".png", new[] { "image/png" } },
+                { ".gif", new[] { "image/gif" } },
+                { ".webp", new[] { "image/webp" } },
+                { ".svg", new[] { "image/svg+xml" } },
                 { ".mp4", new[] { "video/mp4", "video/mpeg" } },
-                { ".pdf", new[] { "application/pdf" } }
+                { ".mov", new[] { "video/quicktime" } },
+                { ".webm", new[] { "video/webm" } },
+                { ".avi", new[] { "video/x-msvideo" } },
+                { ".pdf", new[] { "application/pdf" } },
+                { ".doc", new[] { "application/msword" } },
+                { ".docx", new[] { "application/vnd.openxmlformats-officedocument.wordprocessingml.document" } },
+                { ".xls", new[] { "application/vnd.ms-excel" } },
+                { ".xlsx", new[] { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } },
+                { ".csv", new[] { "text/csv", "application/csv" } }
             };
 
             if (allowedMimeTypes.TryGetValue(extension, out var validMimeTypes))
@@ -600,6 +617,67 @@ namespace Infrastructure.Content.Services
                     result.IsValid = false;
                     result.ErrorMessage = $"File MIME type '{file.ContentType}' doesn't match extension '{extension}'";
                     return result;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Validate all email attachments and return structured results
+        /// </summary>
+        public Application.DTOs.Email.BatchValidationResult ValidateEmailAttachments(
+            List<Microsoft.AspNetCore.Http.IFormFile> files,
+            int maxCount = 10,
+            long maxFileSizeMB = 50,
+            long maxTotalSizeMB = 150)
+        {
+            var result = new Application.DTOs.Email.BatchValidationResult();
+
+            if (files == null || files.Count == 0)
+                return result;
+
+            // Check file count
+            if (files.Count > maxCount)
+            {
+                result.HasErrors = true;
+                result.Errors.Add(new Application.DTOs.Email.FileValidationResult
+                {
+                    IsValid = false,
+                    FileName = "",
+                    ErrorMessage = $"Too many files. Maximum {maxCount} attachments allowed, got {files.Count}"
+                });
+                return result;
+            }
+
+            // Check total size
+            var totalSize = files.Sum(f => f.Length);
+            var maxTotalSizeBytes = maxTotalSizeMB * 1024 * 1024;
+            if (totalSize > maxTotalSizeBytes)
+            {
+                var totalMB = Math.Round((double)totalSize / (1024 * 1024), 1);
+                result.HasErrors = true;
+                result.Errors.Add(new Application.DTOs.Email.FileValidationResult
+                {
+                    IsValid = false,
+                    FileName = "",
+                    ErrorMessage = $"Total file size ({totalMB}MB) exceeds maximum of {maxTotalSizeMB}MB"
+                });
+                return result;
+            }
+
+            // Validate each file
+            foreach (var file in files)
+            {
+                var validation = ValidateEmailAttachment(file, maxFileSizeMB);
+                if (!validation.IsValid)
+                {
+                    result.HasErrors = true;
+                    result.Errors.Add(validation);
+                }
+                else
+                {
+                    result.ValidFiles.Add(file);
                 }
             }
 
@@ -634,8 +712,11 @@ namespace Infrastructure.Content.Services
             await file.CopyToAsync(memoryStream);
             var fileBytes = memoryStream.ToArray();
 
+            var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+            var videoExtensions = new[] { ".mp4", ".mov", ".webm", ".avi" };
+
             // Upload based on file type
-            if (extension == ".jpg" || extension == ".jpeg")
+            if (imageExtensions.Contains(extension))
             {
                 folder = $"email-attachments/images/{userId}";
                 resourceType = "image";
@@ -657,7 +738,7 @@ namespace Infrastructure.Content.Services
                 url = uploadResult.SecureUrl.AbsoluteUri;
                 publicId = uploadResult.PublicId;
             }
-            else if (extension == ".mp4")
+            else if (videoExtensions.Contains(extension))
             {
                 folder = $"email-attachments/videos/{userId}";
                 resourceType = "video";
@@ -678,7 +759,7 @@ namespace Infrastructure.Content.Services
                 url = uploadResult.SecureUrl.AbsoluteUri;
                 publicId = uploadResult.PublicId;
             }
-            else // PDF
+            else // Documents: PDF, DOC, DOCX, XLS, XLSX, CSV, SVG
             {
                 folder = $"email-attachments/documents/{userId}";
                 resourceType = "raw";
@@ -694,7 +775,7 @@ namespace Infrastructure.Content.Services
                 
                 if (uploadResult.StatusCode != System.Net.HttpStatusCode.OK)
                 {
-                    throw new Exception($"PDF upload failed: {uploadResult.Error?.Message}");
+                    throw new Exception($"Document upload failed: {uploadResult.Error?.Message}");
                 }
                 
                 url = uploadResult.SecureUrl.AbsoluteUri;
@@ -723,7 +804,7 @@ namespace Infrastructure.Content.Services
             List<Microsoft.AspNetCore.Http.IFormFile> files, 
             string userId, 
             int expirationDays = 7,
-            long maxTotalSizeMB = 100)
+            long maxTotalSizeMB = 150)
         {
             if (files == null || files.Count == 0)
             {
@@ -761,6 +842,55 @@ namespace Infrastructure.Content.Services
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Upload a single image asset for inline use in email body. Returns a public URL.
+        /// </summary>
+        public async Task<Application.DTOs.UploadEmailAssetResponse> UploadEmailAssetAsync(
+            Microsoft.AspNetCore.Http.IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("File is empty or null");
+
+            // 10MB max
+            if (file.Length > 10 * 1024 * 1024)
+                throw new ArgumentException("File size exceeds maximum of 10MB for inline images");
+
+            var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
+                throw new ArgumentException("Only image files are allowed (jpg, jpeg, png, gif, webp)");
+
+            var allowedMimeTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp" };
+            if (!allowedMimeTypes.Contains(file.ContentType?.ToLowerInvariant()))
+                throw new ArgumentException($"MIME type '{file.ContentType}' is not allowed for inline images");
+
+            var fileName = Path.GetFileName(file.FileName);
+            using var memoryStream = new MemoryStream();
+            await file.CopyToAsync(memoryStream);
+            var fileBytes = memoryStream.ToArray();
+
+            using var stream = new MemoryStream(fileBytes);
+            var uploadParams = new ImageUploadParams
+            {
+                File = new FileDescription(fileName, stream),
+                Folder = "email-assets",
+                AccessMode = "public"
+            };
+            var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+
+            if (uploadResult.StatusCode != System.Net.HttpStatusCode.OK)
+                throw new Exception($"Image upload failed: {uploadResult.Error?.Message}");
+
+            return new Application.DTOs.UploadEmailAssetResponse
+            {
+                Success = true,
+                Url = uploadResult.SecureUrl.AbsoluteUri,
+                FileName = fileName,
+                MimeType = file.ContentType ?? "image/jpeg",
+                FileSize = file.Length
+            };
         }
 
         /// <summary>
