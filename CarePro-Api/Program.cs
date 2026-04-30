@@ -21,8 +21,12 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
 using CarePro_Api.Middleware;
+using CarePro_Api.Middleware.RateLimiting;
 using CarePro_Api.Filters;
 using Infrastructure.Content.Services.Handlers;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -415,6 +419,86 @@ builder.Services.AddSwaggerGen(options =>
 /// Configure SignalR
 builder.Services.AddSignalR();
 
+// =============================================================================
+// Rate limiting configuration
+// -----------------------------------------------------------------------------
+// Reads RateLimiting:* config and the legacy env vars ENABLE_RATE_LIMITING and
+// MAX_REQUESTS_PER_MINUTE so existing task definitions keep working.
+// Picks Redis-backed store when REDIS_CONNECTION_STRING is set and reachable;
+// otherwise falls back to in-memory (acceptable for single-instance deployments).
+// =============================================================================
+builder.Services.Configure<RateLimitOptions>(builder.Configuration.GetSection("RateLimiting"));
+builder.Services.PostConfigure<RateLimitOptions>(opts =>
+{
+    var enableEnv = Environment.GetEnvironmentVariable("ENABLE_RATE_LIMITING");
+    if (!string.IsNullOrWhiteSpace(enableEnv) && bool.TryParse(enableEnv, out var enabled))
+    {
+        opts.Enabled = enabled;
+    }
+
+    var maxPerMinEnv = Environment.GetEnvironmentVariable("MAX_REQUESTS_PER_MINUTE");
+    if (!string.IsNullOrWhiteSpace(maxPerMinEnv) && int.TryParse(maxPerMinEnv, out var maxPerMin) && maxPerMin > 0)
+    {
+        opts.General.MaxRequests = maxPerMin;
+        opts.General.WindowSeconds = 60;
+    }
+
+    if (string.IsNullOrWhiteSpace(opts.RedisConnectionString))
+    {
+        opts.RedisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING");
+    }
+});
+
+// In-memory store is always registered so it can serve as the Redis fallback.
+builder.Services.AddSingleton<InMemoryRateLimitStore>();
+
+builder.Services.AddSingleton<IRateLimitStore>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<RateLimitOptions>>().Value;
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var inMemory = sp.GetRequiredService<InMemoryRateLimitStore>();
+
+    if (string.IsNullOrWhiteSpace(opts.RedisConnectionString))
+    {
+        logger.LogInformation("Rate limiter using in-memory store (no Redis connection string configured)");
+        return inMemory;
+    }
+
+    try
+    {
+        var muxer = ConnectionMultiplexer.Connect(opts.RedisConnectionString);
+        logger.LogInformation("Rate limiter using Redis store at {Endpoint}", muxer.GetEndPoints().FirstOrDefault()?.ToString() ?? "unknown");
+        var redisLogger = sp.GetRequiredService<ILogger<RedisRateLimitStore>>();
+        return new RedisRateLimitStore(muxer, inMemory, redisLogger);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to connect to Redis for rate limiting; falling back to in-memory store");
+        return inMemory;
+    }
+});
+
+// Periodic cleanup for the in-memory store (no-op for Redis entries which expire by TTL).
+builder.Services.AddHostedService<RateLimitCleanupService>();
+
+// =============================================================================
+// Forwarded headers
+// -----------------------------------------------------------------------------
+// Behind the AWS ALB, the real client IP arrives in X-Forwarded-For. Without
+// this, RemoteIpAddress would be the ALB's address and per-IP rate limits would
+// collapse all callers into a single bucket.
+// =============================================================================
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // ALB is the only proxy in front of the task. ALB appends the true client IP
+    // as the last value in X-Forwarded-For, so a single forward hop is correct.
+    options.ForwardLimit = 1;
+    // Allow the ALB regardless of source IP (its IP rotates within the VPC).
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 
 //builder.Services.AddSwaggerGen();
 
@@ -422,15 +506,15 @@ var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 
-// CORS must run FIRST - before any middleware that might return a response
+// Forwarded headers must run before anything that inspects RemoteIpAddress or scheme.
+app.UseForwardedHeaders();
+
+// CORS must run early - before any middleware that might return a response
 // This ensures preflight OPTIONS requests get proper CORS headers
 app.UseCors("default");
 
 // Global exception handler - catches all exceptions
 app.UseGlobalExceptionHandler();
-
-// Rate limiting - protect against brute-force attacks
-app.UseRateLimiting();
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -441,6 +525,10 @@ app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Rate limiting runs AFTER authentication so authenticated users can be keyed by user id
+// instead of by IP (otherwise admins behind a shared NAT share one bucket).
+app.UseRateLimiting();
 
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
