@@ -1,58 +1,35 @@
-using System.Collections.Concurrent;
 using System.Net;
+using System.Security.Claims;
 using System.Text.Json;
+using CarePro_Api.Middleware.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace CarePro_Api.Middleware
 {
     /// <summary>
-    /// Rate limiting middleware that protects endpoints from brute-force attacks.
-    /// Applies stricter limits to authentication endpoints.
+    /// Rate limiting middleware. Routes requests into one of four buckets:
+    ///   auth, password-reset, registration, general (per-user when authenticated, per-IP otherwise).
+    /// Authenticated callers are keyed by user id; anonymous callers by client IP
+    /// (resolved from RemoteIpAddress after UseForwardedHeaders).
     /// </summary>
     public class RateLimitingMiddleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<RateLimitingMiddleware> _logger;
-        
-        // Thread-safe storage for rate limit tracking
-        private static readonly ConcurrentDictionary<string, RateLimitEntry> _rateLimitStore = new();
-        
-        // Configuration
-        private static readonly RateLimitConfig _authConfig = new()
-        {
-            MaxRequests = 5,
-            WindowSeconds = 60,  // 5 requests per minute for auth endpoints
-            BlockDurationSeconds = 300  // 5 minute block after exceeding limit
-        };
-        
-        private static readonly RateLimitConfig _passwordResetConfig = new()
-        {
-            MaxRequests = 3,
-            WindowSeconds = 3600,  // 3 requests per hour for password reset
-            BlockDurationSeconds = 3600
-        };
+        private readonly IRateLimitStore _store;
+        private readonly RateLimitOptions _options;
 
-        private static readonly RateLimitConfig _registrationConfig = new()
-        {
-            MaxRequests = 3,
-            WindowSeconds = 3600,  // 3 registrations per hour per IP
-            BlockDurationSeconds = 3600  // 1 hour block after exceeding
-        };
-
-        private static readonly RateLimitConfig _generalConfig = new()
-        {
-            MaxRequests = 100,
-            WindowSeconds = 60,  // 100 requests per minute for general endpoints
-            BlockDurationSeconds = 60
-        };
-
-        // Endpoints that need strict rate limiting
-        private static readonly string[] _authEndpoints = 
+        // Strict, EXACT-match endpoint maps. Path must be lowercased before lookup.
+        // Restricting to specific (method, path) pairs prevents read endpoints under the
+        // same controller (e.g. GET /api/admins/certificates/pendingreview) from being
+        // throttled as if they were registration POSTs.
+        private static readonly HashSet<string> _authPostEndpoints = new(StringComparer.OrdinalIgnoreCase)
         {
             "/api/authentications/userlogin",
             "/api/authentications/refreshtoken"
         };
-        
-        private static readonly string[] _passwordResetEndpoints = 
+
+        private static readonly HashSet<string> _passwordResetPostEndpoints = new(StringComparer.OrdinalIgnoreCase)
         {
             "/api/caregivers/requestpasswordreset",
             "/api/caregivers/resetpassword",
@@ -61,7 +38,7 @@ namespace CarePro_Api.Middleware
             "/api/clients/resetpassword"
         };
 
-        private static readonly string[] _registrationEndpoints =
+        private static readonly HashSet<string> _registrationPostEndpoints = new(StringComparer.OrdinalIgnoreCase)
         {
             "/api/clients/addclientuser",
             "/api/clients/googlesignup",
@@ -70,173 +47,133 @@ namespace CarePro_Api.Middleware
             "/api/admins"
         };
 
-        public RateLimitingMiddleware(RequestDelegate next, ILogger<RateLimitingMiddleware> logger)
+        public RateLimitingMiddleware(
+            RequestDelegate next,
+            ILogger<RateLimitingMiddleware> logger,
+            IRateLimitStore store,
+            IOptions<RateLimitOptions> options)
         {
             _next = next;
             _logger = logger;
+            _store = store;
+            _options = options.Value;
         }
 
         public async Task InvokeAsync(HttpContext context)
         {
-            var clientIp = GetClientIpAddress(context);
+            if (!_options.Enabled)
+            {
+                await _next(context);
+                return;
+            }
+
+            var method = context.Request.Method;
             var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
-            
-            // Determine which rate limit config to use
-            var config = GetRateLimitConfig(path);
-            var rateLimitKey = $"{clientIp}:{GetEndpointCategory(path)}";
-            
-            // Check rate limit
-            if (IsRateLimited(rateLimitKey, config, out var retryAfter))
+
+            var (category, bucket) = Classify(method, path, context);
+            var clientKey = BuildClientKey(context, category);
+            var rateLimitKey = $"rl:{category}:{clientKey}";
+
+            var (limited, retryAfter) = await _store.CheckAndRecordAsync(rateLimitKey, bucket, context.RequestAborted);
+
+            if (limited)
             {
                 _logger.LogWarning(
-                    "Rate limit exceeded for IP: {ClientIp}, Path: {Path}, RetryAfter: {RetryAfter}s",
-                    MaskIpAddress(clientIp), path, retryAfter);
-                
+                    "Rate limit exceeded. Category={Category}, Path={Path}, Method={Method}, Client={Client}, RetryAfter={RetryAfter}s",
+                    category, path, method, MaskKey(clientKey), retryAfter);
+
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
                 context.Response.ContentType = "application/json";
                 context.Response.Headers["Retry-After"] = retryAfter.ToString();
-                
-                var response = new
+
+                var payload = new
                 {
                     success = false,
                     message = "Too many requests. Please try again later.",
                     retryAfterSeconds = retryAfter
                 };
-                
-                await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+
+                await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
                 return;
             }
-            
-            // Record this request
-            RecordRequest(rateLimitKey, config);
-            
+
             await _next(context);
         }
 
-        private static string GetClientIpAddress(HttpContext context)
+        private (string category, RateLimitBucket bucket) Classify(string method, string path, HttpContext ctx)
         {
-            // Check for forwarded IP (behind proxy/load balancer)
+            if (HttpMethods.IsPost(method))
+            {
+                if (_authPostEndpoints.Contains(path))
+                    return ("auth", _options.Auth);
+                if (_passwordResetPostEndpoints.Contains(path))
+                    return ("password-reset", _options.PasswordReset);
+                if (_registrationPostEndpoints.Contains(path))
+                    return ("registration", _options.Registration);
+            }
+
+            // Authenticated traffic gets a much higher per-user budget;
+            // anonymous traffic gets the stricter per-IP general budget.
+            if (ctx.User?.Identity?.IsAuthenticated == true)
+            {
+                return ("general-user", _options.Authenticated);
+            }
+
+            return ("general-ip", _options.General);
+        }
+
+        private static string BuildClientKey(HttpContext ctx, string category)
+        {
+            // For authenticated traffic, prefer user id so multiple admins behind the
+            // same NAT/VPN don't share a bucket.
+            if (category == "general-user")
+            {
+                var userId = ctx.User?.FindFirst("userId")?.Value
+                             ?? ctx.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                             ?? ctx.User?.FindFirst("sub")?.Value;
+                if (!string.IsNullOrWhiteSpace(userId))
+                {
+                    return $"u:{userId}";
+                }
+            }
+
+            return $"ip:{GetClientIp(ctx)}";
+        }
+
+        private static string GetClientIp(HttpContext context)
+        {
+            // RemoteIpAddress is populated correctly by UseForwardedHeaders when the
+            // request comes through the ALB. Falling back to X-Forwarded-For is only
+            // useful for environments without forwarded-headers configured.
+            var ip = context.Connection.RemoteIpAddress?.ToString();
+            if (!string.IsNullOrWhiteSpace(ip)) return ip;
+
             var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
             if (!string.IsNullOrEmpty(forwardedFor))
             {
                 return forwardedFor.Split(',')[0].Trim();
             }
-            
-            return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+            return "unknown";
         }
 
-        private static RateLimitConfig GetRateLimitConfig(string path)
+        private static string MaskKey(string key)
         {
-            if (_authEndpoints.Any(e => path.Contains(e)))
-                return _authConfig;
-            
-            if (_passwordResetEndpoints.Any(e => path.Contains(e)))
-                return _passwordResetConfig;
-
-            if (_registrationEndpoints.Any(e => path.Contains(e)))
-                return _registrationConfig;
-            
-            return _generalConfig;
-        }
-
-        private static string GetEndpointCategory(string path)
-        {
-            if (_authEndpoints.Any(e => path.Contains(e)))
-                return "auth";
-            
-            if (_passwordResetEndpoints.Any(e => path.Contains(e)))
-                return "password-reset";
-
-            if (_registrationEndpoints.Any(e => path.Contains(e)))
-                return "registration";
-            
-            return "general";
-        }
-
-        private static bool IsRateLimited(string key, RateLimitConfig config, out int retryAfter)
-        {
-            retryAfter = 0;
-            
-            if (!_rateLimitStore.TryGetValue(key, out var entry))
-                return false;
-            
-            // Check if blocked
-            if (entry.BlockedUntil.HasValue && entry.BlockedUntil > DateTime.UtcNow)
+            // Avoid logging full IPs / user ids verbatim.
+            if (key.StartsWith("u:")) return "u:***";
+            if (key.StartsWith("ip:"))
             {
-                retryAfter = (int)(entry.BlockedUntil.Value - DateTime.UtcNow).TotalSeconds;
-                return true;
+                var ip = key[3..];
+                var parts = ip.Split('.');
+                return parts.Length == 4 ? $"ip:{parts[0]}.{parts[1]}.***" : "ip:***";
             }
-            
-            // Clean up old entries outside the window
-            var windowStart = DateTime.UtcNow.AddSeconds(-config.WindowSeconds);
-            entry.Requests.RemoveAll(r => r < windowStart);
-            
-            // Check if over limit
-            if (entry.Requests.Count >= config.MaxRequests)
-            {
-                entry.BlockedUntil = DateTime.UtcNow.AddSeconds(config.BlockDurationSeconds);
-                retryAfter = config.BlockDurationSeconds;
-                return true;
-            }
-            
-            return false;
-        }
-
-        private static void RecordRequest(string key, RateLimitConfig config)
-        {
-            var entry = _rateLimitStore.GetOrAdd(key, _ => new RateLimitEntry());
-            
-            // Clean old entries
-            var windowStart = DateTime.UtcNow.AddSeconds(-config.WindowSeconds);
-            entry.Requests.RemoveAll(r => r < windowStart);
-            
-            entry.Requests.Add(DateTime.UtcNow);
-        }
-
-        private static string MaskIpAddress(string ip)
-        {
-            // Mask IP for logging privacy: 192.168.1.100 -> 192.168.***
-            var parts = ip.Split('.');
-            if (parts.Length == 4)
-                return $"{parts[0]}.{parts[1]}.***";
             return "***";
         }
-
-        // Cleanup old entries periodically (call from background service if needed)
-        public static void CleanupOldEntries()
-        {
-            var cutoff = DateTime.UtcNow.AddHours(-1);
-            var keysToRemove = _rateLimitStore
-                .Where(kvp => kvp.Value.Requests.All(r => r < cutoff) && 
-                              (!kvp.Value.BlockedUntil.HasValue || kvp.Value.BlockedUntil < DateTime.UtcNow))
-                .Select(kvp => kvp.Key)
-                .ToList();
-            
-            foreach (var key in keysToRemove)
-            {
-                _rateLimitStore.TryRemove(key, out _);
-            }
-        }
-    }
-
-    public class RateLimitEntry
-    {
-        public List<DateTime> Requests { get; } = new();
-        public DateTime? BlockedUntil { get; set; }
-    }
-
-    public class RateLimitConfig
-    {
-        public int MaxRequests { get; set; }
-        public int WindowSeconds { get; set; }
-        public int BlockDurationSeconds { get; set; }
     }
 
     public static class RateLimitingMiddlewareExtensions
     {
         public static IApplicationBuilder UseRateLimiting(this IApplicationBuilder builder)
-        {
-            return builder.UseMiddleware<RateLimitingMiddleware>();
-        }
+            => builder.UseMiddleware<RateLimitingMiddleware>();
     }
 }

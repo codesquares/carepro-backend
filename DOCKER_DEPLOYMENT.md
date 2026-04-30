@@ -7,11 +7,13 @@ The CarePro backend is now fully containerized and ready for deployment on AWS o
 ### 📁 Docker Files Overview
 
 - **`Dockerfile`** - Multi-stage build for optimized production image
-- **`docker-compose.yml`** - Development environment with MongoDB and Redis
-- **`docker-compose.prod.yml`** - Production environment configuration
+- **`docker-compose.yml`** - Local development environment with MongoDB and (optional) Redis/Nginx
 - **`.dockerignore`** - Files excluded from Docker build context
 - **`.env.example`** - Environment variables template
 - **`docker-deploy.sh`** - Automation script for Docker operations
+
+> Production does **not** use docker-compose. The backend is deployed to AWS ECS
+> Fargate behind an ALB; see the AWS Deployment section below.
 
 ### 🚀 Quick Start
 
@@ -29,9 +31,6 @@ The CarePro backend is now fully containerized and ready for deployment on AWS o
    ```bash
    # Build production image
    ./docker-deploy.sh build
-   
-   # Start production environment
-   ./docker-deploy.sh prod
    ```
 
 ### 🔧 Available Docker Commands
@@ -39,7 +38,6 @@ The CarePro backend is now fully containerized and ready for deployment on AWS o
 ```bash
 ./docker-deploy.sh build      # Build Docker image
 ./docker-deploy.sh dev        # Start development environment
-./docker-deploy.sh prod       # Start production environment
 ./docker-deploy.sh test       # Run tests in container
 ./docker-deploy.sh logs       # Show container logs
 ./docker-deploy.sh stop       # Stop all services
