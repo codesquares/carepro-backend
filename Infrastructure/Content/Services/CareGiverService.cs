@@ -8,6 +8,7 @@ using Application.Interfaces.Email;
 using Domain;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Services.Common;
 using Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
@@ -109,8 +110,10 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("Please enter a valid email address.");
             }
 
+            var normalizedEmail = SignupGuards.NormalizeEmail(addCaregiverRequest.Email);
+
             // Check for duplicate email in Caregivers collection (case-insensitive)
-            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
+            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (caregiverUserExist != null)
             {
@@ -119,7 +122,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Check for duplicate email in Clients collection (case-insensitive)
-            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
+            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (clientUserExist != null)
             {
@@ -128,7 +131,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Check for duplicate email in AppUsers collection (case-insensitive)
-            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == addCaregiverRequest.Email.ToLower());
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (appUserExist != null)
             {
@@ -145,7 +148,7 @@ namespace Infrastructure.Content.Services
                 FirstName = addCaregiverRequest.FirstName,
                 MiddleName = addCaregiverRequest.MiddleName,
                 LastName = addCaregiverRequest.LastName,
-                Email = addCaregiverRequest.Email.ToLower(),
+                Email = normalizedEmail,
                 PhoneNo = addCaregiverRequest.PhoneNo,
                 Password = hashedPassword,
 
@@ -166,7 +169,7 @@ namespace Infrastructure.Content.Services
             var careProAppUser = new AppUser
             {
 
-                Email = addCaregiverRequest.Email.ToLower(),
+                Email = normalizedEmail,
                 Password = hashedPassword,
                 FirstName = addCaregiverRequest.FirstName,
                 LastName = addCaregiverRequest.LastName,
@@ -184,7 +187,17 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
-            await careProDbContext.SaveChangesAsync();
+            try
+            {
+                await careProDbContext.SaveChangesAsync();
+            }
+            catch (Exception ex) when (SignupGuards.IsDuplicateKeyException(ex))
+            {
+                // Concurrent signup race: a parallel request inserted the same email
+                // after our pre-checks passed. The unique index rejected this insert.
+                logger.LogWarning(ex, "Duplicate-key on caregiver signup race for email: {Email}", normalizedEmail);
+                throw new InvalidOperationException("This email is already registered. Please sign in or use a different email.");
+            }
 
             #region GoogleSheetsLogging
             
