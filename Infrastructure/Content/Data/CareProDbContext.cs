@@ -46,6 +46,12 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AdminUser>().HasKey(au => au.Id);
             modelBuilder.Entity<AdminUser>().Property(au => au.Id).HasElementName("_id");
             modelBuilder.Entity<AdminUser>().HasIndex(au => au.Email).IsUnique();
+
+            modelBuilder.Entity<IdempotencyRecord>().ToCollection("IdempotencyRecords");
+            modelBuilder.Entity<IdempotencyRecord>().HasKey(r => r.Id);
+            modelBuilder.Entity<IdempotencyRecord>().Property(r => r.Id).HasElementName("_id");
+            modelBuilder.Entity<IdempotencyRecord>().HasIndex(r => r.Key).IsUnique();
+
             modelBuilder.Entity<Gig>().ToCollection("Gigs");
             modelBuilder.Entity<ClientOrder>().ToCollection("ClientOrders");
             modelBuilder.Entity<Certification>().ToCollection("Certifications");
@@ -245,5 +251,6 @@ namespace Infrastructure.Content.Data
         public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
         public DbSet<RefundRequest> RefundRequests { get; set; }
         public DbSet<GigTemplateCategory> GigTemplateCategories { get; set; }
+        public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
     }
 }

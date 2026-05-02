@@ -530,6 +530,10 @@ app.UseAuthorization();
 // instead of by IP (otherwise admins behind a shared NAT share one bucket).
 app.UseRateLimiting();
 
+// Idempotency middleware for signup endpoints — replays previous response when the
+// same Idempotency-Key header is sent on a retry. Opt-in: no header, no behavior change.
+app.UseSignupIdempotency();
+
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
