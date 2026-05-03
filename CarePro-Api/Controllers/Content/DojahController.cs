@@ -673,8 +673,12 @@ namespace CarePro_Api.Controllers.Content
 
         private bool IsVerificationWebhook(DojahWebhookRequest request)
         {
-            return (request.Status == true && request.VerificationStatus == "Completed") ||
-                   (request.VerificationStatus == "Pending") ||
+            // Dojah documented verification_status values: Ongoing, Abandoned, Completed, Pending, Failed
+            var status = request.VerificationStatus?.ToLower();
+            var knownStatuses = new[] { "ongoing", "abandoned", "completed", "pending", "failed" };
+
+            return (request.Status == true && status == "completed") ||
+                   (status != null && knownStatuses.Contains(status)) ||
                    (request.Status == false) ||
                    (!string.IsNullOrEmpty(request.VerificationStatus)) ||
                    (request.Data != null && (request.Data.GovernmentData != null || request.Data.UserData != null || request.Data.Id != null));

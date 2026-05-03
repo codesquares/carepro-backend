@@ -107,8 +107,7 @@ namespace Infrastructure.Content.Services
                     existingVerification.UpdatedOn = DateTime.UtcNow;
                     
                     // Update verified status based on new status
-                    existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "verified" ||
-                                                      addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "completed";
+                    existingVerification.IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() is "verified" or "completed" or "success";
                     
                     careProDbContext.Verifications.Update(existingVerification);
                     await careProDbContext.SaveChangesAsync();
@@ -127,8 +126,7 @@ namespace Infrastructure.Content.Services
                     VerificationStatus = addVerificationRequest.VerificationStatus,
                     UserId = addVerificationRequest.UserId,
                     VerificationId = ObjectId.GenerateNewId(),
-                    IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "verified" ||
-                                 addVerificationRequest.VerificationStatus?.ToLowerInvariant() == "completed",
+                    IsVerified = addVerificationRequest.VerificationStatus?.ToLowerInvariant() is "verified" or "completed" or "success",
                     VerifiedOn = DateTime.UtcNow,
                 };
 
@@ -193,8 +191,7 @@ namespace Infrastructure.Content.Services
             existingVerification.UpdatedOn = DateTime.Now;
 
             // Update verified status based on new status
-            existingVerification.IsVerified = updateVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                              updateVerificationRequest.VerificationStatus?.ToLower() == "verified";
+            existingVerification.IsVerified = updateVerificationRequest.VerificationStatus?.ToLower() is "completed" or "verified" or "success";
 
             careProDbContext.Verifications.Update(existingVerification);
             await careProDbContext.SaveChangesAsync();
