@@ -72,7 +72,7 @@ namespace Infrastructure.Content.Services
             var pendingRequests = await dbContext.CareRequests
                 .Where(cr =>
                     (cr.Status == "pending" && cr.CreatedAt < cutoff) ||
-                    (cr.Status == "unmatched" && cr.MatchRetryCount < MaxMatchRetries && cr.UpdatedAt != null && cr.UpdatedAt < retryCutoff))
+                    (cr.Status == "unmatched" && (cr.MatchRetryCount ?? 0) < MaxMatchRetries && cr.UpdatedAt != null && cr.UpdatedAt < retryCutoff))
                 .OrderBy(cr => cr.CreatedAt)
                 .Take(20)
                 .ToListAsync(stoppingToken);

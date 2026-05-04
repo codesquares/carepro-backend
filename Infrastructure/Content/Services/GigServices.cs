@@ -396,7 +396,7 @@ namespace Infrastructure.Content.Services
             return gigDTOs;
         }
 
-        public async Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null)
+        public async Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null, string? sort = null)
         {
             var query = careProDbContext.Gigs.Where(x => x.IsDeleted != true);
 
@@ -416,8 +416,19 @@ namespace Infrastructure.Content.Services
 
             var totalCount = await query.CountAsync();
 
+            // Apply sort. Default = newest first (preserves existing behavior).
+            // Supported values: newest, oldest, price_asc, price_desc, title.
+            var sortKey = (sort ?? "newest").Trim().ToLowerInvariant();
+            query = sortKey switch
+            {
+                "oldest"     => query.OrderBy(x => x.CreatedAt),
+                "price_asc"  => query.OrderBy(x => x.Price).ThenByDescending(x => x.CreatedAt),
+                "price_desc" => query.OrderByDescending(x => x.Price).ThenByDescending(x => x.CreatedAt),
+                "title"      => query.OrderBy(x => x.Title),
+                _            => query.OrderByDescending(x => x.CreatedAt),
+            };
+
             var gigs = await query
-                .OrderByDescending(x => x.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();

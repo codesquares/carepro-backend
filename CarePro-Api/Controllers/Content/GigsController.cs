@@ -95,16 +95,19 @@ namespace CarePro_Api.Controllers.Content
             [FromQuery] int? pageSize = null,
             [FromQuery] string? status = null,
             [FromQuery] string? search = null,
-            [FromQuery] string? category = null)
+            [FromQuery] string? category = null,
+            [FromQuery] string? sort = null)
         {
             try
             {
                 logger.LogInformation($"Retrieving all Gigs available");
 
-                if (page.HasValue || pageSize.HasValue)
+                // If a sort or pageSize is specified (even without explicit page), use the
+                // paginated path so the marketing/marketplace can request e.g. ?sort=newest&pageSize=4.
+                if (page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(sort))
                 {
                     var paginatedGigs = await gigServices.GetAllGigsPaginatedAsync(
-                        page ?? 1, pageSize ?? 20, status, search, category);
+                        page ?? 1, pageSize ?? 20, status, search, category, sort);
                     return Ok(new
                     {
                         success = true,

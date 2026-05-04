@@ -80,7 +80,7 @@ namespace Domain.Entities
         public int? RespondersCount { get; set; }
 
         /// <summary>Number of times matching has been retried for this request</summary>
-        public int MatchRetryCount { get; set; }
+        public int? MatchRetryCount { get; set; }
 
         /// <summary>Timestamp when the no-match admin email was sent (null = not yet sent)</summary>
         public DateTime? NoMatchEmailSentAt { get; set; }
