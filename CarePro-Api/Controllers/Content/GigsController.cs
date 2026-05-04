@@ -6,6 +6,7 @@ using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -95,16 +96,19 @@ namespace CarePro_Api.Controllers.Content
             [FromQuery] int? pageSize = null,
             [FromQuery] string? status = null,
             [FromQuery] string? search = null,
-            [FromQuery] string? category = null)
+            [FromQuery] string? category = null,
+            [FromQuery] string? sort = null)
         {
             try
             {
                 logger.LogInformation($"Retrieving all Gigs available");
 
-                if (page.HasValue || pageSize.HasValue)
+                // If a sort or pageSize is specified (even without explicit page), use the
+                // paginated path so the marketing/marketplace can request e.g. ?sort=newest&pageSize=4.
+                if (page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(sort))
                 {
                     var paginatedGigs = await gigServices.GetAllGigsPaginatedAsync(
-                        page ?? 1, pageSize ?? 20, status, search, category);
+                        page ?? 1, pageSize ?? 20, status, search, category, sort);
                     return Ok(new
                     {
                         success = true,
@@ -300,6 +304,27 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogInformation($"Retrieving  Service with MessageId: {gigId}");
 
                 var gig = await gigServices.GetGigAsync(gigId);
+
+                // Special gigs are private offers tied to a specific care request.
+                // They must only be visible to the scoped client, the assigned caregiver,
+                // or an admin. Returning 404 (not 403) avoids leaking existence to others.
+                if (gig.IsSpecialGig == true)
+                {
+                    var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                        ?? User.FindFirst("sub")?.Value
+                        ?? User.FindFirst("userId")?.Value;
+
+                    var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+                    var isScopedClient = !string.IsNullOrEmpty(currentUserId)
+                        && currentUserId == gig.ScopedClientId;
+                    var isAssignedCaregiver = !string.IsNullOrEmpty(currentUserId)
+                        && currentUserId == gig.CaregiverId;
+
+                    if (!isAdmin && !isScopedClient && !isAssignedCaregiver)
+                    {
+                        return NotFound(new { message = $"Gig with ID '{gigId}' not found." });
+                    }
+                }
 
                 return Ok(gig);
             }

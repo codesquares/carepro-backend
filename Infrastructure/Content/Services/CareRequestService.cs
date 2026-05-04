@@ -310,6 +310,69 @@ namespace Infrastructure.Content.Services
             careRequest.UpdatedAt = DateTime.UtcNow;
 
             _dbContext.CareRequests.Update(careRequest);
+
+            // Soft-delete special gigs created for this care request ONLY when
+            // no commitment, order, or contract has been created against them yet.
+            // If the client already paid commitment / has a contract in motion,
+            // we leave the gig accessible so /service/{id} still renders the
+            // caregiver bio, package details and message thread until the
+            // contract page itself takes over as the source of truth.
+            var specialGigs = await _dbContext.Gigs
+                .Where(g => g.CareRequestId == requestId
+                            && g.IsSpecialGig == true
+                            && g.IsDeleted != true)
+                .ToListAsync();
+
+            if (specialGigs.Count > 0)
+            {
+                var specialGigIds = specialGigs.Select(g => g.Id.ToString()).ToList();
+
+                var hiredGigIds = new HashSet<string>();
+
+                var orderedGigIds = await _dbContext.ClientOrders
+                    .Where(o => specialGigIds.Contains(o.GigId))
+                    .Select(o => o.GigId)
+                    .ToListAsync();
+                foreach (var id in orderedGigIds) hiredGigIds.Add(id);
+
+                var contractedGigIds = await _dbContext.Contracts
+                    .Where(c => specialGigIds.Contains(c.GigId))
+                    .Select(c => c.GigId)
+                    .ToListAsync();
+                foreach (var id in contractedGigIds) hiredGigIds.Add(id);
+
+                var committedGigIds = await _dbContext.BookingCommitments
+                    .Where(b => specialGigIds.Contains(b.GigId))
+                    .Select(b => b.GigId)
+                    .ToListAsync();
+                foreach (var id in committedGigIds) hiredGigIds.Add(id);
+
+                var now = DateTime.UtcNow;
+                var deletedCount = 0;
+                var preservedCount = 0;
+                foreach (var g in specialGigs)
+                {
+                    if (hiredGigIds.Contains(g.Id.ToString()))
+                    {
+                        preservedCount++;
+                        continue;
+                    }
+                    g.IsDeleted = true;
+                    g.DeletedOn = now;
+                    g.UpdatedOn = now;
+                    deletedCount++;
+                }
+
+                if (deletedCount > 0)
+                {
+                    _dbContext.Gigs.UpdateRange(specialGigs.Where(g => g.IsDeleted == true));
+                }
+
+                _logger.LogInformation(
+                    "Care request {RequestId} cancelled: soft-deleted {Deleted} unhired special gig(s); preserved {Preserved} already-hired special gig(s).",
+                    requestId, deletedCount, preservedCount);
+            }
+
             await _dbContext.SaveChangesAsync();
 
             // Notify pending responders that the request was cancelled

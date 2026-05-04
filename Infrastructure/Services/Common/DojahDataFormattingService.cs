@@ -82,22 +82,29 @@ namespace Infrastructure.Services.Common
 
         private string MapDojahStatus(DojahWebhookRequest webhook)
         {
-            // Handle different Dojah status formats
+            // Dojah verification_status values: Ongoing, Abandoned, Completed, Pending, Failed
+            var status = webhook.VerificationStatus?.ToLower();
+
             if (webhook.Status == true ||
-                webhook.VerificationStatus?.ToLower() == "success" ||
-                webhook.VerificationStatus?.ToLower() == "completed")
+                status == "success" ||
+                status == "completed")
             {
                 return "success";
             }
-            else if (webhook.VerificationStatus?.ToLower() == "pending" ||
-                     webhook.VerificationStatus?.ToLower() == "processing")
+            else if (status == "pending" ||
+                     status == "processing" ||
+                     status == "ongoing")
             {
+                // Treat Ongoing as pending - user is still in the verification flow.
                 return "pending";
             }
             else if (webhook.Status == false ||
-                     webhook.VerificationStatus?.ToLower() == "failed" ||
-                     webhook.VerificationStatus?.ToLower() == "cancelled")
+                     status == "failed" ||
+                     status == "cancelled" ||
+                     status == "abandoned")
             {
+                // Abandoned means the user did not complete the widget, so we don't have
+                // all the required details - treat it as a failure.
                 return "failed";
             }
 

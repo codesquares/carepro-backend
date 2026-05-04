@@ -19,7 +19,7 @@ namespace Application.Interfaces
 
         Task<IEnumerable<GigDTO>> GetAllGigsAsync();
 
-        Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null);
+        Task<PaginatedResponse<GigDTO>> GetAllGigsPaginatedAsync(int page = 1, int pageSize = 20, string? status = null, string? search = null, string? category = null, string? sort = null);
 
         // Task<IEnumerable<GigDTO>> GetAllCaregiverServicesAsync(string caregiverId);
 

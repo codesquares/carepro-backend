@@ -123,7 +123,7 @@ namespace Infrastructure.Content.Services
             }
             else
             {
-                careRequest.MatchRetryCount++;
+                careRequest.MatchRetryCount = (careRequest.MatchRetryCount ?? 0) + 1;
                 if (careRequest.MatchRetryCount >= 3)
                 {
                     careRequest.Status = "escalated";

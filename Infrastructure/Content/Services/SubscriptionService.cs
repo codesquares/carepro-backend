@@ -996,13 +996,21 @@ namespace Infrastructure.Content.Services
                     "Subscription {SubscriptionId} SUSPENDED after {Attempts} failed charge attempts. Last error: {Error}",
                     subscriptionId, subscription.FailedChargeAttempts, errorMessage);
 
+                // Pass OriginalOrderId (when present) as OrderId so the frontend's
+                // `notification.orderId || relatedEntityId` fallback resolves to a real
+                // ClientOrders._id instead of the subscription id (which 404s on /api/ClientOrders/orderId).
+                var suspendedLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
+                    ? null
+                    : subscription.OriginalOrderId;
+
                 await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
                     NotificationTypes.SubscriptionSuspended,
                     "Your subscription has been suspended due to repeated payment failures. Please update your payment method to continue service.",
                     "Subscription Suspended",
-                    subscriptionId));
+                    subscriptionId,
+                    suspendedLinkedOrderId));
             }
             else
             {
@@ -1016,13 +1024,21 @@ namespace Infrastructure.Content.Services
                     subscriptionId, subscription.FailedChargeAttempts, subscription.MaxRetryAttempts,
                     subscription.NextChargeDate, errorMessage);
 
+                // Pass OriginalOrderId (when present) as OrderId so the frontend's
+                // `notification.orderId || relatedEntityId` fallback resolves to a real
+                // ClientOrders._id instead of the subscription id (which 404s on /api/ClientOrders/orderId).
+                var failedLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
+                    ? null
+                    : subscription.OriginalOrderId;
+
                 await _mediator.Send(new SendNotificationCommand(
                     subscription.ClientId,
                     "system",
                     NotificationTypes.PaymentFailed,
                     $"Your subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
                     "Payment Failed",
-                    subscriptionId));
+                    subscriptionId,
+                    failedLinkedOrderId));
             }
 
             await _dbContext.SaveChangesAsync();

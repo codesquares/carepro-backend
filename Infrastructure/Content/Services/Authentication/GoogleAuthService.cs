@@ -5,6 +5,7 @@ using Application.Interfaces.Content;
 using Domain;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -212,13 +213,37 @@ namespace Infrastructure.Content.Services.Authentication
 
                 // Create new account based on role
                 AppUser appUser;
-                if (role == "Client")
+                try
                 {
-                    appUser = await CreateClientWithGoogleAsync(googleUser, request);
+                    if (role == "Client")
+                    {
+                        appUser = await CreateClientWithGoogleAsync(googleUser, request);
+                    }
+                    else
+                    {
+                        appUser = await CreateCaregiverWithGoogleAsync(googleUser, request);
+                    }
                 }
-                else
+                catch (Exception ex) when (SignupGuards.IsDuplicateKeyException(ex))
                 {
-                    appUser = await CreateCaregiverWithGoogleAsync(googleUser, request);
+                    // Concurrent signup race: another request (Google or local) inserted
+                    // the same email after our pre-checks passed. The unique index rejected
+                    // this insert. Surface as a normal "account exists" conflict so the
+                    // caller can prompt to sign in / link instead of returning a 500.
+                    _logger.LogWarning(ex,
+                        "Duplicate-key on Google {Role} signup race for email: {Email}",
+                        role, googleUser.Email);
+
+                    var (_, raceRole, raceProvider) = await CheckEmailExistsAsync(googleUser.Email);
+                    return (null, new GoogleAuthConflictResponse
+                    {
+                        AccountExists = true,
+                        Message = "An account with this email already exists. Please sign in or link your Google account.",
+                        Email = googleUser.Email,
+                        ExistingAuthProvider = raceProvider ?? "local",
+                        ExistingRole = raceRole ?? role,
+                        CanLinkAccounts = true
+                    });
                 }
 
                 // Create default location
@@ -439,7 +464,7 @@ namespace Infrastructure.Content.Services.Authentication
 
         public async Task<(bool Exists, string? Role, string? AuthProvider)> CheckEmailExistsAsync(string email)
         {
-            var normalizedEmail = email.ToLower();
+            var normalizedEmail = SignupGuards.NormalizeEmail(email);
 
             // Exclude soft-deleted users
             var appUser = await _context.AppUsers

@@ -5,6 +5,7 @@ using Application.Interfaces.Content;
 using Domain.Entities;
 using Domain;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using MongoDB.Bson;
 using System;
@@ -58,8 +59,10 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException("Email is required", nameof(addClientUserRequest.Email));
             }
 
+            var normalizedEmail = SignupGuards.NormalizeEmail(addClientUserRequest.Email);
+
             // Check for duplicate email in Clients collection (case-insensitive)
-            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
+            var clientUserExist = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (clientUserExist != null)
             {
@@ -68,7 +71,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Check for duplicate email in Caregivers collection (case-insensitive)
-            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
+            var caregiverUserExist = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (caregiverUserExist != null)
             {
@@ -77,7 +80,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Check for duplicate email in AppUsers collection (case-insensitive)
-            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == addClientUserRequest.Email.ToLower());
+            var appUserExist = await careProDbContext.AppUsers.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail);
 
             if (appUserExist != null)
             {
@@ -94,7 +97,7 @@ namespace Infrastructure.Content.Services
                 FirstName = addClientUserRequest.FirstName ?? string.Empty,
                 MiddleName = addClientUserRequest.MiddleName,
                 LastName = addClientUserRequest.LastName ?? string.Empty,
-                Email = addClientUserRequest.Email?.ToLower() ?? throw new ArgumentException("Email is required"),
+                Email = normalizedEmail,
                 Password = hashedPassword,
                 HomeAddress = addClientUserRequest.HomeAddress,
 
@@ -112,7 +115,7 @@ namespace Infrastructure.Content.Services
             var careProAppUser = new AppUser
             {
 
-                Email = addClientUserRequest.Email.ToLower(),
+                Email = normalizedEmail,
                 Password = hashedPassword,
                 FirstName = addClientUserRequest.FirstName,
                 LastName = addClientUserRequest.LastName,
@@ -129,7 +132,17 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
-            await careProDbContext.SaveChangesAsync();
+            try
+            {
+                await careProDbContext.SaveChangesAsync();
+            }
+            catch (Exception ex) when (SignupGuards.IsDuplicateKeyException(ex))
+            {
+                // Concurrent signup race: a parallel request inserted the same email
+                // after our pre-checks passed. The unique index rejected this insert.
+                logger.LogWarning(ex, "Duplicate-key on client signup race for email: {Email}", normalizedEmail);
+                throw new InvalidOperationException("This email is already registered. Please sign in or use a different email.");
+            }
 
             #region GoogleSheetsLogging
             
