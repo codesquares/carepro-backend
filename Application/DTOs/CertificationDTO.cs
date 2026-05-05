@@ -33,6 +33,13 @@ namespace Application.DTOs
 
         public string? CertificateUrl { get; set; }
 
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
+
         public bool IsVerified { get; set; }
 
         public DocumentVerificationStatus VerificationStatus { get; set; }
@@ -63,6 +70,13 @@ namespace Application.DTOs
         public DateTime? ExpiryDate { get; set; }
 
         public string? CertificateUrl { get; set; }
+
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
 
         public bool IsVerified { get; set; }
 
@@ -109,6 +123,37 @@ namespace Application.DTOs
         public bool VerifyImmediately { get; set; } = true;
     }
 
+    /// <summary>
+    /// Multipart/form-data variant of <see cref="AddCertificationRequest"/>.
+    /// Used by mobile clients to avoid the memory blow-up caused by base64-in-JSON
+    /// uploads. The file is delivered as a streamed binary part instead of an
+    /// embedded base64 string.
+    /// </summary>
+    public class AddCertificationFormRequest
+    {
+        public string? CertificateName { get; set; }
+
+        public string? CaregiverId { get; set; }
+
+        public string? CertificateIssuer { get; set; }
+
+        /// <summary>
+        /// "educational", "professional", "medical", "specialized"
+        /// </summary>
+        public string? CertificateCategory { get; set; }
+
+        /// <summary>
+        /// The certificate file (image or PDF) delivered as a multipart part.
+        /// </summary>
+        public IFormFile? Certificate { get; set; }
+
+        public DateTime YearObtained { get; set; }
+
+        public DateTime? ExpiryDate { get; set; }
+
+        public bool VerifyImmediately { get; set; } = true;
+    }
+
     public class CertificationUploadResponse
     {
         public string? CertificateId { get; set; }
@@ -116,6 +161,13 @@ namespace Application.DTOs
         public string UploadStatus { get; set; } = "success";
         
         public string? CertificateUrl { get; set; }
+
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
         
         public VerificationResultDTO? Verification { get; set; }
     }
