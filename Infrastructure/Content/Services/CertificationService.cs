@@ -170,6 +170,7 @@ namespace Infrastructure.Content.Services
                     CertificateId = certification.Id.ToString(),
                     UploadStatus = "success",
                     CertificateUrl = cloudinaryUrl,
+                    CertificatePreviewUrl = BuildPreviewUrl(cloudinaryUrl),
                     Verification = verificationResult
                 };
             }
@@ -221,6 +222,7 @@ namespace Infrastructure.Content.Services
                     CertificateName = certificate.CertificateName,
                     CertificateIssuer = certificate.CertificateIssuer,
                     CertificateUrl = certificate.CloudinaryUrl ?? string.Empty,
+                    CertificatePreviewUrl = BuildPreviewUrl(certificate.CloudinaryUrl),
                     YearObtained = certificate.YearObtained,
                     IsVerified = certificate.IsVerified,
                     VerificationStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
@@ -252,6 +254,7 @@ namespace Infrastructure.Content.Services
                 CertificateName = certificate.CertificateName,
                 CertificateIssuer = certificate.CertificateIssuer,
                 CertificateUrl = certificate.CloudinaryUrl ?? string.Empty,
+                CertificatePreviewUrl = BuildPreviewUrl(certificate.CloudinaryUrl),
                 YearObtained = certificate.YearObtained,
                 IsVerified = certificate.IsVerified,
                 VerificationStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
@@ -881,6 +884,7 @@ namespace Infrastructure.Content.Services
                 CertificateName = certificate.CertificateName,
                 CertificateIssuer = certificate.CertificateIssuer,
                 CertificateUrl = certificate.CloudinaryUrl ?? string.Empty,
+                CertificatePreviewUrl = BuildPreviewUrl(certificate.CloudinaryUrl),
                 YearObtained = certificate.YearObtained,
                 IsVerified = certificate.IsVerified,
                 VerificationStatus = certificate.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
@@ -994,6 +998,59 @@ namespace Infrastructure.Content.Services
         private void LogAuditEvent(object message, string? caregiverId)
         {
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
+        }
+
+        /// <summary>
+        /// Builds an image-renderable preview URL from a stored Cloudinary certificate URL.
+        /// PDFs uploaded under image/upload can be rendered as a JPEG of page 1 simply by
+        /// swapping the trailing ".pdf" extension with ".jpg" — Cloudinary handles the
+        /// rasterisation server-side. For non-PDF files (jpg/png/webp/etc.) the original
+        /// URL is already image-renderable, so it's returned as-is.
+        ///
+        /// Backward-compatibility notes for older records:
+        ///   - Null/empty/whitespace stored values return null (frontend treats as "no preview").
+        ///   - URLs not served from "/image/upload/" (e.g. legacy raw/upload paths) are returned
+        ///     unchanged — we never invent a .jpg variant that Cloudinary wouldn't actually serve.
+        ///   - Query strings and fragments are preserved (e.g. cache busters, signed-URL params).
+        ///   - Extension comparison is case-insensitive (.pdf, .PDF, .Pdf).
+        ///   - Any unexpected/malformed URL falls through to the original value rather than
+        ///     throwing, so a single bad legacy row can never break a list response.
+        /// </summary>
+        private static string? BuildPreviewUrl(string? cloudinaryUrl)
+        {
+            if (string.IsNullOrWhiteSpace(cloudinaryUrl))
+            {
+                return null;
+            }
+
+            try
+            {
+                // Only transform Cloudinary "image/upload" URLs. Anything else (raw/upload,
+                // video/upload, externally-hosted, or unrecognised) is returned untouched so
+                // we never produce a URL Cloudinary won't serve.
+                if (cloudinaryUrl.IndexOf("/image/upload/", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return cloudinaryUrl;
+                }
+
+                // Split off any query string / fragment so the extension check works on the
+                // path portion only (e.g. "...file.pdf?v=123#page=1").
+                var queryStart = cloudinaryUrl.IndexOfAny(new[] { '?', '#' });
+                var path = queryStart >= 0 ? cloudinaryUrl.Substring(0, queryStart) : cloudinaryUrl;
+                var suffix = queryStart >= 0 ? cloudinaryUrl.Substring(queryStart) : string.Empty;
+
+                if (path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    return path.Substring(0, path.Length - 4) + ".jpg" + suffix;
+                }
+
+                return cloudinaryUrl;
+            }
+            catch
+            {
+                // Defensive: never let a malformed legacy URL break the response.
+                return cloudinaryUrl;
+            }
         }
 
         public async Task<AdminCertificateReviewResponse> ReviewCertificateAsync(AdminCertificateReviewRequest request)
@@ -1197,6 +1254,7 @@ namespace Infrastructure.Content.Services
                     ServiceCategories = c.ServiceCategories,
                     ExpiryDate = c.ExpiryDate,
                     CertificateUrl = c.CloudinaryUrl,
+                    CertificatePreviewUrl = BuildPreviewUrl(c.CloudinaryUrl),
                     IsVerified = c.IsVerified,
                     VerificationStatus = c.VerificationStatus ?? DocumentVerificationStatus.PendingVerification,
                     VerificationDate = c.VerificationDate,

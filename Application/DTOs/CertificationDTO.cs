@@ -33,6 +33,13 @@ namespace Application.DTOs
 
         public string? CertificateUrl { get; set; }
 
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
+
         public bool IsVerified { get; set; }
 
         public DocumentVerificationStatus VerificationStatus { get; set; }
@@ -63,6 +70,13 @@ namespace Application.DTOs
         public DateTime? ExpiryDate { get; set; }
 
         public string? CertificateUrl { get; set; }
+
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
 
         public bool IsVerified { get; set; }
 
@@ -147,6 +161,13 @@ namespace Application.DTOs
         public string UploadStatus { get; set; } = "success";
         
         public string? CertificateUrl { get; set; }
+
+        /// <summary>
+        /// Image-renderable preview URL for the certificate. For PDFs this is a
+        /// Cloudinary-derived JPEG of the first page so it can be shown in an &lt;img&gt; tag.
+        /// For image uploads (jpg/png) this matches <see cref="CertificateUrl"/>.
+        /// </summary>
+        public string? CertificatePreviewUrl { get; set; }
         
         public VerificationResultDTO? Verification { get; set; }
     }
