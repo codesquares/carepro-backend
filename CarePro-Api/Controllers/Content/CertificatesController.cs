@@ -29,10 +29,14 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Upload a new certificate with automatic verification
+        /// Upload a new certificate with automatic verification (JSON / base64 body).
+        /// Kept for backward compatibility with existing desktop clients.
+        /// Mobile clients should prefer the multipart/form-data variant on the same route
+        /// to avoid base64-in-JSON memory pressure on low-memory devices.
         /// </summary>
         [HttpPost]
         [Authorize(Roles = "Caregiver")]
+        [Consumes("application/json")]
         public async Task<IActionResult> AddCertificateAsync([FromBody] AddCertificationRequest addCertificationRequest)
         {
             try
@@ -98,6 +102,135 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex)
             {
                 logger.LogError(ex, "An unexpected error occurred");
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Upload a new certificate with automatic verification (multipart/form-data variant).
+        /// Preferred path for mobile clients: the file is streamed as a binary form part
+        /// instead of a base64 string in JSON, which avoids the multi-copy in-memory blow-up
+        /// that causes silent XHR failures on low-memory mobile browsers.
+        ///
+        /// Maximum accepted upload size: 10 MB (request body capped at ~12 MB to allow for
+        /// multipart overhead and accompanying form fields).
+        /// Same response shape as the JSON endpoint (CertificationUploadResponse).
+        /// </summary>
+        [HttpPost]
+        [Authorize(Roles = "Caregiver")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(12_582_912)] // 12 MB request body cap (10 MB file + multipart overhead)
+        [RequestFormLimits(MultipartBodyLengthLimit = 12_582_912)]
+        public async Task<IActionResult> AddCertificateFormAsync([FromForm] AddCertificationFormRequest formRequest)
+        {
+            try
+            {
+                if (formRequest == null)
+                {
+                    return BadRequest(new { success = false, message = "Request cannot be empty." });
+                }
+
+                if (formRequest.Certificate == null || formRequest.Certificate.Length == 0)
+                {
+                    ModelState.AddModelError(nameof(formRequest.Certificate), "Certificate file is required.");
+                    return BadRequest(ModelState);
+                }
+
+                // Hard cap on the actual file size (defense in depth — RequestSizeLimit covers
+                // the whole request including overhead; this enforces the documented 10 MB file limit).
+                const long maxFileSizeBytes = 10L * 1024 * 1024; // 10 MB
+                if (formRequest.Certificate.Length > maxFileSizeBytes)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = $"Certificate file is too large. Maximum allowed size is 10 MB.",
+                        errors = new Dictionary<string, string[]>
+                        {
+                            { nameof(formRequest.Certificate), new[] { "File exceeds the 10 MB upload limit." } }
+                        }
+                    });
+                }
+
+                // Read the file into memory and convert to base64 so we can reuse the existing
+                // service pipeline (Cloudinary upload, validation, persistence, notifications).
+                // The service contract expects base64; rather than fork the pipeline we adapt here.
+                string base64Certificate;
+                using (var ms = new MemoryStream())
+                {
+                    await formRequest.Certificate.CopyToAsync(ms);
+                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                }
+
+                var addCertificationRequest = new AddCertificationRequest
+                {
+                    CertificateName = formRequest.CertificateName,
+                    CaregiverId = formRequest.CaregiverId,
+                    CertificateIssuer = formRequest.CertificateIssuer,
+                    CertificateCategory = formRequest.CertificateCategory,
+                    Certificate = base64Certificate,
+                    YearObtained = formRequest.YearObtained,
+                    ExpiryDate = formRequest.ExpiryDate,
+                    VerifyImmediately = formRequest.VerifyImmediately
+                };
+
+                if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
+                {
+                    return BadRequest(ModelState);
+                }
+
+                var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Certificate uploaded successfully",
+                    data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { ex.ParamName ?? "certificateValidation", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { "certificateName", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new
+                {
+                    success = false,
+                    message = ex.Message
+                });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (HttpRequestException httpEx)
+            {
+                return StatusCode(500, new { ErrorMessage = httpEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during multipart certificate upload");
                 return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
         }
