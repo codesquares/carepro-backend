@@ -394,6 +394,12 @@ builder.Services.AddEndpointsApiExplorer();
 /// Add Swagger
 builder.Services.AddSwaggerGen(options =>
 {
+    // Disambiguate types that share a simple name across namespaces (e.g.
+    // Domain.Entities.CareRequestResponse vs Application.DTOs.CareRequestResponse).
+    // Without this, Swashbuckle throws while building /swagger/v1/swagger.json
+    // and the endpoint returns HTTP 500.
+    options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
+
     var securityScheme = new OpenApiSecurityScheme
     {
         Name = "JWT Authentication",
