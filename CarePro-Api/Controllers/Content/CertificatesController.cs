@@ -2,6 +2,7 @@
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -475,6 +476,49 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogError(ex, "An unexpected error occurred during admin multipart certificate upload for caregiver {CaregiverId}", caregiverId);
                 return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
+        }
+
+        /// <summary>
+        /// Returns the canonical list of certificate types accepted by the upload endpoints.
+        ///
+        /// The upload endpoints reject any CertificateName that is not an exact match for one
+        /// of these strings (after Trim), so the frontend should use this list as the source
+        /// of truth for its "Certificate type" dropdown rather than hard-coding labels. Each
+        /// item also includes:
+        ///   - category: educational | professional | medical | specialized
+        ///   - expectedIssuer: the canonical issuer string the backend expects in CertificateIssuer
+        ///   - flexibleIssuer: when true, any non-empty CertificateIssuer is accepted; when
+        ///     false (educational certificates), CertificateIssuer must equal expectedIssuer
+        ///     (case-insensitive). Use this to decide whether the issuer field is a free-text
+        ///     input or a read-only label.
+        ///   - serviceCategories: the service categories this certificate helps the caregiver
+        ///     qualify for. Useful for showing the user which services unlock once verified.
+        ///
+        /// Anonymous endpoint — safe to call before login (e.g. during signup) for prefetching.
+        /// Cached for 1 hour at the client; the list is effectively static.
+        /// </summary>
+        [HttpGet("types")]
+        [AllowAnonymous]
+        [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+        public IActionResult GetCertificateTypes()
+        {
+            var types = ApprovedCertificates.ValidCertificateNames
+                .Select(name => new
+                {
+                    name,
+                    category = ApprovedCertificates.GetCertificateCategory(name),
+                    expectedIssuer = CertificateValidationHelper.GetExpectedIssuer(name),
+                    flexibleIssuer = ApprovedCertificates.FlexibleIssuerCertificates.Contains(name),
+                    serviceCategories = ApprovedCertificates.GetServiceCategories(name) ?? new List<string>()
+                })
+                .ToList();
+
+            return Ok(new
+            {
+                success = true,
+                message = "Accepted certificate types",
+                data = types
+            });
         }
 
         /// <summary>
