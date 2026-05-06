@@ -400,6 +400,13 @@ builder.Services.AddSwaggerGen(options =>
     // and the endpoint returns HTTP 500.
     options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
 
+    // Some endpoints intentionally share a method+path and are dispatched at
+    // runtime by Content-Type via [Consumes(...)] (e.g. POST api/Certificates
+    // accepts both application/json and multipart/form-data). Swashbuckle does
+    // not model content-type-based action selection, so without this resolver
+    // it throws "Conflicting method/path combination" and swagger.json 500s.
+    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+
     var securityScheme = new OpenApiSecurityScheme
     {
         Name = "JWT Authentication",
