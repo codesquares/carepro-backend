@@ -405,7 +405,18 @@ builder.Services.AddSwaggerGen(options =>
     // accepts both application/json and multipart/form-data). Swashbuckle does
     // not model content-type-based action selection, so without this resolver
     // it throws "Conflicting method/path combination" and swagger.json 500s.
-    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+    //
+    // Prefer the multipart variant when both exist — multipart is the documented
+    // primary path (streams file binaries) and base64/JSON is kept only as a
+    // fallback for legacy clients. Falling back to First() preserves behavior
+    // for any future single-variant collisions.
+    options.ResolveConflictingActions(apiDescriptions =>
+    {
+        var preferred = apiDescriptions.FirstOrDefault(d =>
+            d.SupportedRequestFormats.Any(f =>
+                string.Equals(f.MediaType, "multipart/form-data", StringComparison.OrdinalIgnoreCase)));
+        return preferred ?? apiDescriptions.First();
+    });
 
     var securityScheme = new OpenApiSecurityScheme
     {
