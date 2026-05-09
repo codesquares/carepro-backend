@@ -172,5 +172,48 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, new { error = "Failed to retrieve webhook logs" });
             }
         }
+
+        /// <summary>
+        /// Admin override for a verification's status. Use this to flip a
+        /// "Failed" verification to "Completed" after manually confirming the
+        /// failure was caused by a benign mismatch (e.g. middle name returned
+        /// as first name while DOB and last name match). Reason is required
+        /// and is recorded in the AdminAuditLogs collection. Does not modify
+        /// the original webhook payloads or any IDs.
+        /// </summary>
+        [HttpPut("{verificationId}/Status")]
+        public async Task<IActionResult> OverrideVerificationStatus(
+            string verificationId,
+            [FromBody] AdminVerificationStatusOverrideRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest(new { error = "Request body is required" });
+
+                var result = await _verificationService.AdminOverrideVerificationStatusAsync(
+                    verificationId, request);
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex,
+                    "Validation error overriding verification {VerificationId}", verificationId);
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                _logger.LogWarning(ex,
+                    "Verification not found for override: {VerificationId}", verificationId);
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error overriding verification status for {VerificationId}", verificationId);
+                return StatusCode(500, new { error = "Failed to override verification status" });
+            }
+        }
     }
 }

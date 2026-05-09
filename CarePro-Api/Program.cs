@@ -118,6 +118,7 @@ builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
+builder.Services.AddScoped<IAdminCaregiverService, AdminCaregiverService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();

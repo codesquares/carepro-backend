@@ -381,5 +381,96 @@ namespace Infrastructure.Content.Services
 
             return updated;
         }
+
+        public async Task<AdminVerificationStatusOverrideResponse> AdminOverrideVerificationStatusAsync(
+            string verificationId,
+            AdminVerificationStatusOverrideRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            if (string.IsNullOrWhiteSpace(request.AdminId))
+                throw new ArgumentException("AdminId is required", nameof(request.AdminId));
+            if (string.IsNullOrWhiteSpace(request.NewStatus))
+                throw new ArgumentException("NewStatus is required", nameof(request.NewStatus));
+            if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+                throw new ArgumentException("A reason (min 5 chars) is required for an admin override", nameof(request.Reason));
+
+            // Whitelist allowed status values to keep data consistent
+            var normalised = request.NewStatus.Trim();
+            var allowed = new[] { "Completed", "Verified", "Success", "Failed", "Pending" };
+            if (!allowed.Any(a => string.Equals(a, normalised, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException(
+                    $"NewStatus must be one of: {string.Join(", ", allowed)}",
+                    nameof(request.NewStatus));
+            }
+
+            if (!ObjectId.TryParse(verificationId, out var objectId))
+                throw new ArgumentException("Invalid Verification ID format.", nameof(verificationId));
+
+            var existing = await careProDbContext.Verifications.FindAsync(objectId);
+            if (existing == null)
+                throw new KeyNotFoundException($"Verification with ID '{verificationId}' not found.");
+
+            var previousStatus = existing.VerificationStatus ?? string.Empty;
+            var previousIsVerified = existing.IsVerified;
+
+            existing.VerificationStatus = normalised;
+            existing.IsVerified = normalised.ToLowerInvariant()
+                is "completed" or "verified" or "success";
+            existing.UpdatedOn = DateTime.UtcNow;
+
+            careProDbContext.Verifications.Update(existing);
+            await careProDbContext.SaveChangesAsync();
+
+            // Keep the caregiver profile flags in sync with the override.
+            // Reuses the same path the webhook flow uses, so no new
+            // side-effect surface is introduced.
+            await UpdateCaregiverVerificationStateAsync(
+                existing.UserId,
+                existing.IsVerified,
+                existing.VerificationStatus);
+
+            // Audit log — append-only, never mutates existing data
+            var before = new
+            {
+                VerificationStatus = previousStatus,
+                IsVerified = previousIsVerified
+            };
+            var after = new
+            {
+                VerificationStatus = existing.VerificationStatus,
+                IsVerified = existing.IsVerified
+            };
+
+            await careProDbContext.AdminAuditLogs.AddAsync(new AdminAuditLog
+            {
+                Id = ObjectId.GenerateNewId(),
+                AdminId = request.AdminId,
+                TargetEntityType = "Verification",
+                TargetEntityId = existing.VerificationId.ToString(),
+                TargetUserId = existing.UserId,
+                Action = "VerificationStatusOverride",
+                BeforeJson = System.Text.Json.JsonSerializer.Serialize(before),
+                AfterJson = System.Text.Json.JsonSerializer.Serialize(after),
+                Reason = request.Reason.Trim(),
+                Timestamp = DateTime.UtcNow
+            });
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Admin {AdminId} overrode verification {VerificationId} from {Previous} to {New}",
+                request.AdminId, verificationId, previousStatus, existing.VerificationStatus);
+
+            return new AdminVerificationStatusOverrideResponse
+            {
+                Success = true,
+                VerificationId = existing.VerificationId.ToString(),
+                PreviousStatus = previousStatus,
+                NewStatus = existing.VerificationStatus,
+                IsVerified = existing.IsVerified,
+                Message = $"Verification status overridden by admin (previous: '{previousStatus}', new: '{existing.VerificationStatus}')."
+            };
+        }
     }
 }

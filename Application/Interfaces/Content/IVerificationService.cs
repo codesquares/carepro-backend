@@ -23,5 +23,17 @@ namespace Application.Interfaces.Content
 
         Task<int> BackfillCaregiverVerificationStateAsync();
 
+        /// <summary>
+        /// Admin override of the verification status — used when a verification
+        /// failed for a benign reason (e.g. middle-name mismatch) and the admin
+        /// has manually confirmed the rest of the data matches. Bypasses the
+        /// "already verified" guard, recomputes IsVerified, syncs the caregiver
+        /// profile, and writes an entry to the AdminAuditLogs collection.
+        /// Does NOT change any IDs and does NOT touch the original WebhookLogs.
+        /// </summary>
+        Task<AdminVerificationStatusOverrideResponse> AdminOverrideVerificationStatusAsync(
+            string verificationId,
+            AdminVerificationStatusOverrideRequest request);
+
     }
 }
