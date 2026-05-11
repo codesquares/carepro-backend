@@ -115,6 +115,7 @@ builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IGigServices, GigServices>();
 builder.Services.AddScoped<IClientOrderService, ClientOrderService>();
 builder.Services.AddScoped<ICertificationService, CertificationService>();
+builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
