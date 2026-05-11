@@ -2,11 +2,13 @@
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -29,18 +31,30 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Upload a new certificate with automatic verification (JSON / base64 body).
-        /// Kept for backward compatibility with existing desktop clients.
-        /// Mobile clients should prefer the multipart/form-data variant on the same route
-        /// to avoid base64-in-JSON memory pressure on low-memory devices.
+        /// [DEPRECATED FALLBACK] Upload a new certificate with automatic verification
+        /// using a JSON body containing a base64-encoded file.
+        ///
+        /// All clients should prefer the multipart/form-data variant on the same route
+        /// (POST api/Certificates with Content-Type: multipart/form-data). Multipart streams
+        /// the file as a binary form part instead of carrying it as a base64 string in JSON,
+        /// which avoids the multi-copy in-memory blow-up that causes silent failures on
+        /// low-memory mobile browsers and reduces request payload size by ~33%.
+        ///
+        /// This endpoint is retained only as a fallback for legacy desktop clients that
+        /// cannot send multipart and will be removed in a future release.
         /// </summary>
         [HttpPost]
         [Authorize(Roles = "Caregiver")]
         [Consumes("application/json")]
+        [Obsolete("Use the multipart/form-data variant of POST api/Certificates. This base64/JSON path is kept as a fallback for legacy clients and will be removed.")]
         public async Task<IActionResult> AddCertificateAsync([FromBody] AddCertificationRequest addCertificationRequest)
         {
             try
             {
+                logger.LogWarning(
+                    "Deprecated certificate upload path used: caregiver POST api/Certificates (application/json, base64). CaregiverId={CaregiverId}",
+                    addCertificationRequest?.CaregiverId);
+
                 // Validate the incoming request
                 if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
                 {
@@ -107,14 +121,15 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Upload a new certificate with automatic verification (multipart/form-data variant).
-        /// Preferred path for mobile clients: the file is streamed as a binary form part
-        /// instead of a base64 string in JSON, which avoids the multi-copy in-memory blow-up
-        /// that causes silent XHR failures on low-memory mobile browsers.
+        /// [PRIMARY] Upload a new certificate with automatic verification (multipart/form-data).
+        /// This is the recommended path for all clients — the file is streamed as a binary
+        /// form part instead of a base64 string in JSON, which avoids the multi-copy
+        /// in-memory blow-up that causes silent XHR failures on low-memory mobile browsers
+        /// and reduces request payload size by ~33%.
         ///
         /// Maximum accepted upload size: 10 MB (request body capped at ~12 MB to allow for
         /// multipart overhead and accompanying form fields).
-        /// Same response shape as the JSON endpoint (CertificationUploadResponse).
+        /// Same response shape as the legacy JSON endpoint (CertificationUploadResponse).
         /// </summary>
         [HttpPost]
         [Authorize(Roles = "Caregiver")]
@@ -233,6 +248,277 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogError(ex, "An unexpected error occurred during multipart certificate upload");
                 return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
+        }
+
+        /// <summary>
+        /// [DEPRECATED FALLBACK] Admin upload — create a certificate on behalf of a caregiver
+        /// using a JSON body containing a base64-encoded file.
+        ///
+        /// Prefer the multipart/form-data variant of POST api/Certificates/admin/{caregiverId}.
+        /// Retained only as a fallback for legacy admin clients and will be removed.
+        ///
+        /// The caregiver is identified by the {caregiverId} route parameter; any CaregiverId
+        /// present in the request body is overwritten with the route value to prevent the
+        /// admin from accidentally targeting the wrong account.
+        ///
+        /// Reuses the same service pipeline as the caregiver-facing endpoint (validation,
+        /// Cloudinary upload, persistence, notification to the caregiver). Emits an audit
+        /// log entry capturing the acting admin's id.
+        /// </summary>
+        [HttpPost("admin/{caregiverId}")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [Consumes("application/json")]
+        [Obsolete("Use the multipart/form-data variant of POST api/Certificates/admin/{caregiverId}. This base64/JSON path is kept as a fallback for legacy clients and will be removed.")]
+        public async Task<IActionResult> AdminAddCertificateAsync(string caregiverId, [FromBody] AddCertificationRequest addCertificationRequest)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { success = false, message = "CaregiverId route parameter is required." });
+                }
+
+                if (addCertificationRequest == null)
+                {
+                    return BadRequest(new { success = false, message = "Request body cannot be empty." });
+                }
+
+                logger.LogWarning(
+                    "Deprecated certificate upload path used: admin POST api/Certificates/admin/{CaregiverId} (application/json, base64)",
+                    caregiverId);
+
+                // Route param wins — admin cannot target a different caregiver via the body.
+                addCertificationRequest.CaregiverId = caregiverId;
+
+                if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
+                {
+                    return BadRequest(ModelState);
+                }
+
+                var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
+
+                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                logger.LogInformation(
+                    "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' on behalf of caregiver {CaregiverId} at {Timestamp}",
+                    adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Certificate uploaded successfully on behalf of caregiver",
+                    data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { ex.ParamName ?? "certificateValidation", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { "certificateName", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (HttpRequestException httpEx)
+            {
+                return StatusCode(500, new { ErrorMessage = httpEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during admin certificate upload for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// [PRIMARY] Admin upload — create a certificate on behalf of a caregiver
+        /// (multipart/form-data). This is the recommended admin upload path; the base64/JSON
+        /// variant on the same route is retained only as a fallback for legacy clients.
+        /// Same semantics as <see cref="AdminAddCertificateAsync"/>.
+        /// </summary>
+        [HttpPost("admin/{caregiverId}")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(12_582_912)] // 12 MB request body cap (10 MB file + multipart overhead)
+        [RequestFormLimits(MultipartBodyLengthLimit = 12_582_912)]
+        public async Task<IActionResult> AdminAddCertificateFormAsync(string caregiverId, [FromForm] AddCertificationFormRequest formRequest)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(caregiverId))
+                {
+                    return BadRequest(new { success = false, message = "CaregiverId route parameter is required." });
+                }
+
+                if (formRequest == null)
+                {
+                    return BadRequest(new { success = false, message = "Request cannot be empty." });
+                }
+
+                if (formRequest.Certificate == null || formRequest.Certificate.Length == 0)
+                {
+                    ModelState.AddModelError(nameof(formRequest.Certificate), "Certificate file is required.");
+                    return BadRequest(ModelState);
+                }
+
+                const long maxFileSizeBytes = 10L * 1024 * 1024; // 10 MB
+                if (formRequest.Certificate.Length > maxFileSizeBytes)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Certificate file is too large. Maximum allowed size is 10 MB.",
+                        errors = new Dictionary<string, string[]>
+                        {
+                            { nameof(formRequest.Certificate), new[] { "File exceeds the 10 MB upload limit." } }
+                        }
+                    });
+                }
+
+                string base64Certificate;
+                using (var ms = new MemoryStream())
+                {
+                    await formRequest.Certificate.CopyToAsync(ms);
+                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                }
+
+                var addCertificationRequest = new AddCertificationRequest
+                {
+                    CertificateName = formRequest.CertificateName,
+                    CaregiverId = caregiverId, // route param wins
+                    CertificateIssuer = formRequest.CertificateIssuer,
+                    CertificateCategory = formRequest.CertificateCategory,
+                    Certificate = base64Certificate,
+                    YearObtained = formRequest.YearObtained,
+                    ExpiryDate = formRequest.ExpiryDate,
+                    VerifyImmediately = formRequest.VerifyImmediately
+                };
+
+                if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
+                {
+                    return BadRequest(ModelState);
+                }
+
+                var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
+
+                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                logger.LogInformation(
+                    "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' (multipart) on behalf of caregiver {CaregiverId} at {Timestamp}",
+                    adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Certificate uploaded successfully on behalf of caregiver",
+                    data = result
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { ex.ParamName ?? "certificateValidation", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = ex.Message,
+                    errors = new Dictionary<string, string[]>
+                    {
+                        { "certificateName", new[] { ex.Message } }
+                    }
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (ApplicationException appEx)
+            {
+                return BadRequest(new { ErrorMessage = appEx.Message });
+            }
+            catch (HttpRequestException httpEx)
+            {
+                return StatusCode(500, new { ErrorMessage = httpEx.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "An unexpected error occurred during admin multipart certificate upload for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
+            }
+        }
+
+        /// <summary>
+        /// Returns the canonical list of certificate types accepted by the upload endpoints.
+        ///
+        /// The upload endpoints reject any CertificateName that is not an exact match for one
+        /// of these strings (after Trim), so the frontend should use this list as the source
+        /// of truth for its "Certificate type" dropdown rather than hard-coding labels. Each
+        /// item also includes:
+        ///   - category: educational | professional | medical | specialized
+        ///   - expectedIssuer: the canonical issuer string the backend expects in CertificateIssuer
+        ///   - flexibleIssuer: when true, any non-empty CertificateIssuer is accepted; when
+        ///     false (educational certificates), CertificateIssuer must equal expectedIssuer
+        ///     (case-insensitive). Use this to decide whether the issuer field is a free-text
+        ///     input or a read-only label.
+        ///   - serviceCategories: the service categories this certificate helps the caregiver
+        ///     qualify for. Useful for showing the user which services unlock once verified.
+        ///
+        /// Anonymous endpoint — safe to call before login (e.g. during signup) for prefetching.
+        /// Cached for 1 hour at the client; the list is effectively static.
+        /// </summary>
+        [HttpGet("types")]
+        [AllowAnonymous]
+        [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
+        public IActionResult GetCertificateTypes()
+        {
+            var types = ApprovedCertificates.ValidCertificateNames
+                .Select(name => new
+                {
+                    name,
+                    category = ApprovedCertificates.GetCertificateCategory(name),
+                    expectedIssuer = CertificateValidationHelper.GetExpectedIssuer(name),
+                    flexibleIssuer = ApprovedCertificates.FlexibleIssuerCertificates.Contains(name),
+                    serviceCategories = ApprovedCertificates.GetServiceCategories(name) ?? new List<string>()
+                })
+                .ToList();
+
+            return Ok(new
+            {
+                success = true,
+                message = "Accepted certificate types",
+                data = types
+            });
         }
 
         /// <summary>

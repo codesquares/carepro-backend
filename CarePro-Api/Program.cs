@@ -119,6 +119,7 @@ builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
+builder.Services.AddScoped<IAdminCaregiverService, AdminCaregiverService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
@@ -395,6 +396,30 @@ builder.Services.AddEndpointsApiExplorer();
 /// Add Swagger
 builder.Services.AddSwaggerGen(options =>
 {
+    // Disambiguate types that share a simple name across namespaces (e.g.
+    // Domain.Entities.CareRequestResponse vs Application.DTOs.CareRequestResponse).
+    // Without this, Swashbuckle throws while building /swagger/v1/swagger.json
+    // and the endpoint returns HTTP 500.
+    options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
+
+    // Some endpoints intentionally share a method+path and are dispatched at
+    // runtime by Content-Type via [Consumes(...)] (e.g. POST api/Certificates
+    // accepts both application/json and multipart/form-data). Swashbuckle does
+    // not model content-type-based action selection, so without this resolver
+    // it throws "Conflicting method/path combination" and swagger.json 500s.
+    //
+    // Prefer the multipart variant when both exist — multipart is the documented
+    // primary path (streams file binaries) and base64/JSON is kept only as a
+    // fallback for legacy clients. Falling back to First() preserves behavior
+    // for any future single-variant collisions.
+    options.ResolveConflictingActions(apiDescriptions =>
+    {
+        var preferred = apiDescriptions.FirstOrDefault(d =>
+            d.SupportedRequestFormats.Any(f =>
+                string.Equals(f.MediaType, "multipart/form-data", StringComparison.OrdinalIgnoreCase)));
+        return preferred ?? apiDescriptions.First();
+    });
+
     var securityScheme = new OpenApiSecurityScheme
     {
         Name = "JWT Authentication",
