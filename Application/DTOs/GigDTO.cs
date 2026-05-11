@@ -45,6 +45,13 @@ namespace Application.DTOs
         public string? CareRequestId { get; set; }
         public string? ScopedClientId { get; set; }
 
+        // ── Public Professional Profile Enrichment ──
+        // Always returned as arrays — never null. Empty array if the caregiver
+        // has not submitted any records.
+        public List<CaregiverEducationResponse> CaregiverEducation { get; set; } = new();
+        public List<CaregiverQualificationResponse> CaregiverCertifications { get; set; } = new();
+        public List<CaregiverWorkExperienceResponse> CaregiverWorkExperience { get; set; } = new();
+
     }
 
     public class AddGigRequest

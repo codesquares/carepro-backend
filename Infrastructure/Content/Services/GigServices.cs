@@ -25,14 +25,16 @@ namespace Infrastructure.Content.Services
         private readonly ILogger<GigServices> logger;
         private readonly CloudinaryService cloudinaryService;
         private readonly IEligibilityService eligibilityService;
+        private readonly ICaregiverProfileService caregiverProfileService;
 
-        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService, IEligibilityService eligibilityService)
+        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService, IEligibilityService eligibilityService, ICaregiverProfileService caregiverProfileService)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
             this.cloudinaryService = cloudinaryService;
             this.eligibilityService = eligibilityService;
+            this.caregiverProfileService = caregiverProfileService;
         }
 
         public async Task<GigDTO> CreateGigAsync(AddGigRequest addGigRequest)
@@ -518,6 +520,13 @@ namespace Infrastructure.Content.Services
 
 
 
+            // Public Professional Profile enrichment — runs in parallel.
+            // Each list defaults to empty so the response always returns arrays, never null.
+            var educationTask = caregiverProfileService.GetPublicEducationAsync(gig.CaregiverId);
+            var qualificationsTask = caregiverProfileService.GetPublicQualificationsAsync(gig.CaregiverId);
+            var workExperienceTask = caregiverProfileService.GetPublicWorkExperienceAsync(gig.CaregiverId);
+            await Task.WhenAll(educationTask, qualificationsTask, workExperienceTask);
+
             var gigDTO = new GigDTO()
             {
                 Id = gig.Id.ToString(),
@@ -546,6 +555,9 @@ namespace Infrastructure.Content.Services
                 IsSpecialGig = gig.IsSpecialGig,
                 CareRequestId = gig.CareRequestId,
                 ScopedClientId = gig.ScopedClientId,
+                CaregiverEducation = educationTask.Result.ToList(),
+                CaregiverCertifications = qualificationsTask.Result.ToList(),
+                CaregiverWorkExperience = workExperienceTask.Result.ToList(),
             };
 
             return gigDTO;

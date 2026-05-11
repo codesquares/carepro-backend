@@ -252,5 +252,8 @@ namespace Infrastructure.Content.Data
         public DbSet<RefundRequest> RefundRequests { get; set; }
         public DbSet<GigTemplateCategory> GigTemplateCategories { get; set; }
         public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
+        public DbSet<CaregiverEducation> CaregiverEducations { get; set; }
+        public DbSet<CaregiverQualification> CaregiverQualifications { get; set; }
+        public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
     }
 }
