@@ -23,7 +23,7 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
-        private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "unmatched", "active" };
+        private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "unmatched", "active", "escalated" };
 
         public CareRequestResponseService(
             CareProDbContext dbContext,
@@ -54,7 +54,7 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException("Care request not found.");
 
             var statusLower = careRequest.Status?.ToLower();
-            if (statusLower != "pending" && statusLower != "matched" && statusLower != "unmatched" && statusLower != "active")
+            if (statusLower != "pending" && statusLower != "matched" && statusLower != "unmatched" && statusLower != "active" && statusLower != "escalated")
                 throw new InvalidOperationException($"Cannot respond to a request with status '{careRequest.Status}'.");
 
             // Check for duplicate response
@@ -351,7 +351,8 @@ namespace Infrastructure.Content.Services
                 .Where(cr => cr.Status.ToLower() == "pending"
                              || cr.Status.ToLower() == "matched"
                              || cr.Status.ToLower() == "unmatched"
-                             || cr.Status.ToLower() == "active");
+                             || cr.Status.ToLower() == "active"
+                             || cr.Status.ToLower() == "escalated");
 
             // Optional filters
             if (!string.IsNullOrEmpty(serviceType))

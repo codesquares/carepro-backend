@@ -197,6 +197,9 @@ builder.Services.AddScoped<IDisputeService, DisputeService>();
 // Gig templates (template-driven gig creation)
 builder.Services.AddScoped<IGigTemplateService, GigTemplateService>();
 
+// Analytics (ad campaign event tracking)
+builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
