@@ -194,6 +194,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AnalyticsEvent>().HasKey(ae => ae.Id);
             modelBuilder.Entity<AnalyticsEvent>().Property(ae => ae.Id).HasElementName("_id");
 
+            modelBuilder.Entity<CaregiverJourneySnapshot>().ToCollection("CaregiverJourneySnapshots");
+            modelBuilder.Entity<CaregiverJourneySnapshot>().HasKey(s => s.Id);
+            modelBuilder.Entity<CaregiverJourneySnapshot>().Property(s => s.Id).HasElementName("_id");
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -265,5 +269,6 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
         public DbSet<AdminAuditLog> AdminAuditLogs { get; set; }
         public DbSet<AnalyticsEvent> AnalyticsEvents { get; set; }
+        public DbSet<CaregiverJourneySnapshot> CaregiverJourneySnapshots { get; set; }
     }
 }

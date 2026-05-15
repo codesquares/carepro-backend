@@ -200,6 +200,12 @@ builder.Services.AddScoped<IGigTemplateService, GigTemplateService>();
 // Analytics (ad campaign event tracking)
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 
+// Admin data export (Excel)
+builder.Services.AddScoped<IAdminExportService, AdminExportService>();
+
+// Caregiver journey snapshot (read-model for admin journey tracking)
+builder.Services.AddScoped<ICaregiverSnapshotService, CaregiverSnapshotService>();
+
 // Dojah webhook services
 builder.Services.AddScoped<ISignatureVerificationService, SignatureVerificationService>();
 builder.Services.AddScoped<IRateLimitingService, RateLimitingService>();
@@ -237,6 +243,9 @@ builder.Services.AddHostedService<GigDeletionReminderProcessor>();
 
 // Cleanup orphaned email inline-image assets older than 90 days (runs daily)
 builder.Services.AddHostedService<EmailAssetCleanupProcessor>();
+
+// Caregiver journey snapshot rebuild (every 15 min)
+builder.Services.AddHostedService<CaregiverSnapshotProcessor>();
 
 
 

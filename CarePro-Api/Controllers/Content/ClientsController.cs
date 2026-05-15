@@ -254,7 +254,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("AllClientUsers")]
-        //[Authorize(Roles = "Client,Admin")]
+        [Authorize(Roles = "Admin,SuperAdmin")]
         public async Task<IActionResult> GetAllClientUsersAsync()
         {
             try

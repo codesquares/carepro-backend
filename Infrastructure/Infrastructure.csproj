@@ -15,6 +15,7 @@
   <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.21.2" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="CloudinaryDotNet" Version="1.27.5" />
     <PackageReference Include="MailKit" Version="4.15.1" />
     <PackageReference Include="MediatR" Version="12.4.1" />
