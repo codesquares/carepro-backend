@@ -8,7 +8,7 @@ namespace CarePro_Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(Roles = "Caregiver")]
+    [Authorize(Roles = "Caregiver, Client")]
     public class VerificationsController : ControllerBase
     {
         private readonly IVerificationService verificationService;

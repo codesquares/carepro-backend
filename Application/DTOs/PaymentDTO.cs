@@ -79,20 +79,34 @@ namespace Application.DTOs
     }
     
     /// <summary>
-    /// Flutterwave v3 webhook payload - flat structure (no nested data object)
+    /// Flutterwave v3 webhook envelope — wraps the payload for charge.completed events.
+    /// Structure: { "event": "charge.completed", "data": { ... } }
+    /// </summary>
+    public class FlutterwaveWebhookEnvelope
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("event")]
+        public string? Event { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("data")]
+        public FlutterwaveWebhookPayload? Data { get; set; }
+    }
+
+    /// <summary>
+    /// Flutterwave v3 webhook payload — fields nested under "data" in the envelope.
+    /// Flutterwave sends snake_case (tx_ref, flw_ref, created_at).
     /// </summary>
     public class FlutterwaveWebhookPayload
     {
         [System.Text.Json.Serialization.JsonPropertyName("id")]
         public long Id { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("txRef")]
+        [System.Text.Json.Serialization.JsonPropertyName("tx_ref")]
         public string? TxRef { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("flwRef")]
+        [System.Text.Json.Serialization.JsonPropertyName("flw_ref")]
         public string? FlwRef { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("orderRef")]
+        [System.Text.Json.Serialization.JsonPropertyName("order_ref")]
         public string? OrderRef { get; set; }
         
         [System.Text.Json.Serialization.JsonPropertyName("status")]
@@ -107,20 +121,20 @@ namespace Application.DTOs
         [System.Text.Json.Serialization.JsonPropertyName("currency")]
         public string? Currency { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("appfee")]
+        [System.Text.Json.Serialization.JsonPropertyName("app_fee")]
         public decimal AppFee { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("createdAt")]
+        [System.Text.Json.Serialization.JsonPropertyName("created_at")]
         public DateTime? CreatedAt { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("IP")]
+        [System.Text.Json.Serialization.JsonPropertyName("ip")]
         public string? IP { get; set; }
         
         [System.Text.Json.Serialization.JsonPropertyName("customer")]
         public FlutterwaveCustomer? Customer { get; set; }
         
-        [System.Text.Json.Serialization.JsonPropertyName("event.type")]
-        public string? EventType { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("payment_type")]
+        public string? PaymentType { get; set; }
     }
     
     public class FlutterwaveCustomer

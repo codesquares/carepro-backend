@@ -466,6 +466,103 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        // -----------------------------------------------------------------
+        // Cost-control gate endpoints (added May 2026)
+        // -----------------------------------------------------------------
+        // These intentionally bypass _rateLimitService — the frontend calls
+        // /eligibility on every page load and on cooldown timer expiry.
+        // Per-user attempt capping inside the service is the real gate.
+
+        /// <summary>
+        /// Read-only check of whether the authenticated user can start a new
+        /// Dojah verification widget session. Safe to poll.
+        /// </summary>
+        [HttpGet("eligibility")]
+        [Authorize(Roles = "Caregiver, Client")]
+        public async Task<IActionResult> GetVerificationEligibility()
+        {
+            try
+            {
+                var callerUserId = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(callerUserId))
+                {
+                    return Unauthorized(new { error = "Missing userId claim" });
+                }
+
+                var userType = ResolveCallerUserType();
+                var gate = await _verificationService.CheckVerificationEligibilityAsync(callerUserId, userType);
+                return Ok(gate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking verification eligibility");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
+        }
+
+        /// <summary>
+        /// Server-issued reference_id for a new Dojah widget session.
+        /// MUST be called before opening the widget. The returned referenceId
+        /// has to be passed to window.Connect via metadata.reference_id.
+        /// Atomically increments the user's attempt counter.
+        /// Returns 403 with a VerificationGateResponse body when blocked.
+        /// </summary>
+        [HttpPost("initiate-session")]
+        [Authorize(Roles = "Caregiver, Client")]
+        public async Task<IActionResult> InitiateVerificationSession()
+        {
+            try
+            {
+                var callerUserId = User.FindFirst("userId")?.Value;
+                if (string.IsNullOrEmpty(callerUserId))
+                {
+                    return Unauthorized(new { error = "Missing userId claim" });
+                }
+
+                var userType = ResolveCallerUserType();
+                var (gate, session) = await _verificationService.InitiateVerificationSessionAsync(callerUserId, userType);
+
+                if (!gate.IsEligible || session == null)
+                {
+                    _logger.LogInformation(
+                        "Refused initiate-session for UserId={UserId}, Reason={Reason}",
+                        callerUserId, gate.Reason);
+                    return StatusCode(403, gate);
+                }
+
+                _logger.LogInformation(
+                    "Issued Dojah session referenceId={ReferenceId} for UserId={UserId}, AttemptCount={AttemptCount}",
+                    session.ReferenceId, callerUserId, session.AttemptCount);
+
+                return Ok(new
+                {
+                    gate,
+                    session
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating verification session");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
+        }
+
+        /// <summary>
+        /// Returns "Caregiver" or "Client" based on the caller's role claim.
+        /// Case-insensitive. Defaults to "Caregiver" for backward compat.
+        /// </summary>
+        private string ResolveCallerUserType()
+        {
+            // Check role claims (a user may have multiple)
+            var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value?.Trim().ToLowerInvariant());
+            foreach (var r in roles)
+            {
+                if (r == "client") return "Client";
+                if (r == "caregiver") return "Caregiver";
+            }
+            return "Caregiver";
+        }
+
         [HttpGet("admin/statistics")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetWebhookStatistics()

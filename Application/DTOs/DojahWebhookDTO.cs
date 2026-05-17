@@ -342,6 +342,13 @@ namespace Application.DTOs
 
         [JsonPropertyName("timestamp")]
         public string Timestamp { get; set; } = string.Empty;
+
+        // Frontend places the server-issued reference_id inside metadata when
+        // initialising the Dojah widget. Dojah usually promotes this to the
+        // top-level reference_id field, but we capture it here as a fallback
+        // in case it ever arrives only nested.
+        [JsonPropertyName("reference_id")]
+        public string ReferenceId { get; set; } = string.Empty;
     }
 
     public class DojahIpInfo

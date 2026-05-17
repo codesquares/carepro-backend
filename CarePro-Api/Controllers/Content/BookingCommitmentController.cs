@@ -75,12 +75,15 @@ namespace CarePro_Api.Controllers.Content
 
             _logger.LogInformation("Commitment webhook raw payload: {RawBody}", rawBody);
 
-            // Parse payload
+            // Parse payload — Flutterwave v3 wraps fields under "data": { ... }
+            // Fall back to flat structure for legacy compatibility
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             FlutterwaveWebhookPayload? payload;
             try
             {
-                payload = System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookPayload>(rawBody,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var envelope = System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookEnvelope>(rawBody, jsonOptions);
+                payload = envelope?.Data
+                    ?? System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookPayload>(rawBody, jsonOptions);
             }
             catch (Exception ex)
             {
@@ -195,5 +198,62 @@ namespace CarePro_Api.Controllers.Content
                 errorMessage = commitment.ErrorMessage
             });
         }
+
+        /// <summary>
+        /// Admin-only: manually complete a stuck commitment whose webhook was received
+        /// but not processed (e.g. due to a deserialization bug). Verifies the transaction
+        /// directly with Flutterwave before completing.
+        /// </summary>
+        [HttpPost("admin/manual-complete")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> AdminManualComplete([FromBody] AdminManualCompleteRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.TransactionReference) ||
+                string.IsNullOrWhiteSpace(request.FlutterwaveTransactionId))
+                return BadRequest(new { success = false, message = "TransactionReference and FlutterwaveTransactionId are required." });
+
+            var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown-admin";
+            _logger.LogWarning(
+                "Admin manual commitment completion requested by {AdminId}. TxRef: {TxRef}, FLW TxId: {FLWTxId}",
+                adminId, request.TransactionReference, request.FlutterwaveTransactionId);
+
+            // Verify directly with Flutterwave to confirm the transaction is genuinely successful
+            var verification = await _flutterwaveService.VerifyTransactionAsync(request.FlutterwaveTransactionId);
+            if (verification == null || !verification.Success || verification.Status.ToLower() != "successful")
+            {
+                _logger.LogError(
+                    "Admin manual complete: Flutterwave verification FAILED for TxRef: {TxRef}, FLW TxId: {FLWTxId}",
+                    request.TransactionReference, request.FlutterwaveTransactionId);
+                return BadRequest(new { success = false, message = "Flutterwave transaction verification failed. Will not complete." });
+            }
+
+            var result = await _commitmentService.CompleteCommitmentAsync(
+                request.TransactionReference,
+                request.FlutterwaveTransactionId,
+                verification.Amount);
+
+            if (!result.IsSuccess)
+            {
+                _logger.LogError(
+                    "Admin manual complete: CompleteCommitmentAsync failed for TxRef: {TxRef}. Errors: {Errors}",
+                    request.TransactionReference, string.Join(", ", result.Errors));
+                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
+            }
+
+            _logger.LogInformation(
+                "Admin manual complete: SUCCESS for TxRef: {TxRef}, Amount: {Amount}",
+                request.TransactionReference, verification.Amount);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Commitment manually completed.",
+                transactionReference = request.TransactionReference,
+                flutterwaveTransactionId = request.FlutterwaveTransactionId,
+                amount = verification.Amount
+            });
+        }
     }
 }
+
+public record AdminManualCompleteRequest(string TransactionReference, string FlutterwaveTransactionId);

@@ -84,12 +84,15 @@ namespace CarePro_Api.Controllers.Content
             // DEBUG: Log the raw webhook payload to see what Flutterwave is sending
             _logger.LogInformation("Raw webhook payload: {RawBody}", rawBody);
 
-            // Parse the payload
+            // Parse the payload — Flutterwave v3 wraps fields under "data": { ... }
+            // Fall back to flat structure for legacy compatibility
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             FlutterwaveWebhookPayload? payload;
             try
             {
-                payload = System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookPayload>(rawBody, 
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var envelope = System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookEnvelope>(rawBody, jsonOptions);
+                payload = envelope?.Data
+                    ?? System.Text.Json.JsonSerializer.Deserialize<FlutterwaveWebhookPayload>(rawBody, jsonOptions);
             }
             catch (Exception ex)
             {
