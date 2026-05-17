@@ -35,5 +35,26 @@ namespace Application.Interfaces.Content
             string verificationId,
             AdminVerificationStatusOverrideRequest request);
 
+        // ----------------------------------------------------------------
+        // Cost-control gate (added May 2026)
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Read-only check of whether the user can start a new Dojah widget
+        /// session. Used by GET /api/Dojah/eligibility on page load.
+        /// Does NOT mutate state. Case-insensitive on userType.
+        /// </summary>
+        Task<VerificationGateResponse> CheckVerificationEligibilityAsync(string userId, string userType);
+
+        /// <summary>
+        /// Re-checks eligibility and, if eligible, atomically increments the
+        /// attempt counter and issues a server-generated reference_id that
+        /// the frontend must pass into the Dojah widget. The returned object
+        /// has IsEligible inside an envelope alongside the
+        /// InitiateSessionResponse — callers should inspect the gate first
+        /// and only use the session details when IsEligible is true.
+        /// </summary>
+        Task<(VerificationGateResponse Gate, InitiateSessionResponse? Session)> InitiateVerificationSessionAsync(string userId, string userType);
+
     }
 }

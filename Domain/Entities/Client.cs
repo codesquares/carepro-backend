@@ -47,5 +47,11 @@ namespace Domain.Entities
         public string? GoogleId { get; set; }
         public string? AuthProvider { get; set; } // "local", "google", "both", or null for existing users
 
+        // Identity verification (Dojah KYC) — added May 2026 to mirror Caregiver
+        // All nullable so existing Client documents in MongoDB continue to work.
+        public bool? IsIdentityVerified { get; set; }
+        public string? IdentityVerificationStatus { get; set; } // "success", "pending", "failed"
+        public DateTime? IdentityVerifiedAt { get; set; }
+
     }
 }

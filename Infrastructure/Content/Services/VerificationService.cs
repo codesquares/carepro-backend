@@ -3,6 +3,7 @@ using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using Org.BouncyCastle.Ocsp;
@@ -19,12 +20,24 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext careProDbContext;
         private readonly ICareGiverService careGiverService;
         private readonly ILogger<VerificationService> logger;
+        private readonly IConfiguration configuration;
 
-        public VerificationService(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<VerificationService> logger)
+        // Defaults if config keys are missing — keeps the gate functional even
+        // before the appsettings rollout reaches every environment.
+        private const int DefaultMaxVerificationAttempts = 5;
+        private const int DefaultCooldownHoursAfterFailure = 24;
+        private const int SessionExpiryMinutes = 30;
+
+        public VerificationService(
+            CareProDbContext careProDbContext,
+            ICareGiverService careGiverService,
+            ILogger<VerificationService> logger,
+            IConfiguration configuration)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
+            this.configuration = configuration;
         }
 
         public async Task<string> CreateVerificationAsync(AddVerificationRequest addVerificationRequest)
@@ -168,7 +181,9 @@ namespace Infrastructure.Content.Services
                 IsVerified = verification.IsVerified,
                 VerifiedOn = verification.VerifiedOn,
                 UpdatedOn = verification.UpdatedOn,
-
+                AttemptCount = verification.AttemptCount ?? 0,
+                CooldownUntil = verification.CooldownUntil,
+                UserType = verification.UserType,
             };
 
             return verificationDTO;
@@ -228,6 +243,9 @@ namespace Infrastructure.Content.Services
                     VerifiedOn = verification.VerifiedOn,
                     UpdatedOn = verification.UpdatedOn,
                     LastWebhookReceivedAt = lastWebhookLog?.ReceivedAt,
+                    AttemptCount = verification.AttemptCount ?? 0,
+                    CooldownUntil = verification.CooldownUntil,
+                    UserType = verification.UserType,
                 };
 
                 return verificationResponse;
@@ -261,9 +279,24 @@ namespace Infrastructure.Content.Services
                 // Check for existing verification
                 var existingVerification = await careProDbContext.Verifications.FirstOrDefaultAsync(x => x.UserId == addVerificationRequest.UserId);
 
-                bool isVerified = addVerificationRequest.VerificationStatus?.ToLower() == "completed" ||
-                                  addVerificationRequest.VerificationStatus?.ToLower() == "verified" ||
-                                  addVerificationRequest.VerificationStatus?.ToLower() == "success";
+                bool isVerified = IsVerifiedStatus(addVerificationRequest.VerificationStatus);
+
+                // Compute cooldown adjustment based on incoming status.
+                //   success    -> clear cooldown (user is done)
+                //   failed     -> set cooldown to now + configured hours
+                //   abandoned  -> set cooldown (treated as failure)
+                //   pending    -> leave existing cooldown untouched
+                //   anything else -> leave untouched
+                DateTime? newCooldown = ComputeCooldown(
+                    addVerificationRequest.VerificationStatus,
+                    existingVerification?.CooldownUntil);
+
+                // Backward-compatible UserType resolution. Null/empty incoming
+                // value preserves whatever's already on the record; if both
+                // are missing we default to "Caregiver" to match legacy data.
+                var resolvedUserType = ResolveUserType(
+                    addVerificationRequest.UserType,
+                    existingVerification?.UserType);
 
                 if (existingVerification != null)
                 {
@@ -275,14 +308,20 @@ namespace Infrastructure.Content.Services
                     existingVerification.VerificationNo = addVerificationRequest.VerificationNo;
                     existingVerification.UpdatedOn = DateTime.UtcNow;
                     existingVerification.IsVerified = isVerified;
+                    existingVerification.CooldownUntil = newCooldown;
+                    existingVerification.UserType = resolvedUserType;
 
                     await careProDbContext.SaveChangesAsync();
 
                     logger.LogInformation("Successfully updated verification for UserId: {UserId} with status: {Status}",
                         addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
 
-                    // Update caregiver profile with verification state
-                    await UpdateCaregiverVerificationStateAsync(addVerificationRequest.UserId, isVerified, addVerificationRequest.VerificationStatus);
+                    // Route profile update based on user type (case-insensitive)
+                    await UpdateUserVerificationStateAsync(
+                        addVerificationRequest.UserId,
+                        resolvedUserType,
+                        isVerified,
+                        addVerificationRequest.VerificationStatus);
 
                     return existingVerification.VerificationId.ToString();
                 }
@@ -299,6 +338,11 @@ namespace Infrastructure.Content.Services
                     VerificationId = ObjectId.GenerateNewId(),
                     IsVerified = isVerified,
                     VerifiedOn = DateTime.UtcNow,
+                    CooldownUntil = newCooldown,
+                    UserType = resolvedUserType,
+                    // AttemptCount intentionally left at 0 — webhook arrival
+                    // is not the same event as session initiation. The
+                    // initiate-session endpoint is what increments attempts.
                 };
 
                 await careProDbContext.Verifications.AddAsync(verification);
@@ -307,8 +351,11 @@ namespace Infrastructure.Content.Services
                 logger.LogInformation("Successfully created verification for UserId: {UserId} with status: {Status}",
                     addVerificationRequest.UserId, addVerificationRequest.VerificationStatus);
 
-                // Update caregiver profile with verification state
-                await UpdateCaregiverVerificationStateAsync(addVerificationRequest.UserId, isVerified, addVerificationRequest.VerificationStatus);
+                await UpdateUserVerificationStateAsync(
+                    addVerificationRequest.UserId,
+                    resolvedUserType,
+                    isVerified,
+                    addVerificationRequest.VerificationStatus);
 
                 return verification.VerificationId.ToString();
             }
@@ -471,6 +518,316 @@ namespace Infrastructure.Content.Services
                 IsVerified = existing.IsVerified,
                 Message = $"Verification status overridden by admin (previous: '{previousStatus}', new: '{existing.VerificationStatus}')."
             };
+        }
+
+        // =================================================================
+        // Cost-control gate (added May 2026)
+        // =================================================================
+
+        public async Task<VerificationGateResponse> CheckVerificationEligibilityAsync(string userId, string userType)
+        {
+            if (string.IsNullOrWhiteSpace(userId))
+                throw new ArgumentException("UserId is required", nameof(userId));
+
+            var resolvedUserType = ResolveUserType(userType, null);
+            var maxAttempts = GetMaxVerificationAttempts();
+
+            var record = await careProDbContext.Verifications
+                .FirstOrDefaultAsync(v => v.UserId == userId);
+
+            // No record yet — fully eligible
+            if (record == null)
+            {
+                return new VerificationGateResponse
+                {
+                    IsEligible = true,
+                    Reason = "eligible",
+                    AttemptCount = 0,
+                    AttemptsRemaining = maxAttempts,
+                    CooldownUntil = null
+                };
+            }
+
+            var attemptCount = record.AttemptCount ?? 0;
+            var attemptsRemaining = Math.Max(0, maxAttempts - attemptCount);
+            var status = (record.VerificationStatus ?? string.Empty).Trim().ToLowerInvariant();
+
+            // Already verified — block (also covers "completed", "verified", "success")
+            if (record.IsVerified || status is "completed" or "verified" or "success" or "successful")
+            {
+                return new VerificationGateResponse
+                {
+                    IsEligible = false,
+                    Reason = "already_verified",
+                    AttemptCount = attemptCount,
+                    AttemptsRemaining = attemptsRemaining,
+                    CooldownUntil = record.CooldownUntil
+                };
+            }
+
+            // Pending review — Dojah is still processing; do not let user retry
+            if (status is "pending" or "ongoing" or "started")
+            {
+                return new VerificationGateResponse
+                {
+                    IsEligible = false,
+                    Reason = "pending_review",
+                    AttemptCount = attemptCount,
+                    AttemptsRemaining = attemptsRemaining,
+                    CooldownUntil = record.CooldownUntil
+                };
+            }
+
+            // Active cooldown after a failed/abandoned attempt
+            if (record.CooldownUntil.HasValue && record.CooldownUntil.Value > DateTime.UtcNow)
+            {
+                return new VerificationGateResponse
+                {
+                    IsEligible = false,
+                    Reason = "cooldown_active",
+                    AttemptCount = attemptCount,
+                    AttemptsRemaining = attemptsRemaining,
+                    CooldownUntil = record.CooldownUntil
+                };
+            }
+
+            // Hard cap reached
+            if (attemptCount >= maxAttempts)
+            {
+                return new VerificationGateResponse
+                {
+                    IsEligible = false,
+                    Reason = "max_attempts_reached",
+                    AttemptCount = attemptCount,
+                    AttemptsRemaining = 0,
+                    CooldownUntil = record.CooldownUntil
+                };
+            }
+
+            return new VerificationGateResponse
+            {
+                IsEligible = true,
+                Reason = "eligible",
+                AttemptCount = attemptCount,
+                AttemptsRemaining = attemptsRemaining,
+                CooldownUntil = null
+            };
+        }
+
+        public async Task<(VerificationGateResponse Gate, InitiateSessionResponse? Session)> InitiateVerificationSessionAsync(
+            string userId,
+            string userType)
+        {
+            if (string.IsNullOrWhiteSpace(userId))
+                throw new ArgumentException("UserId is required", nameof(userId));
+
+            var resolvedUserType = ResolveUserType(userType, null);
+            var maxAttempts = GetMaxVerificationAttempts();
+
+            // Re-check eligibility under the same logic the read-only endpoint uses.
+            var gate = await CheckVerificationEligibilityAsync(userId, resolvedUserType);
+            if (!gate.IsEligible)
+            {
+                logger.LogInformation(
+                    "Blocked verification session initiation for UserId={UserId}, UserType={UserType}, Reason={Reason}",
+                    userId, resolvedUserType, gate.Reason);
+                return (gate, null);
+            }
+
+            // Atomically increment attempt count + stamp LastAttemptAt.
+            var record = await careProDbContext.Verifications
+                .FirstOrDefaultAsync(v => v.UserId == userId);
+
+            var now = DateTime.UtcNow;
+
+            if (record == null)
+            {
+                record = new Verification
+                {
+                    VerificationId = ObjectId.GenerateNewId(),
+                    UserId = userId,
+                    VerificationMethod = string.Empty,
+                    VerificationNo = string.Empty,
+                    VerificationStatus = "initiated",
+                    IsVerified = false,
+                    VerifiedOn = now,
+                    AttemptCount = 1,
+                    LastAttemptAt = now,
+                    UserType = resolvedUserType
+                };
+                await careProDbContext.Verifications.AddAsync(record);
+            }
+            else
+            {
+                record.AttemptCount = (record.AttemptCount ?? 0) + 1;
+                record.LastAttemptAt = now;
+                record.UserType = ResolveUserType(resolvedUserType, record.UserType);
+                // Status stays whatever it was (likely "failed" or "abandoned")
+                // until Dojah's webhook arrives.
+            }
+
+            await careProDbContext.SaveChangesAsync();
+
+            var unix = new DateTimeOffset(now).ToUnixTimeSeconds();
+            var referenceId = $"{resolvedUserType.ToLowerInvariant()}_{userId}_{unix}";
+
+            var attemptsRemaining = Math.Max(0, maxAttempts - (record.AttemptCount ?? 0));
+
+            logger.LogInformation(
+                "Issued verification session reference_id={ReferenceId} for UserId={UserId}, UserType={UserType}, AttemptCount={AttemptCount}",
+                referenceId, userId, resolvedUserType, record.AttemptCount ?? 0);
+
+            var session = new InitiateSessionResponse
+            {
+                ReferenceId = referenceId,
+                UserId = userId,
+                UserType = resolvedUserType,
+                IssuedAt = now,
+                ExpiresAt = now.AddMinutes(SessionExpiryMinutes),
+                AttemptCount = record.AttemptCount ?? 0,
+                AttemptsRemaining = attemptsRemaining
+            };
+
+            // Re-build a fresh, authoritative gate response reflecting the
+            // post-increment counters so the frontend can update its UI in
+            // one round-trip.
+            var freshGate = new VerificationGateResponse
+            {
+                IsEligible = true,
+                Reason = "eligible",
+                AttemptCount = record.AttemptCount ?? 0,
+                AttemptsRemaining = attemptsRemaining,
+                CooldownUntil = null
+            };
+
+            return (freshGate, session);
+        }
+
+        // -----------------------------------------------------------------
+        // Internal helpers (case-insensitive, backward-compatible)
+        // -----------------------------------------------------------------
+
+        private static bool IsVerifiedStatus(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return false;
+            var s = status.Trim().ToLowerInvariant();
+            return s is "completed" or "verified" or "success" or "successful";
+        }
+
+        private DateTime? ComputeCooldown(string? incomingStatus, DateTime? existingCooldown)
+        {
+            var s = (incomingStatus ?? string.Empty).Trim().ToLowerInvariant();
+            var hours = GetCooldownHours();
+
+            return s switch
+            {
+                "completed" or "verified" or "success" or "successful"
+                    => null,                                          // success clears cooldown
+                "failed" or "abandoned"
+                    => DateTime.UtcNow.AddHours(hours),               // start cooldown
+                _   => existingCooldown                                // pending/ongoing/etc — leave as-is
+            };
+        }
+
+        private static string ResolveUserType(string? incoming, string? existing)
+        {
+            // 1. Honour explicit incoming value when present
+            if (!string.IsNullOrWhiteSpace(incoming))
+            {
+                return NormaliseUserType(incoming);
+            }
+
+            // 2. Otherwise keep existing record's value
+            if (!string.IsNullOrWhiteSpace(existing))
+            {
+                return NormaliseUserType(existing);
+            }
+
+            // 3. Backward-compat default for legacy records
+            return "Caregiver";
+        }
+
+        private static string NormaliseUserType(string raw)
+        {
+            var t = raw.Trim().ToLowerInvariant();
+            return t switch
+            {
+                "client" => "Client",
+                "caregiver" => "Caregiver",
+                _ => "Caregiver" // unknown values fall back to caregiver
+            };
+        }
+
+        private int GetMaxVerificationAttempts()
+        {
+            var v = configuration?["Dojah:MaxVerificationAttempts"];
+            return int.TryParse(v, out var parsed) && parsed > 0
+                ? parsed
+                : DefaultMaxVerificationAttempts;
+        }
+
+        private int GetCooldownHours()
+        {
+            var v = configuration?["Dojah:CooldownHoursAfterFailure"];
+            return int.TryParse(v, out var parsed) && parsed >= 0
+                ? parsed
+                : DefaultCooldownHoursAfterFailure;
+        }
+
+        private async Task UpdateUserVerificationStateAsync(
+            string userId,
+            string userType,
+            bool isVerified,
+            string? verificationStatus)
+        {
+            var t = (userType ?? "Caregiver").Trim().ToLowerInvariant();
+            if (t == "client")
+            {
+                await UpdateClientVerificationStateAsync(userId, isVerified, verificationStatus);
+            }
+            else
+            {
+                await UpdateCaregiverVerificationStateAsync(userId, isVerified, verificationStatus);
+            }
+        }
+
+        private async Task UpdateClientVerificationStateAsync(
+            string userId,
+            bool isVerified,
+            string? verificationStatus)
+        {
+            try
+            {
+                var client = await careProDbContext.Clients
+                    .FirstOrDefaultAsync(c => c.Id.ToString() == userId);
+
+                if (client == null)
+                {
+                    logger.LogWarning(
+                        "Client not found for userId {UserId}, skipping profile verification update",
+                        userId);
+                    return;
+                }
+
+                client.IsIdentityVerified = isVerified;
+                client.IdentityVerificationStatus = verificationStatus;
+                if (isVerified)
+                {
+                    client.IdentityVerifiedAt = DateTime.UtcNow;
+                }
+
+                await careProDbContext.SaveChangesAsync();
+                logger.LogInformation(
+                    "Updated client profile verification state for UserId: {UserId}, IsIdentityVerified: {IsVerified}",
+                    userId, isVerified);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Failed to update client profile verification state for UserId: {UserId}",
+                    userId);
+                // Swallow — verification record itself is already saved.
+            }
         }
     }
 }

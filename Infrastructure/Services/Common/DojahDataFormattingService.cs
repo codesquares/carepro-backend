@@ -69,6 +69,13 @@ namespace Infrastructure.Services.Common
             // Map Dojah status to backend expected status
             var verificationStatus = MapDojahStatus(webhook);
 
+            // Resolve UserType (case-insensitive, with reference_id fallback).
+            // Priority order:
+            //   1. webhook.Metadata.UserType (frontend-supplied)
+            //   2. reference_id prefix ("caregiver_..." / "client_...")
+            //   3. fallback to "Caregiver" for backward compatibility
+            var userType = ResolveUserType(webhook);
+
             return new AddVerificationRequest
             {
                 UserId = userId,
@@ -76,8 +83,39 @@ namespace Infrastructure.Services.Common
                 VerifiedLastName = lastName,
                 VerificationMethod = verificationMethod,
                 VerificationNo = verificationNo,
-                VerificationStatus = verificationStatus
+                VerificationStatus = verificationStatus,
+                UserType = userType
             };
+        }
+
+        private static string ResolveUserType(DojahWebhookRequest webhook)
+        {
+            var metaUserType = webhook?.Metadata?.UserType;
+            if (!string.IsNullOrWhiteSpace(metaUserType))
+            {
+                var normalised = metaUserType.Trim().ToLowerInvariant();
+                if (normalised == "client") return "Client";
+                if (normalised == "caregiver") return "Caregiver";
+            }
+
+            // Fallback: parse reference_id prefix.
+            // Top-level reference_id is the canonical source; metadata.reference_id
+            // is the redundant copy frontend sends inside the widget config.
+            var referenceId = webhook?.ReferenceId;
+            if (string.IsNullOrWhiteSpace(referenceId))
+            {
+                referenceId = webhook?.Metadata?.ReferenceId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(referenceId))
+            {
+                var rid = referenceId.Trim().ToLowerInvariant();
+                if (rid.StartsWith("client_")) return "Client";
+                if (rid.StartsWith("caregiver_")) return "Caregiver";
+            }
+
+            // Backward-compat default — pre-May-2026 webhooks have no UserType
+            return "Caregiver";
         }
 
         private string MapDojahStatus(DojahWebhookRequest webhook)
