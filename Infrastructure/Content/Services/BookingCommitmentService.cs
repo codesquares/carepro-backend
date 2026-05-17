@@ -513,5 +513,23 @@ namespace Infrastructure.Content.Services
 
             return true;
         }
+
+        public async Task ResetAmountMismatchAsync(string transactionReference, string adminNote)
+        {
+            var commitment = await _dbContext.BookingCommitments
+                .FirstOrDefaultAsync(bc => bc.TransactionReference == transactionReference);
+
+            if (commitment == null) return;
+
+            commitment.Status = BookingCommitmentStatus.Pending;
+            commitment.ErrorMessage = adminNote;
+
+            _dbContext.BookingCommitments.Update(commitment);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogWarning(
+                "ADMIN OVERRIDE: AmountMismatch reset on commitment TxRef={TxRef}. Note: {Note}",
+                transactionReference, adminNote);
+        }
     }
 }

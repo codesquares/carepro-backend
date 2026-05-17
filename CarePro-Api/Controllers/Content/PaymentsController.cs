@@ -251,5 +251,250 @@ namespace CarePro_Api.Controllers.Content
                 transactionId = transactionId
             });
         }
+
+        // -----------------------------------------------------------------
+        // Admin recovery tools (added May 2026)
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Admin: manually resolve a payment that is confirmed as successful on Flutterwave
+        /// but is still stuck in Pending on our end (e.g. webhook never arrived or was lost).
+        ///
+        /// Flow:
+        ///   1. Verifies the transaction ID with Flutterwave — only proceeds if status is "successful".
+        ///   2. Uses the tx_ref Flutterwave returns to look up the local PendingPayment.
+        ///   3. Routes to CommitmentPayment or regular GigPayment based on tx_ref prefix.
+        ///   4. Calls the same CompletePaymentAsync / CompleteCommitmentAsync the webhook calls —
+        ///      so all downstream effects (order creation, subscription, billing record, notifications)
+        ///      happen exactly as they would have via webhook.
+        ///
+        /// Amount override: Flutterwave's verified amount is used directly, which bypasses the
+        /// stored-amount mismatch guard. The admin is the human check here — they have confirmed
+        /// the money was received on the Flutterwave dashboard before calling this.
+        /// For AmountMismatch-flagged records the admin must explicitly pass forceOverride=true.
+        /// </summary>
+        [HttpPost("admin/resolve/{flutterwaveTransactionId}")]
+        [Authorize(Roles = "Admin, SuperAdmin")]
+        public async Task<IActionResult> AdminResolveStuckPayment(
+            string flutterwaveTransactionId,
+            [FromQuery] bool forceOverride = false)
+        {
+            var adminId = User.FindFirst("userId")?.Value
+                       ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            _logger.LogWarning(
+                "ADMIN ACTION: AdminResolveStuckPayment called by AdminId={AdminId}, FlwTxId={FlwTxId}, ForceOverride={ForceOverride}",
+                adminId, flutterwaveTransactionId, forceOverride);
+
+            // 1. Verify with Flutterwave
+            var verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            if (verification == null)
+            {
+                return NotFound(new { success = false, message = "Flutterwave returned no data for this transaction ID." });
+            }
+            if (!verification.Success || !string.Equals(verification.Status, "successful", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Flutterwave reports this transaction is not successful. Status: '{verification.Status}'. Cannot resolve.",
+                    flutterwaveStatus = verification.Status
+                });
+            }
+
+            var txRef = verification.TxRef;
+            var confirmedAmount = verification.Amount;
+
+            if (string.IsNullOrWhiteSpace(txRef))
+            {
+                return BadRequest(new { success = false, message = "Flutterwave did not return a tx_ref for this transaction." });
+            }
+
+            // 2. Route by tx_ref prefix — mirrors the webhook routing logic
+            if (txRef.StartsWith("CAREPRO-COMMIT-", StringComparison.OrdinalIgnoreCase))
+            {
+                // For AmountMismatch-flagged commitments, admin must pass forceOverride=true
+                // which causes us to reset the status first.
+                var commitment = await _bookingCommitmentService.GetByTransactionReferenceAsync(txRef);
+                if (commitment?.Status == Domain.Entities.BookingCommitmentStatus.AmountMismatch && !forceOverride)
+                {
+                    return Conflict(new
+                    {
+                        success = false,
+                        message = "This commitment is flagged as AmountMismatch. Re-call with ?forceOverride=true to override.",
+                        txRef,
+                        confirmedAmount,
+                        storedAmount = commitment.TotalCharged
+                    });
+                }
+
+                if (commitment?.Status == Domain.Entities.BookingCommitmentStatus.AmountMismatch && forceOverride)
+                {
+                    _logger.LogWarning(
+                        "ADMIN OVERRIDE: Resetting AmountMismatch on commitment TxRef={TxRef}, AdminId={AdminId}",
+                        txRef, adminId);
+                    await _bookingCommitmentService.ResetAmountMismatchAsync(txRef,
+                        $"AmountMismatch overridden by admin {adminId} on {DateTime.UtcNow:u}");
+                }
+
+                var commitResult = await _bookingCommitmentService.CompleteCommitmentAsync(
+                    txRef,
+                    flutterwaveTransactionId,
+                    confirmedAmount);
+
+                if (!commitResult.IsSuccess)
+                {
+                    _logger.LogError(
+                        "Admin resolve failed for commitment TxRef={TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", commitResult.Errors));
+                    return BadRequest(new { success = false, message = "Commitment could not be completed.", errors = commitResult.Errors });
+                }
+
+                _logger.LogInformation(
+                    "ADMIN ACTION: Commitment resolved successfully. TxRef={TxRef}, FlwTxId={FlwTxId}, AdminId={AdminId}",
+                    txRef, flutterwaveTransactionId, adminId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Booking commitment resolved successfully.",
+                    txRef,
+                    flutterwaveTransactionId,
+                    confirmedAmount
+                });
+            }
+            else
+            {
+                // Regular gig payment — handle AmountMismatch override the same way
+                var pendingPayment = await _pendingPaymentService.GetByTransactionReferenceAsync(txRef);
+                if (pendingPayment?.Status == Domain.Entities.PendingPaymentStatus.AmountMismatch && !forceOverride)
+                {
+                    return Conflict(new
+                    {
+                        success = false,
+                        message = "This payment is flagged as AmountMismatch. Re-call with ?forceOverride=true to override.",
+                        txRef,
+                        confirmedAmount,
+                        storedAmount = pendingPayment.TotalAmount
+                    });
+                }
+
+                if (pendingPayment?.Status == Domain.Entities.PendingPaymentStatus.AmountMismatch && forceOverride)
+                {
+                    _logger.LogWarning(
+                        "ADMIN OVERRIDE: Resetting AmountMismatch on payment TxRef={TxRef}, AdminId={AdminId}",
+                        txRef, adminId);
+                    await _pendingPaymentService.ResetAmountMismatchAsync(txRef,
+                        $"AmountMismatch overridden by admin {adminId} on {DateTime.UtcNow:u}");
+                }
+
+                var result = await _pendingPaymentService.CompletePaymentAsync(
+                    txRef,
+                    flutterwaveTransactionId,
+                    confirmedAmount);
+
+                if (!result.IsSuccess)
+                {
+                    _logger.LogError(
+                        "Admin resolve failed for payment TxRef={TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", result.Errors));
+                    return BadRequest(new { success = false, message = "Payment could not be completed.", errors = result.Errors });
+                }
+
+                _logger.LogInformation(
+                    "ADMIN ACTION: Payment resolved successfully. TxRef={TxRef}, FlwTxId={FlwTxId}, AdminId={AdminId}",
+                    txRef, flutterwaveTransactionId, adminId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Payment resolved successfully.",
+                    txRef,
+                    flutterwaveTransactionId,
+                    confirmedAmount,
+                    orderId = result.Value?.ClientOrderId
+                });
+            }
+        }
+
+        /// <summary>
+        /// Admin: issue a full or partial refund for a Flutterwave transaction.
+        /// amount is optional — omit to refund the full transaction amount.
+        /// This calls Flutterwave's POST /v3/transactions/{id}/refund directly.
+        /// </summary>
+        [HttpPost("admin/refund/{flutterwaveTransactionId}")]
+        [Authorize(Roles = "Admin, SuperAdmin")]
+        public async Task<IActionResult> AdminRefundTransaction(
+            string flutterwaveTransactionId,
+            [FromQuery] decimal? amount = null)
+        {
+            var adminId = User.FindFirst("userId")?.Value
+                       ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            // Validate partial amount if provided
+            if (amount.HasValue && amount.Value <= 0)
+            {
+                return BadRequest(new { success = false, message = "Refund amount must be greater than zero." });
+            }
+
+            _logger.LogWarning(
+                "ADMIN ACTION: AdminRefundTransaction called by AdminId={AdminId}, FlwTxId={FlwTxId}, Amount={Amount}",
+                adminId, flutterwaveTransactionId, amount?.ToString() ?? "full");
+
+            // Verify the transaction exists and is successful before refunding
+            var verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            if (verification == null)
+            {
+                return NotFound(new { success = false, message = "Transaction not found on Flutterwave." });
+            }
+            if (!verification.Success || !string.Equals(verification.Status, "successful", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Cannot refund a transaction that is not successful. Flutterwave status: '{verification.Status}'.",
+                    flutterwaveStatus = verification.Status
+                });
+            }
+
+            // Guard: partial refund cannot exceed the original transaction amount
+            if (amount.HasValue && amount.Value > verification.Amount)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Refund amount ({amount.Value}) exceeds the original transaction amount ({verification.Amount})."
+                });
+            }
+
+            var refundResult = await _flutterwaveService.RefundTransactionAsync(flutterwaveTransactionId, amount);
+
+            if (!refundResult.Success)
+            {
+                _logger.LogError(
+                    "Admin refund failed. FlwTxId={FlwTxId}, AdminId={AdminId}, Error={Error}",
+                    flutterwaveTransactionId, adminId, refundResult.ErrorMessage);
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Refund request was rejected by Flutterwave.",
+                    detail = refundResult.ErrorMessage
+                });
+            }
+
+            _logger.LogInformation(
+                "ADMIN ACTION: Refund issued. FlwTxId={FlwTxId}, RefundId={RefundId}, AmountRefunded={Amount}, AdminId={AdminId}",
+                flutterwaveTransactionId, refundResult.RefundId, refundResult.AmountRefunded, adminId);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Refund issued successfully.",
+                flutterwaveTransactionId,
+                refundId = refundResult.RefundId,
+                amountRefunded = refundResult.AmountRefunded,
+                refundStatus = refundResult.Status
+            });
+        }
     }
 }

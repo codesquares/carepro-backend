@@ -481,6 +481,20 @@ namespace Infrastructure.Content.Services
             return Result<PendingPayment>.Success(pendingPayment);
         }
 
+        public async Task ResetAmountMismatchAsync(string transactionReference, string adminNote)
+        {
+            var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);
+            if (pendingPayment == null) return;
+
+            pendingPayment.Status = PendingPaymentStatus.Pending;
+            pendingPayment.ErrorMessage = adminNote;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogWarning(
+                "ADMIN OVERRIDE: AmountMismatch reset on TxRef={TxRef}. Note: {Note}",
+                transactionReference, adminNote);
+        }
+
         public async Task<Result<PaymentStatusResponse>> GetPaymentStatusAsync(string transactionReference)
         {
             var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);

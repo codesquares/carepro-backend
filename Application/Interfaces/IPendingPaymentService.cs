@@ -29,5 +29,11 @@ namespace Application.Interfaces
         /// Gets payment status with full breakdown
         /// </summary>
         Task<Result<PaymentStatusResponse>> GetPaymentStatusAsync(string transactionReference);
+
+        /// <summary>
+        /// Admin: resets a payment record that is stuck in AmountMismatch status
+        /// so that CompletePaymentAsync can re-run using the Flutterwave-confirmed amount.
+        /// </summary>
+        Task ResetAmountMismatchAsync(string transactionReference, string adminNote);
     }
 }
