@@ -55,5 +55,11 @@ namespace Application.Interfaces
         /// Expires the commitment and resets IsAppliedToOrder so the client must pay again.
         /// </summary>
         Task<bool> InvalidateCommitmentForOrderAsync(string orderId);
+
+        /// <summary>
+        /// Admin: resets a commitment record that is stuck in AmountMismatch status
+        /// so that CompleteCommitmentAsync can re-run using the Flutterwave-confirmed amount.
+        /// </summary>
+        Task ResetAmountMismatchAsync(string transactionReference, string adminNote);
     }
 }

@@ -224,6 +224,68 @@ public class FlutterwaveService
     }
 
     /// <summary>
+    /// Issues a full or partial refund for a transaction via Flutterwave v3.
+    /// Calls POST /v3/transactions/{id}/refund.
+    /// </summary>
+    public async Task<FlutterwaveRefundResult> RefundTransactionAsync(string transactionId, decimal? amount = null)
+    {
+        try
+        {
+            var client = new RestClient(_baseUrl);
+            var request = new RestRequest($"/v3/transactions/{transactionId}/refund", Method.Post);
+            request.AddHeader("Authorization", $"Bearer {_secretKey}");
+            request.AddHeader("Content-Type", "application/json");
+
+            // Flutterwave accepts an optional amount for partial refunds.
+            // When amount is omitted the full transaction amount is refunded.
+            if (amount.HasValue)
+            {
+                request.AddJsonBody(new { amount = amount.Value });
+            }
+
+            _logger.LogInformation(
+                "Initiating Flutterwave refund: TransactionId={TransactionId}, Amount={Amount}",
+                transactionId, amount?.ToString() ?? "full");
+
+            var response = await client.ExecuteAsync(request);
+
+            if (string.IsNullOrEmpty(response.Content))
+            {
+                _logger.LogError("Empty response from Flutterwave refund for TransactionId={TransactionId}", transactionId);
+                return new FlutterwaveRefundResult { Success = false, ErrorMessage = "Empty response from payment provider" };
+            }
+
+            _logger.LogInformation(
+                "Flutterwave refund response: {StatusCode}, Content: {Content}",
+                response.StatusCode,
+                response.Content.Substring(0, Math.Min(500, response.Content.Length)));
+
+            var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response.Content);
+
+            if (result.TryGetProperty("status", out var status) && status.GetString() == "success" &&
+                result.TryGetProperty("data", out var data))
+            {
+                return new FlutterwaveRefundResult
+                {
+                    Success = true,
+                    RefundId = data.TryGetProperty("id", out var id) ? id.ToString() : string.Empty,
+                    Status = data.TryGetProperty("status", out var s) ? s.GetString() ?? string.Empty : string.Empty,
+                    AmountRefunded = data.TryGetProperty("amount_refunded", out var ar) ? ar.GetDecimal() : (amount ?? 0),
+                    TransactionId = transactionId
+                };
+            }
+
+            var errorMsg = result.TryGetProperty("message", out var msg) ? msg.GetString() : "Refund request failed";
+            return new FlutterwaveRefundResult { Success = false, ErrorMessage = errorMsg, TransactionId = transactionId };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error issuing refund for TransactionId={TransactionId}", transactionId);
+            return new FlutterwaveRefundResult { Success = false, ErrorMessage = ex.Message, TransactionId = transactionId };
+        }
+    }
+
+    /// <summary>
     /// Verifies a transaction directly with Flutterwave API
     /// </summary>
     public async Task<FlutterwaveVerificationResult?> VerifyTransactionAsync(string transactionId)
@@ -282,5 +344,18 @@ public class FlutterwaveChargeResult
     public string TransactionId { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public decimal Amount { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// Result from a refund request
+/// </summary>
+public class FlutterwaveRefundResult
+{
+    public bool Success { get; set; }
+    public string RefundId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public decimal AmountRefunded { get; set; }
+    public string TransactionId { get; set; } = string.Empty;
     public string? ErrorMessage { get; set; }
 }
