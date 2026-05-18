@@ -9,7 +9,7 @@ namespace CarePro_Api.Controllers
 {
     [ApiController]
     [Route("api/admin/[controller]")]
-    [Authorize(Roles = "SuperAdmin,Admin")]
+    [Authorize(Policy = "OperationsPolicy")]
     public class TrainingMaterialsController : ControllerBase
     {
         private readonly ITrainingMaterialService _trainingMaterialService;

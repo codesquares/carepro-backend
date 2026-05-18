@@ -205,7 +205,7 @@ namespace CarePro_Api.Controllers.Content
         /// directly with Flutterwave before completing.
         /// </summary>
         [HttpPost("admin/manual-complete")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Policy = "FinanceOrOperationsPolicy")]
         public async Task<IActionResult> AdminManualComplete([FromBody] AdminManualCompleteRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.TransactionReference) ||

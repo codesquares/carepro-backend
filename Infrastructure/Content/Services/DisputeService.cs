@@ -1,6 +1,7 @@
 using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using MediatR;
@@ -21,19 +22,22 @@ namespace Infrastructure.Content.Services
         private readonly IEarningsLedgerService _ledgerService;
         private readonly ICaregiverWalletService _walletService;
         private readonly ILogger<DisputeService> _logger;
+        private readonly IEmailService _emailService;
 
         public DisputeService(
             CareProDbContext dbContext,
             IMediator mediator,
             IEarningsLedgerService ledgerService,
             ICaregiverWalletService walletService,
-            ILogger<DisputeService> logger)
+            ILogger<DisputeService> logger,
+            IEmailService emailService)
         {
             _dbContext = dbContext;
             _mediator = mediator;
             _ledgerService = ledgerService;
             _walletService = walletService;
             _logger = logger;
+            _emailService = emailService;
         }
 
         public async Task<DisputeResponse> RaiseDisputeAsync(RaiseDisputeRequest request, string raisedByUserId)
@@ -582,10 +586,23 @@ namespace Infrastructure.Content.Services
                 var title = $"Dispute Raised on {disputeTarget}";
                 var content = $"{clientName} has raised a {dispute.Category.Replace("_", " ")} dispute on {disputeTarget} for Order {order.Id}. Reason: {dispute.Reason}";
 
-                // ── Notify all admins ──
+                // ── Notify SuperAdmin + HR/ComplianceAndLegal/CareLeads admins ──
                 var admins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted)
+                    .Where(a => !a.IsDeleted && (
+                        a.Role == "SuperAdmin" ||
+                        (a.Role == "Admin" && (
+                            a.Department == AdminDepartments.HR ||
+                            a.Department == AdminDepartments.ComplianceAndLegal ||
+                            a.Department == AdminDepartments.CareLeads))))
                     .ToListAsync();
+
+                var emailContent = $"<p><strong>Raised By:</strong> {clientName}</p>" +
+                                   $"<p><strong>Dispute Type:</strong> {dispute.DisputeType}</p>" +
+                                   $"<p><strong>Category:</strong> {dispute.Category.Replace("_", " ")}</p>" +
+                                   $"<p><strong>Target:</strong> {disputeTarget}</p>" +
+                                   $"<p><strong>Order ID:</strong> {order.Id}</p>" +
+                                   $"<p><strong>Reason:</strong> {dispute.Reason}</p>" +
+                                   $"<p>Please log in to the admin portal to review and resolve this dispute.</p>";
 
                 foreach (var admin in admins)
                 {
@@ -597,6 +614,16 @@ namespace Infrastructure.Content.Services
                         Title: title,
                         RelatedEntityId: dispute.Id.ToString(),
                         OrderId: dispute.OrderId));
+
+                    try
+                    {
+                        await _emailService.SendSystemNotificationEmailAsync(
+                            admin.Email, admin.FirstName, title, emailContent);
+                    }
+                    catch (Exception emailEx)
+                    {
+                        _logger.LogWarning(emailEx, "Failed to send dispute email to admin {AdminId}", admin.Id);
+                    }
                 }
 
                 // ── Notify caregiver ──

@@ -282,6 +282,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin: Get subscription analytics/metrics
         /// </summary>
         [HttpGet("admin/analytics")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> GetAnalytics()
         {
             var analytics = await _subscriptionService.GetSubscriptionAnalyticsAsync();
@@ -292,6 +293,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin: Get all subscriptions with optional status filter
         /// </summary>
         [HttpGet("admin/all")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> GetAllSubscriptions([FromQuery] string? status = null)
         {
             var subscriptions = await _subscriptionService.GetAllSubscriptionsAsync(status);
@@ -302,6 +304,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin: Terminate a subscription (can terminate any subscription)
         /// </summary>
         [HttpPost("admin/{subscriptionId}/terminate")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> AdminTerminateSubscription(
             string subscriptionId, [FromBody] TerminateSubscriptionRequest request)
         {

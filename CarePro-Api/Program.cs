@@ -321,6 +321,39 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 
+// Department-based authorization policies
+builder.Services.AddAuthorization(options =>
+{
+    // Operations: HR, ComplianceAndLegal, CareLeads (or SuperAdmin)
+    options.AddPolicy("OperationsPolicy", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("SuperAdmin") ||
+            (ctx.User.IsInRole("Admin") && ctx.User.Claims.Any(c =>
+                c.Type == "department" &&
+                (c.Value == "HR" || c.Value == "ComplianceAndLegal" || c.Value == "CareLeads")))));
+
+    // Finance: Finance department only (or SuperAdmin)
+    options.AddPolicy("FinancePolicy", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("SuperAdmin") ||
+            (ctx.User.IsInRole("Admin") && ctx.User.HasClaim("department", "Finance"))));
+
+    // Analytics: MarketingAndSales department only (or SuperAdmin)
+    options.AddPolicy("AnalyticsPolicy", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("SuperAdmin") ||
+            (ctx.User.IsInRole("Admin") && ctx.User.HasClaim("department", "MarketingAndSales"))));
+
+    // Finance OR Operations departments (or SuperAdmin)
+    options.AddPolicy("FinanceOrOperationsPolicy", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("SuperAdmin") ||
+            (ctx.User.IsInRole("Admin") && ctx.User.Claims.Any(c =>
+                c.Type == "department" &&
+                (c.Value == "Finance" || c.Value == "HR" || c.Value == "ComplianceAndLegal" || c.Value == "CareLeads")))));
+});
+
+
 // Add MongoDB client and register ChatRepository
 builder.Services.AddSingleton<IMongoClient>(sp =>
 {

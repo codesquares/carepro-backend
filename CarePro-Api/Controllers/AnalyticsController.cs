@@ -47,7 +47,7 @@ namespace CarePro_Api.Controllers
         /// Retrieve paginated analytics events with summary counts. Admin only.
         /// </summary>
         [HttpGet("events")]
-        [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "AnalyticsPolicy")]
         public async Task<IActionResult> GetEvents([FromQuery] AnalyticsEventsQuery query)
         {
             var result = await _analyticsService.GetEventsAsync(query);

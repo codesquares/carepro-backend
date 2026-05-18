@@ -31,6 +31,8 @@ namespace Infrastructure.Content.Services.Authentication
             claims.Add(new Claim(ClaimTypes.Email, appUserDTO.Email));
             claims.Add(new Claim(ClaimTypes.Role, appUserDTO.Role));
             claims.Add(new Claim("userId", appUserDTO.AppUserId));
+            if (!string.IsNullOrEmpty(appUserDTO.Department))
+                claims.Add(new Claim("department", appUserDTO.Department));
 
             // Get JWT configuration with null checks
             var jwtKey = configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not found in configuration");

@@ -43,5 +43,7 @@ namespace Application.Interfaces.Content
 
         Task<LocationDTO> UpdateClientLocationAsync(string clientId, UpdateCaregiverLocationRequest request);
 
+        Task<AdminBulkClearMiddleNameResponse> BulkClearClientMiddleNameAsync(AdminBulkClearMiddleNameRequest request);
+
     }
 }

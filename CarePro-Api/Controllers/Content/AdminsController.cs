@@ -44,6 +44,7 @@ namespace CarePro_Api.Controllers.Content
 
         /// ENDPOINT TO CREATE  ADMIN USERS TO THE DATABASE        
         [HttpPost]
+        [Authorize(Roles = "SuperAdmin")]
         // [Route("AdminUser")]
         public async Task<IActionResult> AddAdminUserAsync([FromBody] AddAdminUserRequest addAdminUserRequest)
         {
@@ -84,7 +85,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("AllAdminUsers")]
-        //[Authorize(Roles = "Client,Admin")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> GetAllCaregiverAsync()
         {
             try
@@ -121,7 +122,7 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpGet]
         [Route("{adminUserId}")]
-        //[Authorize(Roles = "Client,Admin")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> GetAdminUserAsync(string adminUserId)
         {
             try
@@ -144,6 +145,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Route("DashboardStats")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> GetDashboardStatsAsync()
         {
             try
@@ -168,7 +170,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Route("AllOrders")]
-        //[Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> GetAllOrdersAsync(
             [FromQuery] int? page = null,
             [FromQuery] int? pageSize = null,
@@ -221,7 +223,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPost]
         [Route("SendEmail")]
         [RequestSizeLimit(157_286_400)] // 150MB
-        //[Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> SendCustomEmailAsync([FromForm] SendCustomEmailRequest request)
         {
             try
@@ -322,7 +324,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPost]
         [Route("SendBulkEmail")]
         [RequestSizeLimit(157_286_400)] // 150MB
-        //[Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> SendBulkEmailAsync([FromForm] SendBulkEmailRequest request)
         {
             try
@@ -527,7 +529,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPost]
         [Route("UploadEmailAsset")]
         [RequestSizeLimit(10_485_760)] // 10MB
-        //[Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> UploadEmailAssetAsync(IFormFile file)
         {
             try
@@ -565,7 +567,7 @@ namespace CarePro_Api.Controllers.Content
         /// Supports optional pagination via query parameters.
         /// </summary>
         [HttpGet("Certificates/All")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetAllCertificatesAsync(
             [FromQuery] int? page = null,
             [FromQuery] int? pageSize = null,
@@ -616,7 +618,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get certificates requiring admin review (pending verification, manual review required, or verification failed)
         /// </summary>
         [HttpGet("Certificates/PendingReview")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetCertificatesPendingReviewAsync()
         {
             try
@@ -656,7 +658,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get certificates by specific verification status
         /// </summary>
         [HttpGet("Certificates/ByStatus/{status}")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetCertificatesByStatusAsync(DocumentVerificationStatus status)
         {
             try
@@ -688,7 +690,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get detailed information about a specific certificate
         /// </summary>
         [HttpGet("Certificates/{certificateId}/Details")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetCertificateDetailsAsync(string certificateId)
         {
             try
@@ -727,7 +729,7 @@ namespace CarePro_Api.Controllers.Content
         /// Manually approve a certificate
         /// </summary>
         [HttpPost("Certificates/{certificateId}/Approve")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> ApproveCertificateAsync(string certificateId, [FromBody] ManualApprovalRequest request)
         {
             try
@@ -769,7 +771,7 @@ namespace CarePro_Api.Controllers.Content
         /// Manually reject a certificate
         /// </summary>
         [HttpPost("Certificates/{certificateId}/Reject")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> RejectCertificateAsync(string certificateId, [FromBody] ManualRejectionRequest request)
         {
             try
@@ -820,7 +822,7 @@ namespace CarePro_Api.Controllers.Content
         /// Review certificate (unified approve/reject endpoint)
         /// </summary>
         [HttpPost("Certificates/Review")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> ReviewCertificateAsync([FromBody] AdminCertificateReviewRequest request)
         {
             try
