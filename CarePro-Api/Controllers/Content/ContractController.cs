@@ -452,7 +452,7 @@ namespace CarePro_Api.Controllers.Content
         /// Used during migration to the new negotiation flow.
         /// </summary>
         [HttpPost("admin/cancel-all-active")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<ActionResult> CancelAllActiveContracts()
         {
             try

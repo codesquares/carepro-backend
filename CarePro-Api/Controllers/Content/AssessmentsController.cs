@@ -170,7 +170,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("calculate-score/{assessmentId}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> CalculateAssessmentScoreAsync(string assessmentId)
         {
             try

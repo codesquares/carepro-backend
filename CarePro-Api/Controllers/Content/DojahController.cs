@@ -564,7 +564,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("admin/statistics")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetWebhookStatistics()
         {
             try
@@ -590,7 +590,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("admin/health")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetSystemHealth()
         {
             try
@@ -619,7 +619,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("admin/all-data")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetAllWebhookData(
             [FromQuery] string? term = null,
             [FromQuery] string? start = null,
@@ -652,7 +652,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("admin/backfill-caregiver-verification")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> BackfillCaregiverVerificationState()
         {
             try

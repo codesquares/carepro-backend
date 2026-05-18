@@ -631,7 +631,7 @@ namespace CarePro_Api.Controllers.Content
         /// Delete all certificates for a caregiver (admin only - useful for cleaning up legacy data)
         /// </summary>
         [HttpDelete("caregiver/{caregiverId}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> DeleteAllCaregiverCertificatesAsync(string caregiverId)
         {
             try
@@ -709,7 +709,7 @@ namespace CarePro_Api.Controllers.Content
         /// Retry verification for a specific certificate
         /// </summary>
         [HttpPost("{certificateId}/retry-verification")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> RetryVerificationAsync(string certificateId)
         {
             try
