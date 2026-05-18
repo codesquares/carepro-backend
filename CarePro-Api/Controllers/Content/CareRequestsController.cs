@@ -254,7 +254,7 @@ namespace CarePro_Api.Controllers.Content
         /// Update the status of a care request (Admin only)
         /// </summary>
         [HttpPut("{id}/status")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> UpdateCareRequestStatus(string id, [FromBody] UpdateStatusRequest request)
         {
             try
@@ -329,7 +329,7 @@ namespace CarePro_Api.Controllers.Content
         /// Manually trigger matching for a care request (Admin only)
         /// </summary>
         [HttpPost("{id}/match")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> TriggerMatching(string id)
         {
             try

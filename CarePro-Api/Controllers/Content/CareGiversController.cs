@@ -287,7 +287,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Route("AllCaregiversAdmin")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetAllCaregiverAdminAsync()
         {
             try
@@ -332,7 +332,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Route("{caregiverId}/admin")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetCaregiverAdminAsync(string caregiverId)
         {
             try
