@@ -286,18 +286,35 @@ namespace CarePro_Api.Controllers.Content
                 "ADMIN ACTION: AdminResolveStuckPayment called by AdminId={AdminId}, FlwTxId={FlwTxId}, ForceOverride={ForceOverride}",
                 adminId, flutterwaveTransactionId, forceOverride);
 
-            // 1. Verify with Flutterwave
-            var verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            // 1. Verify with Flutterwave.
+            // Accept either a numeric Flutterwave transaction ID (e.g. "3296847")
+            // or a tx_ref (e.g. "CAREPRO-PAY-abc123" or "CodeSquareLimit_DMKQPT...").
+            FlutterwaveVerificationResult? verification;
+            if (long.TryParse(flutterwaveTransactionId, out _))
+            {
+                verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            }
+            else
+            {
+                // Input is a tx_ref — use Flutterwave's verify_by_reference endpoint
+                verification = await _flutterwaveService.VerifyByTxRefAsync(flutterwaveTransactionId);
+            }
             if (verification == null)
             {
                 return NotFound(new { success = false, message = "Flutterwave returned no data for this transaction ID." });
             }
             if (!verification.Success || !string.Equals(verification.Status, "successful", StringComparison.OrdinalIgnoreCase))
             {
+                var detail = !string.IsNullOrEmpty(verification.ErrorMessage)
+                    ? verification.ErrorMessage
+                    : string.IsNullOrEmpty(verification.Status)
+                        ? "Flutterwave could not locate this transaction. Check that the tx_ref or transaction ID is correct and that the payment was completed on Flutterwave's side."
+                        : $"Transaction status is '{verification.Status}' — only 'successful' transactions can be resolved.";
                 return BadRequest(new
                 {
                     success = false,
-                    message = $"Flutterwave reports this transaction is not successful. Status: '{verification.Status}'. Cannot resolve.",
+                    message = "Could not resolve payment.",
+                    detail,
                     flutterwaveStatus = verification.Status
                 });
             }
@@ -442,7 +459,15 @@ namespace CarePro_Api.Controllers.Content
                 adminId, flutterwaveTransactionId, amount?.ToString() ?? "full");
 
             // Verify the transaction exists and is successful before refunding
-            var verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            FlutterwaveVerificationResult? verification;
+            if (long.TryParse(flutterwaveTransactionId, out _))
+            {
+                verification = await _flutterwaveService.VerifyTransactionAsync(flutterwaveTransactionId);
+            }
+            else
+            {
+                verification = await _flutterwaveService.VerifyByTxRefAsync(flutterwaveTransactionId);
+            }
             if (verification == null)
             {
                 return NotFound(new { success = false, message = "Transaction not found on Flutterwave." });
@@ -467,7 +492,7 @@ namespace CarePro_Api.Controllers.Content
                 });
             }
 
-            var refundResult = await _flutterwaveService.RefundTransactionAsync(flutterwaveTransactionId, amount);
+            var refundResult = await _flutterwaveService.RefundTransactionAsync(verification.TransactionId, amount);
 
             if (!refundResult.Success)
             {

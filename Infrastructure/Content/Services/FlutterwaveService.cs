@@ -317,6 +317,57 @@ public class FlutterwaveService
             return null;
         }
     }
+
+    /// <summary>
+    /// Verifies a transaction using the tx_ref (our internal reference) rather than
+    /// the numeric Flutterwave transaction ID. Calls GET /v3/transactions/verify_by_reference.
+    /// </summary>
+    public async Task<FlutterwaveVerificationResult?> VerifyByTxRefAsync(string txRef)
+    {
+        try
+        {
+            var client = new RestClient(_baseUrl);
+            var request = new RestRequest("/v3/transactions/verify_by_reference", Method.Get);
+            request.AddHeader("Authorization", $"Bearer {_secretKey}");
+            request.AddQueryParameter("tx_ref", txRef);
+
+            _logger.LogInformation("Verifying transaction by tx_ref: {TxRef}", txRef);
+
+            var response = await client.ExecuteAsync(request);
+
+            if (string.IsNullOrEmpty(response.Content))
+            {
+                _logger.LogError("Empty response verifying by tx_ref={TxRef}", txRef);
+                return null;
+            }
+
+            var result = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response.Content);
+
+            if (result.TryGetProperty("status", out var status) && status.GetString() == "success" &&
+                result.TryGetProperty("data", out var data))
+            {
+                return new FlutterwaveVerificationResult
+                {
+                    Success = true,
+                    Status = data.GetProperty("status").GetString() ?? string.Empty,
+                    TxRef = data.GetProperty("tx_ref").GetString() ?? string.Empty,
+                    Amount = data.GetProperty("amount").GetDecimal(),
+                    Currency = data.GetProperty("currency").GetString() ?? string.Empty,
+                    TransactionId = data.GetProperty("id").GetInt64().ToString()
+                };
+            }
+
+            var flwMessage = result.TryGetProperty("message", out var msg) ? msg.GetString() : null;
+            _logger.LogWarning("Flutterwave verify_by_reference returned non-success for tx_ref={TxRef}. Message: {Message}. Content: {Content}",
+                txRef, flwMessage, response.Content.Substring(0, Math.Min(300, response.Content.Length)));
+            return new FlutterwaveVerificationResult { Success = false, ErrorMessage = flwMessage };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying transaction by tx_ref={TxRef}", txRef);
+            return null;
+        }
+    }
 }
 
 public class FlutterwaveVerificationResult
@@ -327,7 +378,8 @@ public class FlutterwaveVerificationResult
     public decimal Amount { get; set; }
     public string Currency { get; set; } = string.Empty;
     public string TransactionId { get; set; } = string.Empty;
-    
+    public string? ErrorMessage { get; set; }
+
     // Tokenization fields for recurring payments
     public string? PaymentToken { get; set; }
     public string? CardLastFour { get; set; }
