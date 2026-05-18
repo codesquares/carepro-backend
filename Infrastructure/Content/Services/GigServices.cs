@@ -786,7 +786,7 @@ namespace Infrastructure.Content.Services
                                         .Split(';', StringSplitOptions.RemoveEmptyEntries)
                                                 .Select(x => x.Trim())
                                                 .ToList();
-            existingGig.DeliveryTime = updateGigRequest.DeliveryTime;
+            existingGig.DeliveryTime = "Per Day";
             existingGig.Price = updateGigRequest.Price;
             existingGig.Status = updateGigRequest.Status;
             // existingGig.Image1 = imageUri;
