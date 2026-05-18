@@ -119,7 +119,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin: get all refund requests. Optional ?status=Pending filter.
         /// </summary>
         [HttpGet("all")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "FinanceOrOperationsPolicy")]
         public async Task<IActionResult> GetAllRefundRequests([FromQuery] string? status = null)
         {
             try
@@ -139,7 +139,7 @@ namespace CarePro_Api.Controllers.Content
         /// On approval, the client's wallet is debited.
         /// </summary>
         [HttpPut("{requestId}/review")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "FinanceOrOperationsPolicy")]
         public async Task<IActionResult> ReviewRefundRequest(string requestId, [FromBody] ReviewRefundRequestDTO review)
         {
             try
@@ -165,7 +165,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin marks an approved refund as completed (after bank transfer is done).
         /// </summary>
         [HttpPut("{requestId}/complete")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "FinanceOrOperationsPolicy")]
         public async Task<IActionResult> CompleteRefundRequest(string requestId)
         {
             try

@@ -498,7 +498,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpDelete]
         [Route("admin/BulkSoftDelete")]
-        [Authorize(Roles = "SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> AdminBulkSoftDeleteGigsAsync([FromBody] AdminBulkDeleteGigsRequest request)
         {
             try
@@ -615,7 +615,7 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Route("admin/deleted")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetAllDeletedGigsPaginatedAsync(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20,

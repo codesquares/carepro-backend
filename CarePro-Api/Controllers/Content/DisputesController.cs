@@ -110,7 +110,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin resolves a dispute with action, notes, and summary.
         /// </summary>
         [HttpPut("{disputeId}/resolve")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> ResolveDisputeAsync(string disputeId, [FromBody] ResolveDisputeRequest request)
         {
             try
@@ -145,7 +145,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin marks a dispute as under review.
         /// </summary>
         [HttpPut("{disputeId}/review")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> MarkUnderReviewAsync(string disputeId)
         {
             try
@@ -180,7 +180,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin dismisses a dispute.
         /// </summary>
         [HttpPut("{disputeId}/dismiss")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> DismissDisputeAsync(string disputeId, [FromBody] ResolveDisputeRequest request)
         {
             try
@@ -289,7 +289,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin: get all disputes with optional filters.
         /// </summary>
         [HttpGet("all")]
-        [Authorize(Roles = "Admin, SuperAdmin")]
+        [Authorize(Policy = "OperationsPolicy")]
         public async Task<IActionResult> GetAllDisputesAsync(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20,

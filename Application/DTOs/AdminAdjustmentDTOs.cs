@@ -78,4 +78,35 @@ namespace Application.DTOs
         public bool AppUserUpdated { get; set; }
         public string Message { get; set; } = string.Empty;
     }
+
+    /// <summary>
+    /// Bulk-clears the MiddleName field for a list of user IDs where the
+    /// stored value is a known placeholder (e.g. "testing"). Any ID whose
+    /// MiddleName is already null/empty is silently skipped.
+    /// </summary>
+    public class AdminBulkClearMiddleNameRequest
+    {
+        [Required]
+        public string AdminId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// List of Caregiver or Client IDs to clear. Max 500 per request.
+        /// </summary>
+        [Required]
+        [MinLength(1, ErrorMessage = "At least one user ID is required")]
+        public List<string> UserIds { get; set; } = new();
+
+        [Required]
+        [MinLength(5, ErrorMessage = "Reason must be at least 5 characters")]
+        public string Reason { get; set; } = string.Empty;
+    }
+
+    public class AdminBulkClearMiddleNameResponse
+    {
+        public int Cleared { get; set; }
+        public int Skipped { get; set; }
+        public int Failed { get; set; }
+        public List<string> FailedIds { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
 }

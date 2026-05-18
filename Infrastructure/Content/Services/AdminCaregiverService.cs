@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
 using System.Text.Json;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
@@ -168,6 +169,84 @@ namespace Infrastructure.Content.Services
                 Message = appUserUpdated
                     ? "Caregiver name updated. Linked AppUser FirstName/LastName also updated."
                     : "Caregiver name updated. No matching AppUser was found to mirror First/Last name."
+            };
+        }
+
+        public async Task<AdminBulkClearMiddleNameResponse> BulkClearCaregiverMiddleNameAsync(
+            AdminBulkClearMiddleNameRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            if (string.IsNullOrWhiteSpace(request.AdminId))
+                throw new ArgumentException("AdminId is required", nameof(request.AdminId));
+            if (request.UserIds == null || request.UserIds.Count == 0)
+                throw new ArgumentException("At least one user ID is required", nameof(request.UserIds));
+            if (request.UserIds.Count > 500)
+                throw new ArgumentException("Maximum 500 IDs per request", nameof(request.UserIds));
+            if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+                throw new ArgumentException("A reason (min 5 chars) is required", nameof(request.Reason));
+
+            var cleared = 0;
+            var skipped = 0;
+            var failedIds = new List<string>();
+
+            foreach (var rawId in request.UserIds)
+            {
+                if (!ObjectId.TryParse(rawId, out var objectId))
+                {
+                    failedIds.Add(rawId);
+                    continue;
+                }
+
+                try
+                {
+                    var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == objectId);
+                    if (caregiver == null || string.IsNullOrWhiteSpace(caregiver.MiddleName))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    var previous = caregiver.MiddleName;
+                    caregiver.MiddleName = null;
+
+                    await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
+                    {
+                        Id = ObjectId.GenerateNewId(),
+                        AdminId = request.AdminId,
+                        TargetEntityType = "Caregiver",
+                        TargetEntityId = rawId,
+                        TargetUserId = rawId,
+                        Action = "BulkClearMiddleName",
+                        BeforeJson = JsonSerializer.Serialize(new { MiddleName = previous }),
+                        AfterJson = JsonSerializer.Serialize(new { MiddleName = (string?)null }),
+                        Reason = request.Reason.Trim(),
+                        Timestamp = DateTime.UtcNow
+                    });
+
+                    cleared++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to clear MiddleName for Caregiver {Id}", rawId);
+                    failedIds.Add(rawId);
+                }
+            }
+
+            if (cleared > 0)
+                await _db.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Admin {AdminId} bulk-cleared caregiver MiddleName. Cleared={Cleared}, Skipped={Skipped}, Failed={Failed}",
+                request.AdminId, cleared, skipped, failedIds.Count);
+
+            return new AdminBulkClearMiddleNameResponse
+            {
+                Cleared = cleared,
+                Skipped = skipped,
+                Failed = failedIds.Count,
+                FailedIds = failedIds,
+                Message = $"Done. {cleared} cleared, {skipped} skipped (already null), {failedIds.Count} failed."
             };
         }
     }

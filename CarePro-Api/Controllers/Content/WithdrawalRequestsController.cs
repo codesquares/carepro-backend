@@ -57,7 +57,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> GetAllWithdrawalRequests()
         {
             try
@@ -114,7 +114,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet("status/{status}")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> GetWithdrawalRequestsByStatus(string status)
         {
             try
@@ -172,7 +172,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPost("verify")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> VerifyWithdrawalRequest([FromBody] AdminWithdrawalVerificationRequest request)
         {
             try
@@ -197,7 +197,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("complete/{token}")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> CompleteWithdrawalRequest(string token)
         {
             try
@@ -219,7 +219,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("complete")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> CompleteWithdrawalRequestByBody([FromBody] AdminWithdrawalVerificationRequest request)
         {
             try
@@ -242,7 +242,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost("reject")]
-        //  [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> RejectWithdrawalRequest([FromBody] AdminWithdrawalVerificationRequest request)
         {
             try

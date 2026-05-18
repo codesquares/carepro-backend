@@ -6,7 +6,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/admin/chat-violations")]
     [ApiController]
-    [Authorize(Roles = "SuperAdmin,Admin")]
+    [Authorize(Policy = "OperationsPolicy")]
     public class AdminChatViolationsController : ControllerBase
     {
         private readonly IChatComplianceService _chatComplianceService;

@@ -1,6 +1,7 @@
 using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using MediatR;
@@ -25,6 +26,7 @@ namespace Infrastructure.Content.Services
         private readonly IMediator _mediator;
         private readonly ICaregiverWalletService _walletService;
         private readonly IEarningsLedgerService _ledgerService;
+        private readonly IEmailService _emailService;
 
         public WithdrawalRequestService(
             CareProDbContext dbContext,
@@ -33,7 +35,8 @@ namespace Infrastructure.Content.Services
             IAdminUserService adminUserService,
             IMediator mediator,
             ICaregiverWalletService walletService,
-            IEarningsLedgerService ledgerService)
+            IEarningsLedgerService ledgerService,
+            IEmailService emailService)
         {
             _dbContext = dbContext;
             _earningsService = earningsService;
@@ -42,6 +45,7 @@ namespace Infrastructure.Content.Services
             _mediator = mediator;
             _walletService = walletService;
             _ledgerService = ledgerService;
+            _emailService = emailService;
         }
 
         public async Task<WithdrawalRequestResponse> GetWithdrawalRequestByIdAsync(string withdrawalRequestId)
@@ -446,28 +450,52 @@ namespace Infrastructure.Content.Services
 
         private async Task NotifyAdminsAboutWithdrawalRequest(WithdrawalRequest withdrawal)
         {
-            // In a real-world scenario, we'd query for all admin users and notify them
-            // For now, we'll create a notification for a generic admin role
-
-            var caregiver = await _careGiverService.GetCaregiverUserAsync(withdrawal.CaregiverId);
-            string caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "Unknown";
-
-            var notification = new Notification
+            try
             {
-                RecipientId = "admin", // This should be replaced with actual admin IDs in production
-                SenderId = withdrawal.CaregiverId,
-                Type = "Withdrawal Request",
-                Title = "New Withdrawal Request",
-                Content = $"Caregiver {caregiverName} has requested a withdrawal of {withdrawal.AmountRequested:C}. " +
-                          $"Service charge: {withdrawal.ServiceCharge:C}. Final amount: {withdrawal.FinalAmount:C}. " +
-                          $"Verification token: {withdrawal.Token}",
-                CreatedAt = DateTime.UtcNow,
-                IsRead = false,
-                RelatedEntityId = withdrawal.Id.ToString()
-            };
+                var caregiver = await _careGiverService.GetCaregiverUserAsync(withdrawal.CaregiverId);
+                string caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "Unknown Caregiver";
 
-            await _dbContext.Notifications.AddAsync(notification);
-            await _dbContext.SaveChangesAsync();
+                var title = "New Withdrawal Request";
+                var notifContent = $"{caregiverName} has requested a withdrawal of ₦{withdrawal.AmountRequested:N2}. " +
+                                   $"Final amount: ₦{withdrawal.FinalAmount:N2}. " +
+                                   $"Bank: {withdrawal.BankName}, Account: {withdrawal.AccountName} ({withdrawal.AccountNumber}).";
+                var emailContent = $"<p><strong>Caregiver:</strong> {caregiverName}</p>" +
+                                   $"<p><strong>Amount Requested:</strong> ₦{withdrawal.AmountRequested:N2}</p>" +
+                                   $"<p><strong>Final Amount:</strong> ₦{withdrawal.FinalAmount:N2}</p>" +
+                                   $"<p><strong>Bank:</strong> {withdrawal.BankName}</p>" +
+                                   $"<p><strong>Account Name:</strong> {withdrawal.AccountName}</p>" +
+                                   $"<p><strong>Account Number:</strong> {withdrawal.AccountNumber}</p>" +
+                                   $"<p>Please log in to the admin portal to review and process this request.</p>";
+
+                // Target: SuperAdmin users + Finance department admins
+                var admins = await _dbContext.AdminUsers
+                    .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
+                    .ToListAsync();
+
+                foreach (var admin in admins)
+                {
+                    // In-app notification with real-time SignalR push
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: withdrawal.CaregiverId,
+                        Type: NotificationTypes.WithdrawalRequest,
+                        Content: $"[ACTION REQUIRED] {notifContent}",
+                        Title: title,
+                        RelatedEntityId: withdrawal.Id.ToString()));
+
+                    // Email notification
+                    try
+                    {
+                        await _emailService.SendSystemNotificationEmailAsync(
+                            admin.Email, admin.FirstName, title, emailContent);
+                    }
+                    catch { /* email failure must not block the main flow */ }
+                }
+            }
+            catch
+            {
+                // Notification failure must not fail the withdrawal request creation
+            }
         }
 
         private async Task NotifyCaregiverAboutWithdrawalStatusChange(WithdrawalRequest withdrawal, string title, string message)

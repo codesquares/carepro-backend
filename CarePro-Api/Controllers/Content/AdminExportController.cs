@@ -7,7 +7,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [ApiController]
     [Route("api/admin")]
-    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Authorize(Policy = "AnalyticsPolicy")]
     public class AdminExportController : ControllerBase
     {
         private readonly IAdminExportService _exportService;

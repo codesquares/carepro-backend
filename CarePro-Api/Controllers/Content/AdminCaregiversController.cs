@@ -13,7 +13,7 @@ namespace CarePro_Api.Controllers.Content
     /// </summary>
     [Route("api/Admin/Caregivers")]
     [ApiController]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = "OperationsPolicy")]
     public class AdminCaregiversController : ControllerBase
     {
         private readonly IAdminCaregiverService _adminCaregiverService;
@@ -65,6 +65,30 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogError(ex,
                     "Error editing caregiver name for {CaregiverId}", caregiverId);
                 return StatusCode(500, new { error = "Failed to edit caregiver name" });
+            }
+        }
+
+        [HttpPut("BulkClearMiddleName")]
+        public async Task<IActionResult> BulkClearCaregiverMiddleName(
+            [FromBody] AdminBulkClearMiddleNameRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return BadRequest(new { error = "Request body is required" });
+
+                var result = await _adminCaregiverService.BulkClearCaregiverMiddleNameAsync(request);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Validation error on caregiver bulk clear middle name");
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during caregiver bulk clear middle name");
+                return StatusCode(500, new { error = "Failed to bulk clear caregiver middle names" });
             }
         }
     }

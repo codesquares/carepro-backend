@@ -21,5 +21,8 @@ namespace Application.Interfaces.Content
         Task<AdminUpdateCaregiverNameResponse> UpdateCaregiverLegalNameAsync(
             string caregiverId,
             AdminUpdateCaregiverNameRequest request);
+
+        Task<AdminBulkClearMiddleNameResponse> BulkClearCaregiverMiddleNameAsync(
+            AdminBulkClearMiddleNameRequest request);
     }
 }

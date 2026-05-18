@@ -7,7 +7,7 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/Admin/Verifications")]
     [ApiController]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Policy = "OperationsPolicy")]
     public class AdminVerificationsController : ControllerBase
     {
         private readonly IWebhookLogService _webhookLogService;

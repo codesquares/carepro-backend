@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Authentication;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Infrastructure.Services;
 using Application.Interfaces.Authentication;
@@ -522,9 +523,11 @@ namespace Infrastructure.Content.Services
                 existingClient.FirstName = updateClientUserRequest.FirstName;
             }
 
-            if (!string.IsNullOrWhiteSpace(updateClientUserRequest.MiddleName))
+            if (updateClientUserRequest.MiddleName != null)
             {
-                existingClient.MiddleName = updateClientUserRequest.MiddleName;
+                existingClient.MiddleName = string.IsNullOrWhiteSpace(updateClientUserRequest.MiddleName)
+                    ? null
+                    : updateClientUserRequest.MiddleName.Trim();
             }
 
             if (!string.IsNullOrWhiteSpace(updateClientUserRequest.LastName))
@@ -816,6 +819,68 @@ namespace Infrastructure.Content.Services
             var locationResult = await locationService.UpdateUserLocationAsync(updateLocationRequest);
 
             return locationResult;
+        }
+
+        public async Task<AdminBulkClearMiddleNameResponse> BulkClearClientMiddleNameAsync(
+            AdminBulkClearMiddleNameRequest request)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            if (string.IsNullOrWhiteSpace(request.AdminId))
+                throw new ArgumentException("AdminId is required", nameof(request.AdminId));
+            if (request.UserIds == null || request.UserIds.Count == 0)
+                throw new ArgumentException("At least one user ID is required", nameof(request.UserIds));
+            if (request.UserIds.Count > 500)
+                throw new ArgumentException("Maximum 500 IDs per request", nameof(request.UserIds));
+            if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+                throw new ArgumentException("A reason (min 5 chars) is required", nameof(request.Reason));
+
+            var cleared = 0;
+            var skipped = 0;
+            var failedIds = new List<string>();
+
+            foreach (var rawId in request.UserIds)
+            {
+                if (!ObjectId.TryParse(rawId, out var objectId))
+                {
+                    failedIds.Add(rawId);
+                    continue;
+                }
+
+                try
+                {
+                    var client = await careProDbContext.Clients.FindAsync(objectId);
+                    if (client == null || string.IsNullOrWhiteSpace(client.MiddleName))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    client.MiddleName = null;
+                    cleared++;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to clear MiddleName for Client {Id}", rawId);
+                    failedIds.Add(rawId);
+                }
+            }
+
+            if (cleared > 0)
+                await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Admin {AdminId} bulk-cleared client MiddleName. Cleared={Cleared}, Skipped={Skipped}, Failed={Failed}",
+                request.AdminId, cleared, skipped, failedIds.Count);
+
+            return new AdminBulkClearMiddleNameResponse
+            {
+                Cleared = cleared,
+                Skipped = skipped,
+                Failed = failedIds.Count,
+                FailedIds = failedIds,
+                Message = $"Done. {cleared} cleared, {skipped} skipped (already null), {failedIds.Count} failed."
+            };
         }
     }
 }
