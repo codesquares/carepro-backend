@@ -227,6 +227,32 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Dispute {DisputeId} marked UnderReview by admin {AdminId}", disputeId, adminUserId);
 
+            // ── Notify both parties that their dispute is being actively reviewed ──
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: dispute.ClientId,
+                    SenderId: adminUserId,
+                    Type: NotificationTypes.DisputeUnderReview,
+                    Content: $"Your dispute on Order {dispute.OrderId} is now under active review by an admin. You will be notified once a decision is made.",
+                    Title: "Dispute Under Review",
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
+
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: dispute.CaregiverId,
+                    SenderId: adminUserId,
+                    Type: NotificationTypes.DisputeUnderReview,
+                    Content: $"A dispute on Order {dispute.OrderId} is now under active review by an admin. You will be notified once a decision is made.",
+                    Title: "Dispute Under Review",
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send dispute-under-review notifications for Dispute {DisputeId}", disputeId);
+            }
+
             return await BuildDisputeResponseAsync(dispute);
         }
 
@@ -487,6 +513,32 @@ namespace Infrastructure.Content.Services
                         _logger.LogInformation(
                             "Order {OrderId} auto-completed: {Approved} visits approved, {Cancelled} cancelled (effective max: {EffectiveMax}) for billing cycle {Cycle}.",
                             order.Id, approvedCount, cancelledCount, effectiveMax, currentBillingCycle);
+
+                        // ── Notify both parties when order completes ──
+                        try
+                        {
+                            await _mediator.Send(new SendNotificationCommand(
+                                RecipientId: order.CaregiverId,
+                                SenderId: clientUserId,
+                                Type: NotificationTypes.OrderCompleted,
+                                Content: $"Your order has been completed. All {effectiveMax} visits have been approved and your earnings have been fully released.",
+                                Title: "Order Completed",
+                                RelatedEntityId: order.Id.ToString(),
+                                OrderId: order.Id.ToString()));
+
+                            await _mediator.Send(new SendNotificationCommand(
+                                RecipientId: order.ClientId,
+                                SenderId: clientUserId,
+                                Type: NotificationTypes.OrderCompleted,
+                                Content: $"Your care order has been completed. All {effectiveMax} visits have been approved.",
+                                Title: "Order Completed",
+                                RelatedEntityId: order.Id.ToString(),
+                                OrderId: order.Id.ToString()));
+                        }
+                        catch (Exception notifEx)
+                        {
+                            _logger.LogError(notifEx, "Failed to send order-completed notifications for Order {OrderId}", order.Id);
+                        }
                     }
                 }
             }
@@ -494,6 +546,43 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogError(ex, "Error processing per-visit credit for TaskSheet {TaskSheetId}", taskSheetId);
                 // Don't fail the approval — wallet can be reconciled later
+            }
+
+            // ── Notify caregiver and client on visit approval ──
+            try
+            {
+                var order = ownerOrder;
+                if (order != null)
+                {
+                    int maxVisits = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase)
+                        ? 1
+                        : (order.FrequencyPerWeek ?? 1) * 4;
+                    decimal perVisitAmount = Math.Round((order.OrderFee ?? 0m) * 0.80m / maxVisits, 2);
+
+                    // Notify caregiver: funds released to wallet
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.CaregiverId,
+                        SenderId: clientUserId,
+                        Type: NotificationTypes.VisitApproved,
+                        Content: $"Visit #{taskSheet.SheetNumber} has been approved. ₦{perVisitAmount:N2} has been released to your wallet.",
+                        Title: "Visit Approved",
+                        RelatedEntityId: taskSheetId,
+                        OrderId: taskSheet.OrderId));
+
+                    // Notify client: confirm their approval action
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.ClientId,
+                        SenderId: clientUserId,
+                        Type: NotificationTypes.VisitApproved,
+                        Content: $"You have approved Visit #{taskSheet.SheetNumber}. The caregiver's payment has been released.",
+                        Title: "Visit Approved",
+                        RelatedEntityId: taskSheetId,
+                        OrderId: taskSheet.OrderId));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send visit approval notifications for TaskSheet {TaskSheetId}", taskSheetId);
             }
 
             _logger.LogInformation("Visit {TaskSheetId} approved by client {ClientId}", taskSheetId, clientUserId);

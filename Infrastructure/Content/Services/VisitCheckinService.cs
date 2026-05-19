@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -18,6 +20,7 @@ namespace Infrastructure.Content.Services
         private readonly IGeocodingService _geocodingService;
         private readonly IConfiguration _configuration;
         private readonly IHostEnvironment _environment;
+        private readonly IMediator _mediator;
         private readonly ILogger<VisitCheckinService> _logger;
 
         public VisitCheckinService(
@@ -25,12 +28,14 @@ namespace Infrastructure.Content.Services
             IGeocodingService geocodingService,
             IConfiguration configuration,
             IHostEnvironment environment,
+            IMediator mediator,
             ILogger<VisitCheckinService> logger)
         {
             _dbContext = dbContext;
             _geocodingService = geocodingService;
             _configuration = configuration;
             _environment = environment;
+            _mediator = mediator;
             _logger = logger;
         }
 
@@ -146,6 +151,26 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Caregiver {CaregiverId} checked in for TaskSheet {TaskSheetId}. Distance: {Distance}m",
                 caregiverId, request.TaskSheetId, distanceMeters?.ToString("F0") ?? "unknown");
+
+            // ── Notify client that caregiver has arrived and checked in ──
+            try
+            {
+                if (!string.IsNullOrEmpty(order.ClientId))
+                {
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.ClientId,
+                        SenderId: caregiverId,
+                        Type: NotificationTypes.CaregiverCheckedIn,
+                        Content: $"Your caregiver has arrived and checked in for Visit #{taskSheet.SheetNumber}.",
+                        Title: "Caregiver Checked In",
+                        RelatedEntityId: request.TaskSheetId,
+                        OrderId: request.OrderId));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send check-in notification for TaskSheet {TaskSheetId}", request.TaskSheetId);
+            }
 
             return new VisitCheckinResponse
             {

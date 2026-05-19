@@ -1,8 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -13,6 +15,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly IContactPatternDetector _patternDetector;
+        private readonly IMediator _mediator;
         private readonly ILogger<ChatComplianceService> _logger;
 
         // Threshold: after this many violations in the window, messages are blocked entirely
@@ -22,10 +25,12 @@ namespace Infrastructure.Content.Services
         public ChatComplianceService(
             CareProDbContext dbContext,
             IContactPatternDetector patternDetector,
+            IMediator mediator,
             ILogger<ChatComplianceService> logger)
         {
             _dbContext = dbContext;
             _patternDetector = patternDetector;
+            _mediator = mediator;
             _logger = logger;
         }
 
@@ -70,21 +75,30 @@ namespace Infrastructure.Content.Services
                 await _dbContext.ChatViolations.AddAsync(blockedViolation);
                 await _dbContext.SaveChangesAsync();
 
-                // Create admin notification for repeat offender
-                var adminNotification = new Notification
+                // ── Alert all SuperAdmin users about this repeat offender (real-time via SignalR) ──
+                try
                 {
-                    Id = ObjectId.GenerateNewId(),
-                    RecipientId = "admin",
-                    SenderId = senderId,
-                    Type = "ChatViolation",
-                    Title = "Repeat chat violation — message blocked",
-                    Content = $"User {senderId} has been blocked from sending a message ({recentViolationCount + 1} violations in {ViolationWindowDays} days). Detected: {string.Join(", ", patternDescriptions)}",
-                    IsRead = false,
-                    RelatedEntityId = blockedViolation.Id.ToString()
-                };
+                    var superAdmins = await _dbContext.AdminUsers
+                        .Where(a => !a.IsDeleted && a.Role == "SuperAdmin")
+                        .ToListAsync();
 
-                await _dbContext.Notifications.AddAsync(adminNotification);
-                await _dbContext.SaveChangesAsync();
+                    var alertContent = $"User {senderId} was blocked from sending a message ({recentViolationCount + 1} violations in {ViolationWindowDays} days). Detected: {string.Join(", ", patternDescriptions)}";
+
+                    foreach (var admin in superAdmins)
+                    {
+                        await _mediator.Send(new SendNotificationCommand(
+                            RecipientId: admin.Id.ToString(),
+                            SenderId: senderId,
+                            Type: NotificationTypes.ChatViolationFlagged,
+                            Content: alertContent,
+                            Title: "Repeat Chat Violation — Message Blocked",
+                            RelatedEntityId: blockedViolation.Id.ToString()));
+                    }
+                }
+                catch (Exception notifEx)
+                {
+                    _logger.LogError(notifEx, "Failed to send chat-violation admin notifications for ViolationId {ViolationId}", blockedViolation.Id);
+                }
 
                 _logger.LogWarning(
                     "Chat BLOCKED: User {SenderId} repeat offender ({ViolationCount} violations). Patterns: {Patterns}",

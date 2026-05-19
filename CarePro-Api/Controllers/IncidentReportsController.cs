@@ -61,6 +61,45 @@ namespace CarePro_Api.Controllers
         }
 
         /// <summary>
+        /// Get a single incident report by its ID.
+        /// Admins see all; caregivers only see their own; clients only see reports on their orders.
+        /// </summary>
+        [HttpGet("{id}")]
+        [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
+        public async Task<IActionResult> GetById(string id)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                bool isAdmin = IsAdminOrSuperAdmin();
+                bool isClient = IsClient();
+
+                if (string.IsNullOrEmpty(userId) && !isAdmin)
+                    return Unauthorized(new { error = "Authorization required." });
+
+                var result = await _incidentReportService.GetByIdAsync(id, userId ?? "", isAdmin, isClient);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving incident report {Id}", id);
+                return StatusCode(500, new { error = "An error occurred while retrieving the incident report." });
+            }
+        }
+
+        /// <summary>
         /// Get incident reports by order.
         /// </summary>
         [HttpGet]

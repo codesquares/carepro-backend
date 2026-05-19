@@ -96,6 +96,7 @@ namespace Application.DTOs
         // ── Booking ──
         public const string BookingConfirmed = "booking_confirmed";
         public const string CommitmentConfirmed = "commitment_confirmed";
+        public const string BookingCommitmentExpired = "booking_commitment_expired";
 
         // ── Contract lifecycle (caregiver-side) ──
         public const string ContractReceived = "contract_received";
@@ -148,6 +149,7 @@ namespace Application.DTOs
         public const string RefundRequested = "refund_requested";
         public const string RefundApproved = "refund_approved";
         public const string RefundRejected = "refund_rejected";
+        public const string RefundRequestAdminAlert = "refund_request_admin_alert";
 
         // ── Withdrawals ──
         public const string WithdrawalRequest = "withdrawal_request";
@@ -158,9 +160,17 @@ namespace Application.DTOs
         // ── Reviews ──
         public const string NewReview = "new_review";
 
+        // ── Incidents / Observations ──
+        public const string IncidentReported = "incident_reported";
+        public const string ObservationReportFiled = "observation_report_filed";
+
+        // ── Visit Check-in ──
+        public const string CaregiverCheckedIn = "caregiver_checked_in";
+
         // ── System ──
         public const string SystemNotice = "system_notice";
         public const string SystemAlert = "system_alert";
+        public const string ChatViolationFlagged = "chat_violation_flagged";
 
         // ── Care Request Matching ──
         public const string CareRequestMatched = "care_request_matched";
@@ -176,6 +186,9 @@ namespace Application.DTOs
         public const string CareRequestNotSelected = "care_request_not_selected";
         public const string CareRequestClosed = "care_request_closed";
         public const string CareRequestPaused = "care_request_paused";
+        public const string CareRequestReopened = "care_request_reopened";
+        public const string CareRequestCreated = "care_request_created";
+        public const string ShortlistRemoved = "care_request_shortlist_removed";
 
         // ── Visit Task Proposals ──
         public const string TaskProposedByClient = "task_proposed_by_client";
@@ -204,9 +217,10 @@ namespace Application.DTOs
         public const string NegotiationAbandoned = "negotiation_abandoned";
         public const string NegotiationConverted = "negotiation_converted";
 
-        // ── Visit Cancellation ──
+        // ── Visit Cancellation / Reschedule ──
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
         public const string VisitCancellationRequested = "visit_cancellation_requested";
+        public const string VisitRescheduled = "visit_rescheduled";
 
         // ── Account Deletion (GDPR right-to-erasure) ──
         public const string AccountDeletionScheduled = "account_deletion_scheduled";

@@ -177,9 +177,28 @@ namespace Infrastructure.Content.Services
                     // Stale — expire it
                     existingPending.Status = BookingCommitmentStatus.Expired;
                     existingPending.ErrorMessage = "Expired: superseded by a new commitment attempt.";
+                    _dbContext.BookingCommitments.Update(existingPending);
+                    await _dbContext.SaveChangesAsync();
+
                     _logger.LogInformation(
                         "Expired stale commitment. TxRef: {TxRef}, Age: {AgeHours}h",
                         existingPending.TransactionReference, (int)age.TotalHours);
+
+                    // ── Notify client that their previous commitment has expired ──
+                    try
+                    {
+                        await _mediator.Send(new SendNotificationCommand(
+                            RecipientId: existingPending.ClientId,
+                            SenderId: "system",
+                            Type: NotificationTypes.BookingCommitmentExpired,
+                            Content: "Your previous booking commitment has expired (it was more than 24 hours old). A new commitment has been started.",
+                            Title: "Booking Commitment Expired",
+                            RelatedEntityId: existingPending.Id.ToString()));
+                    }
+                    catch (Exception notifEx)
+                    {
+                        _logger.LogError(notifEx, "Failed to send commitment-expired notification for Commitment {CommitmentId}", existingPending.Id);
+                    }
                 }
             }
 
@@ -530,6 +549,28 @@ namespace Infrastructure.Content.Services
             _logger.LogWarning(
                 "ADMIN OVERRIDE: AmountMismatch reset on commitment TxRef={TxRef}. Note: {Note}",
                 transactionReference, adminNote);
+        }
+
+        public async Task<List<BookingCommitmentListItem>> GetClientCommitmentsAsync(string clientId)
+        {
+            var commitments = await _dbContext.BookingCommitments
+                .Where(c => c.ClientId == clientId)
+                .OrderByDescending(c => c.CreatedAt)
+                .ToListAsync();
+
+            return commitments.Select(c => new BookingCommitmentListItem
+            {
+                Id = c.Id.ToString(),
+                GigId = c.GigId,
+                CaregiverId = c.CaregiverId,
+                Amount = c.Amount,
+                Status = c.Status.ToString().ToLower(),
+                TransactionReference = c.TransactionReference,
+                CreatedAt = c.CreatedAt,
+                CompletedAt = c.CompletedAt,
+                IsAppliedToOrder = c.IsAppliedToOrder,
+                AppliedToOrderId = c.AppliedToOrderId
+            }).ToList();
         }
     }
 }

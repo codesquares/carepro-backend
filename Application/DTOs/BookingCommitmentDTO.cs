@@ -47,4 +47,22 @@ namespace Application.DTOs
         public DateTime? UnlockedAt { get; set; }
         public bool IsAppliedToOrder { get; set; }
     }
+
+    /// <summary>
+    /// Summary of a booking commitment for the client's commitments list.
+    /// Used by GET /api/booking-commitment/client
+    /// </summary>
+    public class BookingCommitmentListItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string GigId { get; set; } = string.Empty;
+        public string CaregiverId { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string TransactionReference { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public bool IsAppliedToOrder { get; set; }
+        public string? AppliedToOrderId { get; set; }
+    }
 }

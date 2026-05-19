@@ -500,21 +500,22 @@ namespace Infrastructure.Content.Services
 
         private async Task NotifyCaregiverAboutWithdrawalStatusChange(WithdrawalRequest withdrawal, string title, string message)
         {
-            var notification = new Notification
+            // Determine the correct notification type from the withdrawal status
+            var notificationType = withdrawal.Status switch
             {
-                RecipientId = withdrawal.CaregiverId,
-                SenderId = withdrawal.AdminId ?? "system",
-                Type = "Withdrawal Request",
-                Title = title,
-                Content = message,
-                CreatedAt = DateTime.UtcNow,
-                IsRead = false,
-                RelatedEntityId = withdrawal.Id.ToString()
+                WithdrawalStatus.Verified  => NotificationTypes.WithdrawalVerified,
+                WithdrawalStatus.Completed => NotificationTypes.WithdrawalCompleted,
+                WithdrawalStatus.Rejected  => NotificationTypes.WithdrawalRejected,
+                _                          => NotificationTypes.SystemNotice
             };
 
-            //  await _dbContext.Notifications.InsertOneAsync(notification);
-            await _dbContext.Notifications.AddAsync(notification);
-            await _dbContext.SaveChangesAsync();
+            await _mediator.Send(new SendNotificationCommand(
+                RecipientId: withdrawal.CaregiverId,
+                SenderId: withdrawal.AdminId ?? "system",
+                Type: notificationType,
+                Content: message,
+                Title: title,
+                RelatedEntityId: withdrawal.Id.ToString()));
         }
 
 

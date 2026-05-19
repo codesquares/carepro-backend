@@ -148,6 +148,38 @@ namespace Infrastructure.Content.Services
             return reports.Select(MapToDTO).ToList();
         }
 
+        public async Task<IncidentReportDTO> GetByIdAsync(string reportId, string userId, bool isAdmin, bool isClient)
+        {
+            var report = await _dbContext.IncidentReports
+                .FirstOrDefaultAsync(r => r.Id.ToString() == reportId);
+
+            if (report == null)
+                throw new KeyNotFoundException($"Incident report '{reportId}' not found.");
+
+            if (!isAdmin)
+            {
+                if (!ObjectId.TryParse(report.OrderId, out var orderOid))
+                    throw new KeyNotFoundException("Associated order not found.");
+
+                var order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderOid);
+                if (order == null)
+                    throw new KeyNotFoundException("Associated order not found.");
+
+                if (isClient)
+                {
+                    if (order.ClientId != userId)
+                        throw new UnauthorizedAccessException("You are not authorized to view this incident report.");
+                }
+                else
+                {
+                    if (report.CaregiverId != userId)
+                        throw new UnauthorizedAccessException("You are not authorized to view this incident report.");
+                }
+            }
+
+            return MapToDTO(report);
+        }
+
         public async Task<int> GetCountByTaskSheetIdAsync(string taskSheetId)
         {
             return await _dbContext.IncidentReports
@@ -174,7 +206,7 @@ namespace Infrastructure.Content.Services
                     await _mediator.Send(new SendNotificationCommand(
                         RecipientId: admin.Id.ToString(),
                         SenderId: caregiverId,
-                        Type: "IncidentReport",
+                        Type: NotificationTypes.IncidentReported,
                         Content: content,
                         Title: title,
                         RelatedEntityId: report.Id.ToString(),
@@ -182,7 +214,29 @@ namespace Infrastructure.Content.Services
                     ));
                 }
 
-                _logger.LogInformation("Admin notifications sent for {Severity} incident report {ReportId} to {AdminCount} admins",
+                // ── Also notify the client for serious or critical incidents ──
+                var isSevere = string.Equals(report.Severity, "serious", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(report.Severity, "critical", StringComparison.OrdinalIgnoreCase);
+
+                if (isSevere)
+                {
+                    var order = await _dbContext.ClientOrders.FindAsync(MongoDB.Bson.ObjectId.Parse(report.OrderId));
+                    if (order != null && !string.IsNullOrEmpty(order.ClientId))
+                    {
+                        var clientContent = $"A {report.Severity} incident ({report.IncidentType.Replace("_", " ")}) has been reported during your care session. An admin has been alerted.";
+
+                        await _mediator.Send(new SendNotificationCommand(
+                            RecipientId: order.ClientId,
+                            SenderId: caregiverId,
+                            Type: NotificationTypes.IncidentReported,
+                            Content: clientContent,
+                            Title: $"Incident Report: {report.Severity.ToUpperInvariant()}",
+                            RelatedEntityId: report.Id.ToString(),
+                            OrderId: report.OrderId));
+                    }
+                }
+
+                _logger.LogInformation("Notifications sent for {Severity} incident report {ReportId} to {AdminCount} admins",
                     report.Severity, report.Id, admins.Count);
             }
             catch (Exception ex)

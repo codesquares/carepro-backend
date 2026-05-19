@@ -356,6 +356,29 @@ namespace CarePro_Api.Controllers.Content
         // ── Caregiver Browse & Respond Endpoints ─────────────────────────
 
         /// <summary>
+        /// Get all care requests the authenticated caregiver has responded to, with their response status.
+        /// </summary>
+        [HttpGet("caregiver/my-responses")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> GetMyResponses()
+        {
+            var caregiverId = GetAuthenticatedUserId();
+            if (string.IsNullOrEmpty(caregiverId))
+                return Unauthorized(new { success = false, message = "Caregiver authentication required." });
+
+            try
+            {
+                var result = await _responseService.GetCaregiverMyResponsesAsync(caregiverId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving my responses for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { success = false, message = "An error occurred while retrieving your responses." });
+            }
+        }
+
+        /// <summary>
         /// Get paginated care requests matching the caregiver's profile (browse page).
         /// </summary>
         [HttpGet("caregiver/matched")]

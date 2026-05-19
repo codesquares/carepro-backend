@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -16,6 +18,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly CloudinaryService _cloudinaryService;
+        private readonly IMediator _mediator;
         private readonly ILogger<ObservationReportService> _logger;
 
         private static readonly HashSet<string> ValidCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -31,10 +34,12 @@ namespace Infrastructure.Content.Services
         public ObservationReportService(
             CareProDbContext dbContext,
             CloudinaryService cloudinaryService,
+            IMediator mediator,
             ILogger<ObservationReportService> logger)
         {
             _dbContext = dbContext;
             _cloudinaryService = cloudinaryService;
+            _mediator = mediator;
             _logger = logger;
         }
 
@@ -106,6 +111,26 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Observation report created: {ReportId} for Order: {OrderId} by Caregiver: {CaregiverId}",
                 report.Id, request.OrderId, caregiverId);
+
+            // ── Notify client that a new observation report was filed ──
+            try
+            {
+                if (!string.IsNullOrEmpty(order.ClientId))
+                {
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: order.ClientId,
+                        SenderId: caregiverId,
+                        Type: NotificationTypes.ObservationReportFiled,
+                        Content: $"Your caregiver filed a {report.Severity}-severity observation report for your care session.",
+                        Title: "Observation Report Filed",
+                        RelatedEntityId: report.Id.ToString(),
+                        OrderId: request.OrderId));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send observation-report notification for ReportId {ReportId}", report.Id);
+            }
 
             return MapToDTO(report);
         }

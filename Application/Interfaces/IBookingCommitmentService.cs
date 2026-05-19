@@ -61,5 +61,10 @@ namespace Application.Interfaces
         /// so that CompleteCommitmentAsync can re-run using the Flutterwave-confirmed amount.
         /// </summary>
         Task ResetAmountMismatchAsync(string transactionReference, string adminNote);
+
+        /// <summary>
+        /// Returns all booking commitments for the authenticated client, ordered newest first.
+        /// </summary>
+        Task<List<BookingCommitmentListItem>> GetClientCommitmentsAsync(string clientId);
     }
 }
