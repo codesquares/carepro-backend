@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.Web.CodeGenerators.Mvc.Templates.BlazorIdentity.Pages.Manage;
 using System;
 using System.Security.Authentication;
+using System.Security.Claims;
 
 
 namespace CarePro_Api.Controllers.Content
@@ -26,19 +27,22 @@ namespace CarePro_Api.Controllers.Content
         private readonly ILogger<CareGiversController> logger;
         private readonly IHttpContextAccessor httpContextAccessor;
         private readonly IGoogleAuthService _googleAuthService;
+        private readonly IUserDeletionService _userDeletionService;
 
         public CareGiversController(
             CareProDbContext careProDbContext, 
             ICareGiverService careGiverService, 
             ILogger<CareGiversController> logger, 
             IHttpContextAccessor httpContextAccessor,
-            IGoogleAuthService googleAuthService)
+            IGoogleAuthService googleAuthService,
+            IUserDeletionService userDeletionService)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
             this.logger = logger;
             this.httpContextAccessor = httpContextAccessor;
             _googleAuthService = googleAuthService;
+            _userDeletionService = userDeletionService;
         }
 
         /// <summary>
@@ -690,6 +694,131 @@ namespace CarePro_Api.Controllers.Content
         }
 
 
+
+        #endregion
+
+        #region Account Deletion
+
+        /// <summary>
+        /// Request deletion of the authenticated caregiver's own account.
+        /// Schedules permanent anonymisation after a 30-day grace period.
+        /// Blocked if active orders, pending withdrawals, or outstanding wallet balance exist.
+        /// </summary>
+        [HttpDelete("request-account-deletion")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> RequestAccountDeletion([FromBody] RequestAccountDeletionRequest request)
+        {
+            var caregiverId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? User.FindFirst("sub")?.Value
+                              ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(caregiverId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var origin = HttpContext.Request.Headers["Origin"].FirstOrDefault()
+                             ?? $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+
+                var result = await _userDeletionService.RequestCaregiverAccountDeletionAsync(caregiverId, request?.Reason ?? string.Empty, origin);
+
+                if (!result.Success)
+                    return BadRequest(new { success = false, message = result.Message, blockers = result.Blockers });
+
+                return Ok(new { success = true, message = result.Message, permanentDeletionDate = result.PermanentDeletionDate });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error requesting account deletion for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { message = "An error occurred while processing your deletion request." });
+            }
+        }
+
+        /// <summary>
+        /// Cancel a pending account deletion within the 30-day grace period.
+        /// Restores the account and all gigs that were soft-deleted at the same time.
+        /// </summary>
+        [HttpPost("cancel-account-deletion")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> CancelAccountDeletion()
+        {
+            var caregiverId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? User.FindFirst("sub")?.Value
+                              ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(caregiverId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var message = await _userDeletionService.CancelCaregiverAccountDeletionAsync(caregiverId);
+                return Ok(new { success = true, message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling account deletion for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { message = "An error occurred while cancelling your deletion request." });
+            }
+        }
+
+        #endregion
+
+        #region Token-based cancellation (email link)
+
+        /// <summary>
+        /// Unauthenticated endpoint consumed when the user clicks the cancellation deep link
+        /// embedded in the deletion scheduled email. Validates the signed 30-day JWT,
+        /// checks the purpose claim, then cancels the deletion.
+        /// </summary>
+        [HttpPost("cancel-account-deletion-by-token")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CancelAccountDeletionByToken([FromQuery] string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return BadRequest(new { message = "Cancellation token is required." });
+
+            try
+            {
+                var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+                var jwtToken = tokenHandler.ReadJwtToken(token);
+
+                var purpose = jwtToken.Claims.FirstOrDefault(c => c.Type == "purpose")?.Value;
+                if (purpose != "account_deletion_cancel")
+                    return BadRequest(new { message = "Invalid cancellation token." });
+
+                var caregiverId = jwtToken.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
+                if (string.IsNullOrEmpty(caregiverId))
+                    return BadRequest(new { message = "Invalid cancellation token." });
+
+                var message = await _userDeletionService.CancelCaregiverAccountDeletionAsync(caregiverId);
+                return Ok(new { success = true, message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error in token-based cancellation for caregiver");
+                return StatusCode(500, new { message = "An error occurred while cancelling your deletion request." });
+            }
+        }
 
         #endregion
     }

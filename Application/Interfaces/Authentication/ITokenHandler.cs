@@ -16,6 +16,12 @@ namespace Application.Interfaces.Authentication
 
         string GeneratePasswordResetToken(string userId, string email);
 
+        /// <summary>
+        /// Generates a 30-day signed JWT used in the account deletion cancellation email link.
+        /// The token carries a "purpose" claim of "account_deletion_cancel" to prevent
+        /// it being used in place of other token types.
+        /// </summary>
+        string GenerateCancellationToken(string userId);
 
         //string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30);
         string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);

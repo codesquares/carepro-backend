@@ -807,6 +807,68 @@ namespace Infrastructure.Services
             }
         }
 
+        public async Task SendAccountDeletionScheduledEmailAsync(string toEmail, string firstName, DateTime permanentDeletionDate, string? cancellationLink = null)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your CarePro Account Has Been Scheduled for Deletion";
+
+            // Build the cancellation call-to-action block depending on whether a deep link was generated
+            string cancellationSection = string.IsNullOrEmpty(cancellationLink)
+                ? $"<p><strong>Changed your mind?</strong> Contact our support team at " +
+                  $"<a href='mailto:codesquareltd@gmail.com'>codesquareltd@gmail.com</a> before {permanentDeletionDate:MMMM dd, yyyy}.</p>"
+                : $"<p><strong>Changed your mind?</strong> You have 30 days to cancel. " +
+                  $"<a href='{cancellationLink}'>Click here to cancel your deletion request</a> or visit the link below:</p>" +
+                  $"<p style='word-break:break-all;'>{cancellationLink}</p>" +
+                  $"<p>This cancellation link expires on {permanentDeletionDate:MMMM dd, yyyy}. " +
+                  $"After that date, please contact <a href='mailto:codesquareltd@gmail.com'>codesquareltd@gmail.com</a>.</p>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>We have received your request to delete your CarePro account.</p>
+                    <p>Your account has been <strong>deactivated</strong> and is scheduled for permanent deletion on
+                    <strong>{permanentDeletionDate:MMMM dd, yyyy}</strong> (30 days from now).</p>
+                    <p><strong>What happens next?</strong></p>
+                    <ul>
+                        <li>Your profile will no longer appear in search results.</li>
+                        <li>You will not be able to log in during this period.</li>
+                        <li>After {permanentDeletionDate:MMMM dd, yyyy}, all your personal data will be permanently deleted or anonymized.</li>
+                        <li>Financial records (billing, payments) are retained as required by law.</li>
+                    </ul>
+                    {cancellationSection}
+                    <p>Thanks for being part of CarePro.<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendAccountDeletionCancelledEmailAsync(string toEmail, string firstName)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your CarePro Account Deletion Has Been Cancelled";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>Great news! Your CarePro account deletion request has been <strong>successfully cancelled</strong>.</p>
+                    <p>Your account is now fully restored and active. You can log in and continue using CarePro as normal.</p>
+                    <p>If you did not request this cancellation or have any concerns, please contact us immediately at
+                    <a href='mailto:codesquareltd@gmail.com'>codesquareltd@gmail.com</a>.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+
 
 
         //public async Task SendSignUpVerificationEmailAsync(string toEmail, string subject, string body)

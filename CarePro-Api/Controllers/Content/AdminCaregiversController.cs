@@ -2,6 +2,7 @@ using Application.DTOs;
 using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -18,13 +19,16 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IAdminCaregiverService _adminCaregiverService;
         private readonly ILogger<AdminCaregiversController> _logger;
+        private readonly IUserDeletionService _userDeletionService;
 
         public AdminCaregiversController(
             IAdminCaregiverService adminCaregiverService,
-            ILogger<AdminCaregiversController> logger)
+            ILogger<AdminCaregiversController> logger,
+            IUserDeletionService userDeletionService)
         {
             _adminCaregiverService = adminCaregiverService;
             _logger = logger;
+            _userDeletionService = userDeletionService;
         }
 
         /// <summary>
@@ -89,6 +93,49 @@ namespace CarePro_Api.Controllers.Content
             {
                 _logger.LogError(ex, "Error during caregiver bulk clear middle name");
                 return StatusCode(500, new { error = "Failed to bulk clear caregiver middle names" });
+            }
+        }
+
+        /// <summary>
+        /// Admin permanently schedules a caregiver account for deletion.
+        /// Bypasses wallet balance blocker. Soft-deletes the account immediately
+        /// and queues it for GDPR anonymisation after the standard grace period.
+        /// </summary>
+        [HttpDelete("{caregiverId}/account")]
+        public async Task<IActionResult> AdminDeleteCaregiverAccount(
+            string caregiverId,
+            [FromBody] RequestAccountDeletionRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.Reason))
+                return BadRequest(new { message = "A reason is required for admin account deletion." });
+
+            var adminId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                          ?? User.FindFirst("sub")?.Value
+                          ?? User.FindFirst("userId")?.Value;
+            var adminEmail = User.FindFirst(ClaimTypes.Email)?.Value
+                             ?? User.FindFirst("email")?.Value
+                             ?? string.Empty;
+
+            if (string.IsNullOrEmpty(adminId))
+                return Unauthorized(new { message = "Unable to identify admin user." });
+
+            try
+            {
+                var result = await _userDeletionService.AdminDeleteCaregiverAccountAsync(caregiverId, adminId, adminEmail, request.Reason);
+
+                if (!result.Success)
+                    return BadRequest(new { success = false, message = result.Message, blockers = result.Blockers });
+
+                return Ok(new { success = true, message = result.Message, permanentDeletionDate = result.PermanentDeletionDate });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Admin error deleting caregiver account {CaregiverId}", caregiverId);
+                return StatusCode(500, new { message = "An error occurred while processing the deletion request." });
             }
         }
     }

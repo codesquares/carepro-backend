@@ -120,6 +120,7 @@ builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
 builder.Services.AddScoped<IAdminCaregiverService, AdminCaregiverService>();
+builder.Services.AddScoped<IUserDeletionService, UserDeletionService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
@@ -128,6 +129,21 @@ builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Web Push (PWA push notifications)
+builder.Services.Configure<WebPushSettings>(builder.Configuration.GetSection("WebPush"));
+builder.Services.PostConfigure<WebPushSettings>(opts =>
+{
+    // Allow env vars to override appsettings values (ECS task definition pattern)
+    opts.VapidPublicKey  ??= Environment.GetEnvironmentVariable("WebPush__VapidPublicKey");
+    opts.VapidPrivateKey ??= Environment.GetEnvironmentVariable("WebPush__VapidPrivateKey");
+    if (string.IsNullOrWhiteSpace(opts.Subject))
+        opts.Subject = Environment.GetEnvironmentVariable("WebPush__Subject") ?? "mailto:admin@oncarepro.com";
+});
+builder.Services.AddSingleton(System.Threading.Channels.Channel.CreateUnbounded<Application.DTOs.PushJob>());
+builder.Services.AddScoped<IPushService, WebPushService>();
+builder.Services.AddHostedService<PushBackgroundConsumer>();
+builder.Services.AddHttpClient("WebPush");
 
 // Care request matching engine
 builder.Services.AddScoped<ICareRequestMatchingService, CareRequestMatchingService>();
@@ -240,6 +256,9 @@ builder.Services.AddHostedService<GigHardDeleteProcessor>();
 
 // GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
 builder.Services.AddHostedService<GigDeletionReminderProcessor>();
+
+// GDPR: Hard-delete/anonymise user accounts past 30-day grace period (runs daily)
+builder.Services.AddHostedService<UserHardDeleteProcessor>();
 
 // Cleanup orphaned email inline-image assets older than 90 days (runs daily)
 builder.Services.AddHostedService<EmailAssetCleanupProcessor>();
