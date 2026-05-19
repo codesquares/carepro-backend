@@ -18,15 +18,18 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly IHubContext<NotificationHub> _notificationHubContext;
+        private readonly IPushService _pushService;
         private readonly ILogger<NotificationService> _logger;
 
         public NotificationService(
             CareProDbContext dbContext,
             IHubContext<NotificationHub> notificationHubContext,
+            IPushService pushService,
             ILogger<NotificationService> logger)
         {
             _dbContext = dbContext;
             _notificationHubContext = notificationHubContext;
+            _pushService = pushService;
             _logger = logger;
         }
 
@@ -56,6 +59,17 @@ namespace Infrastructure.Content.Services
 
                 // Push updated unread count to frontend
                 await PushUnreadCountAsync(recipientId);
+
+                // Fire-and-forget Web Push (enqueues instantly to background channel)
+                try
+                {
+                    var pushPayload = BuildPushPayload(notification);
+                    await _pushService.EnqueueAsync(recipientId, pushPayload);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to enqueue web push for user {UserId}", recipientId);
+                }
 
                 return notification.Id.ToString();
             }
@@ -284,6 +298,57 @@ namespace Infrastructure.Content.Services
             }
         }
 
+
+        /// <summary>
+        /// Maps a persisted Notification to the push payload shape the SW expects.
+        /// </summary>
+        private static PushPayload BuildPushPayload(Notification notification)
+        {
+            return new PushPayload
+            {
+                Title = notification.Title ?? "CarePro",
+                Body = notification.Content,
+                Url = ResolveNotificationUrl(notification),
+                Tag = notification.Type,
+                Renotify = true,
+                NotificationId = notification.Id.ToString(),
+                Actions = new List<PushAction>()
+            };
+        }
+
+        private static string ResolveNotificationUrl(Notification notification)
+        {
+            var type = notification.Type ?? string.Empty;
+            var relatedId = notification.RelatedEntityId;
+            var orderId = notification.OrderId;
+
+            if (type.StartsWith("chat"))
+                return !string.IsNullOrEmpty(relatedId) ? $"/chat/{relatedId}" : "/chat";
+
+            if (type.StartsWith("order"))
+                return !string.IsNullOrEmpty(orderId) ? $"/orders/{orderId}" :
+                       !string.IsNullOrEmpty(relatedId) ? $"/orders/{relatedId}" : "/orders";
+
+            if (type.StartsWith("contract"))
+                return !string.IsNullOrEmpty(relatedId) ? $"/contracts/{relatedId}" : "/contracts";
+
+            if (type.StartsWith("payment") || type.StartsWith("recurring") || type.StartsWith("refund"))
+                return "/payments";
+
+            if (type.StartsWith("subscription"))
+                return !string.IsNullOrEmpty(relatedId) ? $"/subscriptions/{relatedId}" : "/subscriptions";
+
+            if (type.StartsWith("task_sheet") || type.StartsWith("visit"))
+                return !string.IsNullOrEmpty(orderId) ? $"/orders/{orderId}" : "/orders";
+
+            if (type.StartsWith("dispute"))
+                return !string.IsNullOrEmpty(orderId) ? $"/orders/{orderId}/dispute" : "/disputes";
+
+            if (type.StartsWith("withdrawal") || type.StartsWith("wallet"))
+                return "/wallet";
+
+            return "/notifications";
+        }
 
         public async Task<bool> SendRealTimeNotificationAsync(string userId, Notification notification)
         {

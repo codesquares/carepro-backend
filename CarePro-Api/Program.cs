@@ -130,6 +130,21 @@ builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseServi
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
+// Web Push (PWA push notifications)
+builder.Services.Configure<WebPushSettings>(builder.Configuration.GetSection("WebPush"));
+builder.Services.PostConfigure<WebPushSettings>(opts =>
+{
+    // Allow env vars to override appsettings values (ECS task definition pattern)
+    opts.VapidPublicKey  ??= Environment.GetEnvironmentVariable("WebPush__VapidPublicKey");
+    opts.VapidPrivateKey ??= Environment.GetEnvironmentVariable("WebPush__VapidPrivateKey");
+    if (string.IsNullOrWhiteSpace(opts.Subject))
+        opts.Subject = Environment.GetEnvironmentVariable("WebPush__Subject") ?? "mailto:admin@oncarepro.com";
+});
+builder.Services.AddSingleton(System.Threading.Channels.Channel.CreateUnbounded<Application.DTOs.PushJob>());
+builder.Services.AddScoped<IPushService, WebPushService>();
+builder.Services.AddHostedService<PushBackgroundConsumer>();
+builder.Services.AddHttpClient("WebPush");
+
 // Care request matching engine
 builder.Services.AddScoped<ICareRequestMatchingService, CareRequestMatchingService>();
 
