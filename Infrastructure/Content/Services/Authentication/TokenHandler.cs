@@ -124,6 +124,31 @@ namespace Infrastructure.Content.Services.Authentication
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        public string GenerateCancellationToken(string userId)
+        {
+            var secretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret not found");
+            var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
+            var audience = configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not found");
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim("userId", userId),
+                new Claim("purpose", "account_deletion_cancel"),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer,
+                audience,
+                claims,
+                expires: DateTime.UtcNow.AddDays(30),
+                signingCredentials: creds);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
 
         //public static string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30)
         //{

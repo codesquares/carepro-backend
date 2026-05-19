@@ -207,6 +207,11 @@ namespace Application.DTOs
         // ── Visit Cancellation ──
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
         public const string VisitCancellationRequested = "visit_cancellation_requested";
+
+        // ── Account Deletion (GDPR right-to-erasure) ──
+        public const string AccountDeletionScheduled = "account_deletion_scheduled";
+        public const string AccountDeletionCancelled = "account_deletion_cancelled";
+        public const string AccountPermanentlyDeleted = "account_permanently_deleted";
     }
 
     public class BroadcastNotificationRequest

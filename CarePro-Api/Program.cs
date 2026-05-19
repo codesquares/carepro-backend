@@ -120,6 +120,7 @@ builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
 builder.Services.AddScoped<IAdminCaregiverService, AdminCaregiverService>();
+builder.Services.AddScoped<IUserDeletionService, UserDeletionService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
@@ -240,6 +241,9 @@ builder.Services.AddHostedService<GigHardDeleteProcessor>();
 
 // GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
 builder.Services.AddHostedService<GigDeletionReminderProcessor>();
+
+// GDPR: Hard-delete/anonymise user accounts past 30-day grace period (runs daily)
+builder.Services.AddHostedService<UserHardDeleteProcessor>();
 
 // Cleanup orphaned email inline-image assets older than 90 days (runs daily)
 builder.Services.AddHostedService<EmailAssetCleanupProcessor>();

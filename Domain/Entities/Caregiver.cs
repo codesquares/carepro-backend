@@ -64,5 +64,10 @@ namespace Domain.Entities
         public string? IdentityVerificationStatus { get; set; } // "success", "pending", "failed"
         public DateTime? IdentityVerifiedAt { get; set; }
 
+        // Account deletion (GDPR right-to-erasure)
+        // Set when a deletion is requested. UserHardDeleteProcessor anonymises
+        // data 30 days after DeletedOn. Can be cleared if user cancels within grace period.
+        public DateTime? AccountDeletionRequestedAt { get; set; }
+
     }
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Authentication;
+using System.Security.Claims;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -19,17 +20,20 @@ namespace CarePro_Api.Controllers.Content
         private readonly ILogger<ClientsController> logger;
         private readonly IHttpContextAccessor httpContextAccessor;
         private readonly IGoogleAuthService _googleAuthService;
+        private readonly IUserDeletionService _userDeletionService;
 
         public ClientsController(
             IClientService clientService, 
             ILogger<ClientsController> logger, 
             IHttpContextAccessor httpContextAccessor,
-            IGoogleAuthService googleAuthService)
+            IGoogleAuthService googleAuthService,
+            IUserDeletionService userDeletionService)
         {
             this.clientService = clientService;
             this.logger = logger;
             this.httpContextAccessor = httpContextAccessor;
             _googleAuthService = googleAuthService;
+            _userDeletionService = userDeletionService;
         }
 
         /// <summary>
@@ -473,5 +477,127 @@ namespace CarePro_Api.Controllers.Content
         }
 
 
+        #region Account Deletion
+
+        /// <summary>
+        /// Request deletion of the authenticated client's own account.
+        /// Schedules permanent anonymisation after a 30-day grace period.
+        /// Blocked if active orders exist.
+        /// </summary>
+        [HttpDelete("request-account-deletion")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> RequestAccountDeletion([FromBody] RequestAccountDeletionRequest request)
+        {
+            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                           ?? User.FindFirst("sub")?.Value
+                           ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(clientId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var origin = HttpContext.Request.Headers["Origin"].FirstOrDefault()
+                             ?? $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+
+                var result = await _userDeletionService.RequestClientAccountDeletionAsync(clientId, request?.Reason ?? string.Empty, origin);
+
+                if (!result.Success)
+                    return BadRequest(new { success = false, message = result.Message, blockers = result.Blockers });
+
+                return Ok(new { success = true, message = result.Message, permanentDeletionDate = result.PermanentDeletionDate });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error requesting account deletion for client {ClientId}", clientId);
+                return StatusCode(500, new { message = "An error occurred while processing your deletion request." });
+            }
+        }
+
+        /// <summary>
+        /// Cancel a pending account deletion within the 30-day grace period.
+        /// </summary>
+        [HttpPost("cancel-account-deletion")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> CancelAccountDeletion()
+        {
+            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                           ?? User.FindFirst("sub")?.Value
+                           ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(clientId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var message = await _userDeletionService.CancelClientAccountDeletionAsync(clientId);
+                return Ok(new { success = true, message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cancelling account deletion for client {ClientId}", clientId);
+                return StatusCode(500, new { message = "An error occurred while cancelling your deletion request." });
+            }
+        }
+
+        #endregion
+
+        #region Token-based cancellation (email link)
+
+        /// <summary>
+        /// Unauthenticated endpoint consumed when the user clicks the cancellation deep link
+        /// embedded in the deletion scheduled email.
+        /// </summary>
+        [HttpPost("cancel-account-deletion-by-token")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CancelAccountDeletionByToken([FromQuery] string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return BadRequest(new { message = "Cancellation token is required." });
+
+            try
+            {
+                var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+                var jwtToken = tokenHandler.ReadJwtToken(token);
+
+                var purpose = jwtToken.Claims.FirstOrDefault(c => c.Type == "purpose")?.Value;
+                if (purpose != "account_deletion_cancel")
+                    return BadRequest(new { message = "Invalid cancellation token." });
+
+                var clientId = jwtToken.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
+                if (string.IsNullOrEmpty(clientId))
+                    return BadRequest(new { message = "Invalid cancellation token." });
+
+                var message = await _userDeletionService.CancelClientAccountDeletionAsync(clientId);
+                return Ok(new { success = true, message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error in token-based cancellation for client");
+                return StatusCode(500, new { message = "An error occurred while cancelling your deletion request." });
+            }
+        }
+
+        #endregion
     }
 }

@@ -47,6 +47,10 @@ namespace Application.Interfaces.Email
         Task SendCustomEmailToUserAsync(string toEmail, string firstName, string subject, string htmlContent, 
             List<Application.DTOs.Email.EmailAttachmentInfo>? attachments = null);
         Task SendBulkCustomEmailAsync(List<(string Email, string FirstName)> recipients, string subject, string htmlContent);
+
+        // Account deletion notification emails
+        Task SendAccountDeletionScheduledEmailAsync(string toEmail, string firstName, DateTime permanentDeletionDate, string? cancellationLink = null);
+        Task SendAccountDeletionCancelledEmailAsync(string toEmail, string firstName);
     }
 
     // Supporting classes for email service
