@@ -1,8 +1,10 @@
-﻿using Application.DTOs;
+﻿using Application.Commands;
+using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.Build.Framework;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -20,13 +22,15 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext careProDbContext;
         private readonly IGigServices gigServices;
         private readonly IClientService clientService;
+        private readonly IMediator _mediator;
         private readonly ILogger<ReviewService> logger;
 
-        public ReviewService(CareProDbContext careProDbContext, IGigServices gigServices, IClientService clientService, ILogger<ReviewService> logger)
+        public ReviewService(CareProDbContext careProDbContext, IGigServices gigServices, IClientService clientService, IMediator mediator, ILogger<ReviewService> logger)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
             this.clientService = clientService;
+            _mediator = mediator;
             this.logger = logger;
         }
 
@@ -50,6 +54,22 @@ namespace Infrastructure.Content.Services
 
                 await careProDbContext.Reviews.AddAsync(review);
                 await careProDbContext.SaveChangesAsync();
+
+                // ── Notify caregiver that they received a new review ──
+                try
+                {
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: addReviewRequest.CaregiverId,
+                        SenderId: addReviewRequest.ClientId,
+                        Type: NotificationTypes.NewReview,
+                        Content: $"You received a {addReviewRequest.Rating}-star review from a client.",
+                        Title: "New Review Received",
+                        RelatedEntityId: review.ReviewId.ToString()));
+                }
+                catch (Exception notifEx)
+                {
+                    logger.LogError(notifEx, "Failed to send new-review notification for ReviewId {ReviewId}", review.ReviewId);
+                }
 
                 return review.ReviewId.ToString();
             }
@@ -164,7 +184,53 @@ namespace Infrastructure.Content.Services
         {
             return await careProDbContext.Reviews
                    .CountAsync(g => g.GigId == gigId);
+        }
 
+        public async Task<IEnumerable<ReviewResponse>> GetCaregiverReviewsAsync(string caregiverId)
+        {
+            try
+            {
+                var reviews = await careProDbContext.Reviews
+                    .Where(r => r.CaregiverId == caregiverId)
+                    .OrderByDescending(r => r.ReviewedOn)
+                    .ToListAsync();
+
+                var result = new List<ReviewResponse>();
+                var gigCache = new Dictionary<string, GigDTO?>();
+
+                foreach (var review in reviews)
+                {
+                    var client = await clientService.GetClientUserAsync(review.ClientId);
+                    if (client == null) continue;
+
+                    if (!gigCache.TryGetValue(review.GigId, out var gig))
+                    {
+                        try { gig = await gigServices.GetGigAsync(review.GigId); }
+                        catch (KeyNotFoundException) { gig = null; }
+                        gigCache[review.GigId] = gig;
+                    }
+
+                    result.Add(new ReviewResponse
+                    {
+                        ReviewId = review.ReviewId.ToString(),
+                        ClientId = review.ClientId,
+                        ClientName = client.FirstName + " " + client.LastName,
+                        CaregiverId = review.CaregiverId,
+                        CaregiverName = gig?.CaregiverName ?? string.Empty,
+                        GigId = review.GigId,
+                        Message = review.Message,
+                        Rating = review.Rating,
+                        ReviewedOn = review.ReviewedOn,
+                    });
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error retrieving reviews for caregiver {CaregiverId}", caregiverId);
+                throw;
+            }
         }
     }
 }

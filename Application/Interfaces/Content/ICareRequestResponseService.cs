@@ -41,5 +41,10 @@ namespace Application.Interfaces.Content
         /// Get a single care request detail from caregiver's perspective (anonymized client).
         /// </summary>
         Task<CaregiverRequestDetailDTO> GetCaregiverViewAsync(string careRequestId, string caregiverId);
+
+        /// <summary>
+        /// List all care requests the caregiver has responded to, with their response status.
+        /// </summary>
+        Task<List<CaregiverMyResponseDTO>> GetCaregiverMyResponsesAsync(string caregiverId);
     }
 }

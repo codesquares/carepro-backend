@@ -1,6 +1,9 @@
-﻿using Application.Interfaces.Content;
+﻿using Application.Commands;
+using Application.DTOs;
+using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -70,6 +73,7 @@ namespace Infrastructure.Content.Services
             var dbContext = scope.ServiceProvider.GetRequiredService<CareProDbContext>();
             var walletService = scope.ServiceProvider.GetRequiredService<ICaregiverWalletService>();
             var ledgerService = scope.ServiceProvider.GetRequiredService<IEarningsLedgerService>();
+            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
             var cutoffDate = DateTime.UtcNow.AddDays(-AutoReleaseDays);
 
@@ -171,6 +175,23 @@ namespace Infrastructure.Content.Services
                         "DailyEarningService: Auto-released ₦{Amount} for visit #{SheetNumber}, CaregiverId {CaregiverId}, OrderId {OrderId}",
                         perVisitAmount, taskSheet.SheetNumber, order.CaregiverId, order.Id);
 
+                    // ── Notify caregiver that funds were auto-released ──
+                    try
+                    {
+                        await mediator.Send(new SendNotificationCommand(
+                            RecipientId: order.CaregiverId,
+                            SenderId: "system",
+                            Type: NotificationTypes.VisitApproved,
+                            Content: $"Visit #{taskSheet.SheetNumber} was auto-approved after {AutoReleaseDays} days without client review. ₦{perVisitAmount:N2} has been released to your wallet.",
+                            Title: "Visit Auto-Approved",
+                            RelatedEntityId: taskSheet.Id.ToString(),
+                            OrderId: order.Id.ToString()));
+                    }
+                    catch (Exception notifEx)
+                    {
+                        _logger.LogError(notifEx, "DailyEarningService: Failed to send auto-release notification for TaskSheet {TaskSheetId}", taskSheet.Id);
+                    }
+
                     // Check if all visits for this order/cycle are now approved → auto-complete
                     int currentBillingCycle = order.BillingCycleNumber ?? 1;
                     int approvedCount = await dbContext.TaskSheets
@@ -190,6 +211,32 @@ namespace Infrastructure.Content.Services
                         _logger.LogInformation(
                             "DailyEarningService: Order {OrderId} auto-completed — all {Max} visits approved/auto-released.",
                             order.Id, maxVisits);
+
+                        // ── Notify caregiver and client that the order is fully complete ──
+                        try
+                        {
+                            await mediator.Send(new SendNotificationCommand(
+                                RecipientId: order.CaregiverId,
+                                SenderId: "system",
+                                Type: NotificationTypes.OrderCompleted,
+                                Content: $"Your order has been completed. All {maxVisits} visits have been approved and your earnings have been fully released.",
+                                Title: "Order Completed",
+                                RelatedEntityId: order.Id.ToString(),
+                                OrderId: order.Id.ToString()));
+
+                            await mediator.Send(new SendNotificationCommand(
+                                RecipientId: order.ClientId,
+                                SenderId: "system",
+                                Type: NotificationTypes.OrderCompleted,
+                                Content: $"Your care order has been completed. All {maxVisits} visits have been approved.",
+                                Title: "Order Completed",
+                                RelatedEntityId: order.Id.ToString(),
+                                OrderId: order.Id.ToString()));
+                        }
+                        catch (Exception notifEx)
+                        {
+                            _logger.LogError(notifEx, "DailyEarningService: Failed to send order-completed notifications for Order {OrderId}", order.Id);
+                        }
                     }
                 }
                 catch (Exception ex)

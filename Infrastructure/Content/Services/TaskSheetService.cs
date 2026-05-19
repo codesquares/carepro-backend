@@ -991,7 +991,7 @@ namespace Infrastructure.Content.Services
                     await _mediator.Send(new SendNotificationCommand(
                         caregiverId,
                         clientId,
-                        NotificationTypes.VisitCancelledByClient, // Reuse — closest match
+                        NotificationTypes.VisitRescheduled,
                         notificationContent,
                         "Visit Rescheduled",
                         taskSheetId,

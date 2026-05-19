@@ -130,6 +130,22 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation($"CareRequest created with ID: {careRequest.Id}");
 
+            // ── Confirm to client that their care request was posted ──
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: createCareRequestDTO.ClientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.CareRequestCreated,
+                    Content: $"Your care request \"{createCareRequestDTO.Title}\" has been posted. Caregivers matching your requirements will be able to respond.",
+                    Title: "Care Request Posted",
+                    RelatedEntityId: careRequest.Id.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send care-request-created notification for CareRequest {CareRequestId}", careRequest.Id);
+            }
+
             return MapToDTO(careRequest);
         }
 
@@ -484,6 +500,23 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation("CareRequest {RequestId} paused by client {ClientId}", requestId, clientId);
+
+            // ── Confirm to client that the request is now paused ──
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: clientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.CareRequestPaused,
+                    Content: $"Your care request \"{careRequest.Title}\" has been paused. No new caregivers will be matched until you reopen it.",
+                    Title: "Care Request Paused",
+                    RelatedEntityId: requestId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send care-request-paused notification for CareRequest {RequestId}", requestId);
+            }
+
             return MapToDTO(careRequest);
         }
 
@@ -501,6 +534,23 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation("CareRequest {RequestId} reopened by client {ClientId}", requestId, clientId);
+
+            // ── Confirm to client that the request is active again ──
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: clientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.CareRequestReopened,
+                    Content: $"Your care request \"{careRequest.Title}\" is now active again. Caregivers can respond to it.",
+                    Title: "Care Request Reopened",
+                    RelatedEntityId: requestId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send care-request-reopened notification for CareRequest {RequestId}", requestId);
+            }
+
             return MapToDTO(careRequest);
         }
 
@@ -523,6 +573,23 @@ namespace Infrastructure.Content.Services
                 "Request Closed", $"The care request \"{careRequest.Title}\" has been closed by the client.");
 
             _logger.LogInformation("CareRequest {RequestId} closed by client {ClientId}", requestId, clientId);
+
+            // ── Confirm to client that the request has been closed ──
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: clientId,
+                    SenderId: "system",
+                    Type: NotificationTypes.CareRequestClosed,
+                    Content: $"Your care request \"{careRequest.Title}\" has been closed.",
+                    Title: "Care Request Closed",
+                    RelatedEntityId: requestId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send care-request-closed notification for CareRequest {RequestId}", requestId);
+            }
+
             return MapToDTO(careRequest);
         }
 

@@ -195,7 +195,7 @@ namespace Infrastructure.Content.Services
 
         public async Task<ShortlistResult> RemoveShortlistAsync(string careRequestId, string responseId, string clientId)
         {
-            var (_, response) = await ValidateClientResponseAccessAsync(careRequestId, responseId, clientId);
+            var (careRequest, response) = await ValidateClientResponseAccessAsync(careRequestId, responseId, clientId);
 
             if (response.Status != "shortlisted")
                 throw new InvalidOperationException("This responder is not currently shortlisted.");
@@ -204,6 +204,26 @@ namespace Infrastructure.Content.Services
             response.ShortlistedAt = null;
             _dbContext.CareRequestResponses.Update(response);
             await _dbContext.SaveChangesAsync();
+
+            // ── Notify caregiver that they were removed from the shortlist ──
+            try
+            {
+                if (!string.IsNullOrEmpty(response.CaregiverId))
+                {
+                    var requestTitle = careRequest?.Title ?? "a care request";
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: response.CaregiverId,
+                        SenderId: clientId,
+                        Type: NotificationTypes.ShortlistRemoved,
+                        Content: $"You have been removed from the shortlist for \"{requestTitle}\". You may still be considered.",
+                        Title: "Removed from Shortlist",
+                        RelatedEntityId: responseId));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send shortlist-removed notification for ResponseId {ResponseId}", responseId);
+            }
 
             return new ShortlistResult { Success = true, ResponseId = responseId, Status = "pending" };
         }
@@ -564,6 +584,41 @@ namespace Infrastructure.Content.Services
                 MatchCount = cr.MatchCount ?? 0,
                 RespondersCount = cr.RespondersCount ?? 0
             };
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  Caregiver: My Submitted Responses
+        // ─────────────────────────────────────────────────────────────
+
+        public async Task<List<CaregiverMyResponseDTO>> GetCaregiverMyResponsesAsync(string caregiverId)
+        {
+            var responses = await _dbContext.CareRequestResponses
+                .Where(r => r.CaregiverId == caregiverId)
+                .OrderByDescending(r => r.RespondedAt)
+                .ToListAsync();
+
+            var result = new List<CaregiverMyResponseDTO>();
+
+            foreach (var response in responses)
+            {
+                var careRequest = await _dbContext.CareRequests
+                    .FirstOrDefaultAsync(cr => cr.Id.ToString() == response.CareRequestId);
+
+                result.Add(new CaregiverMyResponseDTO
+                {
+                    ResponseId = response.Id.ToString(),
+                    CareRequestId = response.CareRequestId,
+                    CareRequestTitle = careRequest?.Title ?? "(Care Request)",
+                    CareRequestStatus = careRequest?.Status ?? "unknown",
+                    ResponseStatus = response.Status,
+                    Message = response.Message,
+                    ProposedRate = response.ProposedRate,
+                    RespondedAt = response.RespondedAt,
+                    ShortlistedAt = response.ShortlistedAt
+                });
+            }
+
+            return result;
         }
     }
 }

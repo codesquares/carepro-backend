@@ -95,6 +95,23 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        // GET: api/Reviews/caregiver/{caregiverId}
+        [HttpGet("caregiver/{caregiverId}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetCaregiverReviews(string caregiverId)
+        {
+            try
+            {
+                var reviews = await reviewService.GetCaregiverReviewsAsync(caregiverId);
+                return Ok(reviews);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error retrieving reviews for caregiver {CaregiverId}", caregiverId);
+                return StatusCode(500, new { message = "Failed to retrieve caregiver reviews", error = ex.Message });
+            }
+        }
+
 
 
     }

@@ -84,6 +84,29 @@ namespace Infrastructure.Content.Services
                 "Refund Request Submitted",
                 refundRequest.Id.ToString()));
 
+            // ── Alert Finance/SuperAdmin admins about the new refund request ──
+            try
+            {
+                var financeAdmins = await _dbContext.AdminUsers
+                    .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
+                    .ToListAsync();
+
+                foreach (var admin in financeAdmins)
+                {
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: admin.Id.ToString(),
+                        SenderId: clientId,
+                        Type: NotificationTypes.RefundRequestAdminAlert,
+                        Content: $"[ACTION REQUIRED] A client has requested a refund of ₦{request.Amount:N2}. Please review as soon as possible.",
+                        Title: "New Refund Request",
+                        RelatedEntityId: refundRequest.Id.ToString()));
+                }
+            }
+            catch (Exception notifEx)
+            {
+                _logger.LogError(notifEx, "Failed to send admin refund-alert notification for RefundRequest {RequestId}", refundRequest.Id);
+            }
+
             _logger.LogInformation("Refund request {RequestId} created by client {ClientId} for ₦{Amount}",
                 refundRequest.Id, clientId, request.Amount);
 

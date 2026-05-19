@@ -143,6 +143,24 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
+        /// Lists all booking commitments for the authenticated client, ordered newest first.
+        /// </summary>
+        [HttpGet("client")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> GetClientCommitments()
+        {
+            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(clientId))
+                return Unauthorized(new { success = false, message = "User not authenticated." });
+
+            var commitments = await _commitmentService.GetClientCommitmentsAsync(clientId);
+            return Ok(commitments);
+        }
+
+        /// <summary>
         /// Checks whether the authenticated client has unlocked messaging access for a specific gig.
         /// </summary>
         [HttpGet("check/{gigId}")]

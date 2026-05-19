@@ -17,5 +17,6 @@ namespace Application.Interfaces.Content
 
         Task<int> GetReviewCountAsync(string gigId);
 
+        Task<IEnumerable<ReviewResponse>> GetCaregiverReviewsAsync(string caregiverId);
     }
 }

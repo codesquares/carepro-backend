@@ -152,4 +152,21 @@ namespace Application.DTOs
         public int Page { get; set; }
         public int PageSize { get; set; }
     }
+
+    /// <summary>
+    /// A care request the caregiver has responded to, with their response status.
+    /// Used by GET /api/care-requests/caregiver/my-responses
+    /// </summary>
+    public class CaregiverMyResponseDTO
+    {
+        public string ResponseId { get; set; } = string.Empty;
+        public string CareRequestId { get; set; } = string.Empty;
+        public string CareRequestTitle { get; set; } = string.Empty;
+        public string CareRequestStatus { get; set; } = string.Empty;
+        public string ResponseStatus { get; set; } = string.Empty;
+        public string? Message { get; set; }
+        public decimal? ProposedRate { get; set; }
+        public DateTime RespondedAt { get; set; }
+        public DateTime? ShortlistedAt { get; set; }
+    }
 }
