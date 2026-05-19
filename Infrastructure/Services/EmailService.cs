@@ -546,6 +546,36 @@ namespace Infrastructure.Services
             await SendEmailAsync(emailMessage);
         }
 
+        public async Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes)
+        {
+            var emailMessage = new MimeMessage();
+            emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            emailMessage.To.Add(MailboxAddress.Parse(toEmail));
+            emailMessage.Subject = $"Payment Receipt — {description} - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {firstName},</h3>
+                        <br />
+                        <h4 style='color: #28a745;'>✅ Payment Receipt</h4>
+                        <p>Thank you for your payment. Please find your receipt attached as a PDF.</p>
+                        <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;'>
+                            <p><strong>Description:</strong> {description}</p>
+                            <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                        </div>
+                        <p>You can also re-download this receipt any time from your CarePro dashboard.</p>
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            builder.Attachments.Add(receiptFileName, pdfBytes, new MimeKit.ContentType("application", "pdf"));
+
+            emailMessage.Body = builder.ToMessageBody();
+            await SendEmailAsync(emailMessage);
+        }
+
         // Order notification methods
         public async Task SendOrderReceivedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string clientName, string orderId)
         {

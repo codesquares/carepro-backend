@@ -93,39 +93,69 @@ namespace Application.DTOs
 
     /// <summary>
     /// Flutterwave v3 webhook payload — fields nested under "data" in the envelope.
-    /// Flutterwave sends snake_case (tx_ref, flw_ref, created_at).
+    /// Handles both snake_case (production: tx_ref, flw_ref) and camelCase (dev/test: txRef, flwRef).
     /// </summary>
     public class FlutterwaveWebhookPayload
     {
         [System.Text.Json.Serialization.JsonPropertyName("id")]
         public long Id { get; set; }
-        
+
+        // snake_case (production) and camelCase (dev/test) variants for TxRef
         [System.Text.Json.Serialization.JsonPropertyName("tx_ref")]
-        public string? TxRef { get; set; }
-        
+        public string? TxRefSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("txRef")]
+        public string? TxRefCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? TxRef => TxRefSnake ?? TxRefCamel;
+
+        // snake_case (production) and camelCase (dev/test) variants for FlwRef
         [System.Text.Json.Serialization.JsonPropertyName("flw_ref")]
-        public string? FlwRef { get; set; }
-        
+        public string? FlwRefSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("flwRef")]
+        public string? FlwRefCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? FlwRef => FlwRefSnake ?? FlwRefCamel;
+
+        // snake_case (production) and camelCase (dev/test) variants for OrderRef
         [System.Text.Json.Serialization.JsonPropertyName("order_ref")]
-        public string? OrderRef { get; set; }
+        public string? OrderRefSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("orderRef")]
+        public string? OrderRefCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? OrderRef => OrderRefSnake ?? OrderRefCamel;
         
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string? Status { get; set; }
         
         [System.Text.Json.Serialization.JsonPropertyName("amount")]
         public decimal Amount { get; set; }
-        
+
+        // snake_case (production: charged_amount) and no-separator (dev/test: charged_amount same)
         [System.Text.Json.Serialization.JsonPropertyName("charged_amount")]
-        public decimal ChargedAmount { get; set; }
+        public decimal ChargedAmountSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("chargedAmount")]
+        public decimal ChargedAmountCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public decimal ChargedAmount => ChargedAmountSnake > 0 ? ChargedAmountSnake : ChargedAmountCamel;
         
         [System.Text.Json.Serialization.JsonPropertyName("currency")]
         public string? Currency { get; set; }
-        
+
+        // app_fee (production) and appfee (dev/test, no underscore)
         [System.Text.Json.Serialization.JsonPropertyName("app_fee")]
-        public decimal AppFee { get; set; }
-        
+        public decimal AppFeeSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("appfee")]
+        public decimal AppFeeCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public decimal AppFee => AppFeeSnake > 0 ? AppFeeSnake : AppFeeCamel;
+
+        // created_at (production) and createdAt (dev/test)
         [System.Text.Json.Serialization.JsonPropertyName("created_at")]
-        public DateTime? CreatedAt { get; set; }
+        public DateTime? CreatedAtSnake { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("createdAt")]
+        public DateTime? CreatedAtCamel { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public DateTime? CreatedAt => CreatedAtSnake ?? CreatedAtCamel;
         
         [System.Text.Json.Serialization.JsonPropertyName("ip")]
         public string? IP { get; set; }

@@ -190,6 +190,7 @@ builder.Services.AddScoped<IContractNotificationService, ContractNotificationSer
 builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
 builder.Services.AddScoped<IContractTemplateService, ContractTemplateService>();
 builder.Services.AddScoped<IContractPdfService, ContractPdfService>();
+builder.Services.AddScoped<IReceiptPdfService, ReceiptPdfService>();
 
 // Order Tasks services (Enhanced Contract Generation feature)
 builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();

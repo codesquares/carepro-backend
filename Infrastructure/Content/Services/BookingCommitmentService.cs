@@ -19,6 +19,7 @@ namespace Infrastructure.Content.Services
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
+        private readonly IReceiptPdfService _receiptPdfService;
         private readonly ILogger<BookingCommitmentService> _logger;
 
         /// <summary>
@@ -38,6 +39,7 @@ namespace Infrastructure.Content.Services
             FlutterwaveService flutterwaveService,
             IMediator mediator,
             IEmailService emailService,
+            IReceiptPdfService receiptPdfService,
             ILogger<BookingCommitmentService> logger)
         {
             _dbContext = dbContext;
@@ -45,6 +47,7 @@ namespace Infrastructure.Content.Services
             _flutterwaveService = flutterwaveService;
             _mediator = mediator;
             _emailService = emailService;
+            _receiptPdfService = receiptPdfService;
             _logger = logger;
         }
 
@@ -438,19 +441,7 @@ namespace Infrastructure.Content.Services
             var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "the caregiver";
             var gigTitle = gig?.Title ?? "a gig";
 
-            // 1. Send receipt email to client
-            if (client != null)
-            {
-                await _emailService.SendPaymentConfirmationEmailAsync(
-                    client.Email,
-                    client.FirstName,
-                    commitment.Amount,
-                    $"Booking Commitment Fee — {gigTitle}",
-                    commitment.FlutterwaveTransactionId ?? commitment.TransactionReference
-                );
-            }
-
-            // 2. Notify client: "You now have access to chat with [Caregiver] about [Gig]"
+            // 1. In-app notifications first — must not be blocked by email failure
             await _mediator.Send(new SendNotificationCommand(
                 RecipientId: commitment.ClientId,
                 SenderId: commitment.CaregiverId,
@@ -460,7 +451,6 @@ namespace Infrastructure.Content.Services
                 RelatedEntityId: commitment.GigId
             ));
 
-            // 3. Notify caregiver: "A client is interested in your gig"
             await _mediator.Send(new SendNotificationCommand(
                 RecipientId: commitment.CaregiverId,
                 SenderId: commitment.ClientId,
@@ -471,8 +461,46 @@ namespace Infrastructure.Content.Services
             ));
 
             _logger.LogInformation(
-                "Commitment notifications sent. ClientId: {ClientId}, CaregiverId: {CaregiverId}, GigId: {GigId}",
+                "Commitment in-app notifications sent. ClientId: {ClientId}, CaregiverId: {CaregiverId}, GigId: {GigId}",
                 commitment.ClientId, commitment.CaregiverId, commitment.GigId);
+
+            // 2. Email receipt with PDF — isolated so failure never blocks in-app notifications
+            if (client != null)
+            {
+                try
+                {
+                    var receiptData = new CommitmentReceiptData
+                    {
+                        TransactionReference = commitment.TransactionReference,
+                        FlutterwaveTransactionId = commitment.FlutterwaveTransactionId,
+                        ClientName = clientName,
+                        ClientEmail = client.Email,
+                        CaregiverName = caregiverName,
+                        GigTitle = gigTitle,
+                        CommitmentFee = commitment.Amount,
+                        GatewayFees = commitment.FlutterwaveFees,
+                        TotalCharged = commitment.TotalCharged,
+                        Currency = "NGN",
+                        PaidAt = commitment.CompletedAt ?? DateTime.UtcNow
+                    };
+
+                    var pdfBytes = _receiptPdfService.GenerateCommitmentReceipt(receiptData);
+                    var fileName = $"CarePro-Receipt-Commitment-{commitment.TransactionReference}.pdf";
+                    var description = $"Booking Commitment Fee — {gigTitle}";
+
+                    await _emailService.SendPaymentReceiptEmailAsync(
+                        client.Email, client.FirstName, fileName, description, pdfBytes);
+
+                    _logger.LogInformation("Commitment receipt email sent to {Email} for TxRef: {TxRef}",
+                        client.Email, commitment.TransactionReference);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to send commitment receipt email for TxRef: {TxRef}. In-app notifications were already delivered.",
+                        commitment.TransactionReference);
+                }
+            }
         }
 
         private decimal CalculateFlutterwaveFees(decimal amount)

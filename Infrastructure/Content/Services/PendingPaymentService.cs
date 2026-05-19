@@ -140,7 +140,25 @@ namespace Infrastructure.Content.Services
             if (existingPendingPayment != null)
             {
                 var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
-                if (age.TotalMinutes < 5 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
+
+                // If the user changed their selection (service type or frequency), the cached
+                // link has the wrong price — expire it immediately and create a fresh one.
+                bool selectionChanged =
+                    !string.Equals(existingPendingPayment.ServiceType, request.ServiceType, StringComparison.OrdinalIgnoreCase)
+                    || existingPendingPayment.FrequencyPerWeek != request.FrequencyPerWeek;
+
+                if (selectionChanged)
+                {
+                    existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                    existingPendingPayment.ErrorMessage = "Expired: user changed service selection before completing payment.";
+                    _logger.LogInformation(
+                        "Expired pending payment — selection changed. TxRef: {TxRef}, OldType: {OldType}, NewType: {NewType}, OldFreq: {OldFreq}, NewFreq: {NewFreq}",
+                        existingPendingPayment.TransactionReference,
+                        existingPendingPayment.ServiceType, request.ServiceType,
+                        existingPendingPayment.FrequencyPerWeek, request.FrequencyPerWeek);
+                    // fall through — new pending payment will be created below
+                }
+                else if (age.TotalMinutes < 5 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
                 {
                     // Verify the commitment is still valid before returning a cached link
                     var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
@@ -370,7 +388,8 @@ namespace Infrastructure.Content.Services
                 OrderFee = pendingPayment.OrderFee,
                 TransactionId = flutterwaveTransactionId,
                 FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
-                ServiceType = pendingPayment.ServiceType
+                ServiceType = pendingPayment.ServiceType,
+                TransactionReference = transactionReference
             });
 
             if (!orderResult.IsSuccess)

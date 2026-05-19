@@ -42,6 +42,7 @@ namespace Application.DTOs
         public string? PaymentOption { get; set; }
         public int Amount { get; set; }
         public string? TransactionId { get; set; }
+        public string? TransactionReference { get; set; }
         public string? ClientOrderStatus { get; set; }
         public bool IsOrderStatusApproved { get; set; }
         public DateTime OrderCreatedOn { get; set; }
@@ -83,6 +84,7 @@ namespace Application.DTOs
         public decimal OrderFee { get; set; }
 
         public string? TransactionId { get; set; }
+        public string? TransactionReference { get; set; }
         public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
         public int? FrequencyPerWeek { get; set; }
         public string? ServiceType { get; set; }

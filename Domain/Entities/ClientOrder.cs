@@ -23,6 +23,13 @@ namespace Domain.Entities
         public decimal? OrderFee { get; set; }
 
         public string TransactionId { get; set; }
+
+        /// <summary>
+        /// The CAREPRO- prefixed transaction reference used for receipt download.
+        /// Null on orders created before this field was introduced.
+        /// </summary>
+        public string? TransactionReference { get; set; }
+
         public string? ClientOrderStatus { get; set; }
         public bool IsOrderStatusApproved { get; set; }
         public DateTime OrderCreatedAt { get; set; }
