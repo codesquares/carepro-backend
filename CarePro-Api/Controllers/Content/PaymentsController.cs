@@ -1,5 +1,6 @@
 ﻿using Application.DTOs;
 using Application.Interfaces;
+using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -14,17 +15,20 @@ namespace CarePro_Api.Controllers.Content
         private readonly IPendingPaymentService _pendingPaymentService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly FlutterwaveService _flutterwaveService;
+        private readonly IReceiptPdfService _receiptPdfService;
         private readonly ILogger<PaymentsController> _logger;
 
         public PaymentsController(
             IPendingPaymentService pendingPaymentService,
             IBookingCommitmentService bookingCommitmentService,
             FlutterwaveService flutterwaveService,
+            IReceiptPdfService receiptPdfService,
             ILogger<PaymentsController> logger)
         {
             _pendingPaymentService = pendingPaymentService;
             _bookingCommitmentService = bookingCommitmentService;
             _flutterwaveService = flutterwaveService;
+            _receiptPdfService = receiptPdfService;
             _logger = logger;
         }
 
@@ -520,6 +524,100 @@ namespace CarePro_Api.Controllers.Content
                 amountRefunded = refundResult.AmountRefunded,
                 refundStatus = refundResult.Status
             });
+        }
+
+        // ── Receipt download endpoints ────────────────────────────────────
+
+        /// <summary>
+        /// Downloads a PDF receipt for a completed booking commitment fee payment.
+        /// Only the client who made the payment can download their own receipt.
+        /// </summary>
+        [HttpGet("receipt/commitment/{txRef}")]
+        [Authorize]
+        public async Task<IActionResult> DownloadCommitmentReceipt(string txRef)
+        {
+            var clientId = User.FindFirst("userId")?.Value
+                        ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            var commitment = await _bookingCommitmentService.GetByTransactionReferenceAsync(txRef);
+
+            if (commitment == null)
+                return NotFound(new { success = false, message = "Receipt not found." });
+
+            if (commitment.ClientId != clientId)
+                return Forbid();
+
+            if (commitment.Status != Domain.Entities.BookingCommitmentStatus.Completed)
+                return BadRequest(new { success = false, message = "Receipt is only available for completed payments." });
+
+            var receiptData = new CommitmentReceiptData
+            {
+                TransactionReference = commitment.TransactionReference,
+                FlutterwaveTransactionId = commitment.FlutterwaveTransactionId,
+                ClientName = "CarePro Client",
+                ClientEmail = commitment.Email,
+                CaregiverName = "CarePro Caregiver",
+                GigTitle = "Care Service",
+                CommitmentFee = commitment.Amount,
+                GatewayFees = commitment.FlutterwaveFees,
+                TotalCharged = commitment.TotalCharged,
+                Currency = "NGN",
+                PaidAt = commitment.CompletedAt ?? DateTime.UtcNow
+            };
+
+            var pdfBytes = _receiptPdfService.GenerateCommitmentReceipt(receiptData);
+            var fileName = $"CarePro-Receipt-Commitment-{txRef}.pdf";
+
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+
+        /// <summary>
+        /// Downloads a PDF receipt for a completed full gig order payment.
+        /// Only the client who made the payment can download their own receipt.
+        /// </summary>
+        [HttpGet("receipt/order/{txRef}")]
+        [Authorize]
+        public async Task<IActionResult> DownloadOrderReceipt(string txRef)
+        {
+            var clientId = User.FindFirst("userId")?.Value
+                        ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            var payment = await _pendingPaymentService.GetByTransactionReferenceAsync(txRef);
+
+            if (payment == null)
+                return NotFound(new { success = false, message = "Receipt not found." });
+
+            if (payment.ClientId != clientId)
+                return Forbid();
+
+            if (payment.Status != Domain.Entities.PendingPaymentStatus.Completed)
+                return BadRequest(new { success = false, message = "Receipt is only available for completed payments." });
+
+            var receiptData = new OrderReceiptData
+            {
+                TransactionReference = payment.TransactionReference,
+                FlutterwaveTransactionId = payment.FlutterwaveTransactionId,
+                ClientOrderId = payment.ClientOrderId,
+                ClientName = "CarePro Client",
+                ClientEmail = payment.Email,
+                CaregiverName = "CarePro Caregiver",
+                GigTitle = "Care Service",
+                ServiceType = payment.ServiceType,
+                FrequencyPerWeek = payment.FrequencyPerWeek,
+                BasePrice = payment.BasePrice,
+                OrderFee = payment.OrderFee,
+                ServiceCharge = payment.ServiceCharge,
+                GatewayFees = payment.FlutterwaveFees,
+                CommitmentFeeDeducted = 0m,
+                TotalCharged = payment.TotalAmount,
+                Currency = payment.Currency,
+                PaidAt = payment.CompletedAt ?? DateTime.UtcNow
+            };
+
+            var pdfBytes = _receiptPdfService.GenerateOrderReceipt(receiptData);
+            var fileName = $"CarePro-Receipt-Order-{txRef}.pdf";
+
+            return File(pdfBytes, "application/pdf", fileName);
         }
     }
 }
