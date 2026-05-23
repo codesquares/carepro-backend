@@ -13,6 +13,7 @@ using MongoDB.Driver;
 
 public class UnreadNotificationEmailBackgroundService : BackgroundService
 {
+    private const string UnreadBatchNotificationType = "UnreadNotificationBatch";
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UnreadNotificationEmailBackgroundService> _logger;
@@ -55,6 +56,7 @@ public class UnreadNotificationEmailBackgroundService : BackgroundService
 
         var dbContext = scope.ServiceProvider.GetRequiredService<CareProDbContext>();
         var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+        var trackingService = scope.ServiceProvider.GetRequiredService<IEmailNotificationTrackingService>();
 
         var cutoffTime = DateTime.UtcNow.AddHours(-2);
 
@@ -78,22 +80,37 @@ public class UnreadNotificationEmailBackgroundService : BackgroundService
 
             try
             {
+                var alreadySentToday = await trackingService.HasBatchEmailBeenSentTodayAsync(recipientId, UnreadBatchNotificationType);
+                if (alreadySentToday)
+                {
+                    _logger.LogInformation("Skipping unread notification email for recipient {RecipientId} — already sent today.", recipientId);
+                    continue;
+                }
+
                 var recipient = await dbContext.AppUsers
                     .Where(x => x.AppUserId.ToString() == recipientId)
                     .FirstOrDefaultAsync(stoppingToken);
 
                 if (recipient == null || string.IsNullOrEmpty(recipient.Email))
                 {
-                    _logger.LogWarning($"Recipient with ID {recipientId} not found or has no email.");
+                    _logger.LogWarning("Recipient with ID {RecipientId} not found or has no email.", recipientId);
                     continue;
                 }
 
                 await emailService.SendNotificationEmailAsync(recipient.Email, recipient.FirstName, messageCount);
-                _logger.LogInformation($"Sent unread notification reminder to {recipient.Email}");
+
+                var notificationIds = group.Select(n => n.Id.ToString()).ToList();
+                await trackingService.LogBatchEmailSentAsync(
+                    recipientId,
+                    UnreadBatchNotificationType,
+                    notificationIds,
+                    "You Have Unread Message!");
+
+                _logger.LogInformation("Sent unread notification reminder to {Email}", recipient.Email);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error sending email for recipient {recipientId}");
+                _logger.LogError(ex, "Error sending email for recipient {RecipientId}", recipientId);
             }
         }
 
