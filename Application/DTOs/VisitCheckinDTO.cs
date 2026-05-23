@@ -38,6 +38,8 @@ namespace Application.DTOs
         public DateTime CheckinTimestamp { get; set; }
         public double? DistanceFromServiceAddress { get; set; }
         public bool AlreadyCheckedIn { get; set; }
+        public bool IsLateCheckin { get; set; }
+        public double MinutesLate { get; set; }
     }
 
     /// <summary>
@@ -63,5 +65,7 @@ namespace Application.DTOs
         public double Accuracy { get; set; }
         public double? DistanceFromServiceAddress { get; set; }
         public DateTime CheckinTimestamp { get; set; }
+        public bool IsLateCheckin { get; set; }
+        public double MinutesLate { get; set; }
     }
 }

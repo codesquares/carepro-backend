@@ -14,6 +14,8 @@ namespace Domain.Entities
         public double Accuracy { get; set; }
         public double? DistanceFromServiceAddress { get; set; }
         public DateTime CheckinTimestamp { get; set; }
+        public bool IsLateCheckin { get; set; }
+        public double MinutesLate { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

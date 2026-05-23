@@ -19,6 +19,9 @@ namespace Application.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
+        public string? ScheduledStartTime { get; set; }
+        public string? ScheduledEndTime { get; set; }
+
         // Visit check-in data (null if not yet checked in)
         public VisitCheckinDTO? Checkin { get; set; }
 

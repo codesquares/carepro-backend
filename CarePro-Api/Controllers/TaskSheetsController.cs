@@ -310,7 +310,7 @@ namespace CarePro_Api.Controllers
                 if (string.IsNullOrEmpty(userId))
                     return Unauthorized(new { error = "Client authorization required." });
 
-                var result = await _taskSheetService.RescheduleTaskSheetAsync(taskSheetId, request, userId);
+                var result = await _taskSheetService.RescheduleTaskSheetAsync(taskSheetId, request, userId, IsAdminOrSuperAdmin());
                 return Ok(result);
             }
             catch (UnauthorizedAccessException ex)

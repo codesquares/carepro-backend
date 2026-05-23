@@ -34,7 +34,8 @@ namespace Application.Interfaces.Content
 
         /// <summary>
         /// Client reschedules a "scheduled" task sheet to a different date within the contract period.
+        /// Admin/SuperAdmin can reschedule any order's task sheet without ownership check.
         /// </summary>
-        Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string clientId);
+        Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string userId, bool isAdmin);
     }
 }

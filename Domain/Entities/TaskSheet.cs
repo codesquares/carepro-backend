@@ -20,6 +20,18 @@ namespace Domain.Entities
         /// </summary>
         public DateTime? ScheduledDate { get; set; }
 
+        /// <summary>
+        /// The scheduled start time for this visit (e.g. "09:00"), copied from the contract schedule
+        /// slot at creation. Nullable for backward compatibility with existing documents.
+        /// </summary>
+        public string? ScheduledStartTime { get; set; }
+
+        /// <summary>
+        /// The scheduled end time for this visit (e.g. "14:00"), copied from the contract schedule
+        /// slot at creation. Nullable for backward compatibility with existing documents.
+        /// </summary>
+        public string? ScheduledEndTime { get; set; }
+
         public DateTime? SubmittedAt { get; set; }
         public string? ClientSignatureUrl { get; set; }
         public DateTime? ClientSignatureSignedAt { get; set; }

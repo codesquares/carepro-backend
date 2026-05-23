@@ -54,7 +54,9 @@ namespace Infrastructure.Content.Services
                     CheckinId = existing.Id.ToString(),
                     CheckinTimestamp = existing.CheckinTimestamp,
                     DistanceFromServiceAddress = existing.DistanceFromServiceAddress,
-                    AlreadyCheckedIn = true
+                    AlreadyCheckedIn = true,
+                    IsLateCheckin = existing.IsLateCheckin,
+                    MinutesLate = existing.MinutesLate
                 };
             }
 
@@ -127,7 +129,7 @@ namespace Infrastructure.Content.Services
                 throw CheckinValidationException.NoApprovedContract("Cannot check in until the client has approved the contract for this order.");
 
             // Schedule guard — allowed on the task sheet's scheduled date, within the visit window (Nigerian time)
-            ValidateSchedule(approvedContract, taskSheet);
+            var (isLateCheckin, minutesLate) = ValidateSchedule(approvedContract, taskSheet);
 
             // GPS proximity validation
             double? distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
@@ -143,6 +145,8 @@ namespace Infrastructure.Content.Services
                 Accuracy = request.Accuracy,
                 DistanceFromServiceAddress = distanceMeters,
                 CheckinTimestamp = request.CheckinTimestamp,
+                IsLateCheckin = isLateCheckin,
+                MinutesLate = minutesLate,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -178,7 +182,9 @@ namespace Infrastructure.Content.Services
                 CheckinId = checkin.Id.ToString(),
                 CheckinTimestamp = checkin.CheckinTimestamp,
                 DistanceFromServiceAddress = distanceMeters,
-                AlreadyCheckedIn = false
+                AlreadyCheckedIn = false,
+                IsLateCheckin = isLateCheckin,
+                MinutesLate = minutesLate
             };
         }
 
@@ -196,15 +202,19 @@ namespace Infrastructure.Content.Services
                 Longitude = checkin.Longitude,
                 Accuracy = checkin.Accuracy,
                 DistanceFromServiceAddress = checkin.DistanceFromServiceAddress,
-                CheckinTimestamp = checkin.CheckinTimestamp
+                CheckinTimestamp = checkin.CheckinTimestamp,
+                IsLateCheckin = checkin.IsLateCheckin,
+                MinutesLate = checkin.MinutesLate
             };
         }
 
         /// <summary>
         /// Validates that today is the task sheet's scheduled date and the current Nigerian time
-        /// falls within the visit window (30 minutes before start through end time).
+        /// falls within the visit window. Returns whether the check-in is late and by how many minutes.
+        /// Early window: EarlyCheckinMinutes (default 60) before start.
+        /// Late window: LateCheckinHours (default 2) after scheduled end — recorded as late.
         /// </summary>
-        private void ValidateSchedule(Contract approvedContract, TaskSheet taskSheet)
+        private (bool IsLate, double MinutesLate) ValidateSchedule(Contract approvedContract, TaskSheet taskSheet)
         {
             var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
             var nowNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone);
@@ -221,42 +231,75 @@ namespace Infrastructure.Content.Services
                     nowNigeria.ToString("HH:mm"));
             }
 
-            // Use the task sheet's date to look up the correct day's contract schedule slot
-            var visitDow = taskSheet.ScheduledDate.HasValue
-                ? taskSheet.ScheduledDate.Value.DayOfWeek
-                : nowNigeria.DayOfWeek;
+            var earlyMinutes = _configuration.GetValue<int>("VisitCheckin:EarlyCheckinMinutes", 60);
+            var lateHours = _configuration.GetValue<int>("VisitCheckin:LateCheckinHours", 2);
 
-            var todaysSlot = approvedContract.Schedule.FirstOrDefault(s => s.DayOfWeek == visitDow);
+            string? startTimeStr;
+            string? endTimeStr;
 
-            if (todaysSlot == null)
+            // Primary path: task sheet carries its own time window (set at creation or backfilled at reschedule)
+            if (!string.IsNullOrEmpty(taskSheet.ScheduledStartTime) && !string.IsNullOrEmpty(taskSheet.ScheduledEndTime))
             {
-                throw CheckinValidationException.NotScheduledToday(
-                    $"No visit is scheduled for {visitDow}. Check your contract schedule.",
-                    visitDow.ToString(),
-                    nowNigeria.ToString("HH:mm"));
+                startTimeStr = taskSheet.ScheduledStartTime;
+                endTimeStr = taskSheet.ScheduledEndTime;
             }
-
-            // Allow check-in from 30 minutes before the visit starts through the end of the visit.
-            // This covers early arrival and any point during the full visit duration.
-            var gracePeriod = TimeSpan.FromMinutes(30);
-            if (TimeSpan.TryParse(todaysSlot.StartTime, out var start) &&
-                TimeSpan.TryParse(todaysSlot.EndTime, out var end))
+            else
             {
-                var windowStart = start - gracePeriod;
-                var windowEnd = end;
+                // Fallback path: legacy sheets without stored time — look up by day-of-week from contract
+                var visitDow = taskSheet.ScheduledDate.HasValue
+                    ? taskSheet.ScheduledDate.Value.DayOfWeek
+                    : nowNigeria.DayOfWeek;
 
-                if (currentTime < windowStart || currentTime > windowEnd)
+                var todaysSlot = approvedContract.Schedule.FirstOrDefault(s => s.DayOfWeek == visitDow);
+
+                if (todaysSlot == null)
                 {
-                    var earlyTime = (start - gracePeriod).ToString(@"hh\:mm");
-                    throw CheckinValidationException.OutsideSchedule(
-                        $"Check-in is available from {earlyTime} until {todaysSlot.EndTime} (Nigerian time). " +
-                        $"Current time: {nowNigeria:HH:mm}.",
+                    throw CheckinValidationException.NotScheduledToday(
+                        $"No visit is scheduled for {visitDow}. Check your contract schedule.",
                         visitDow.ToString(),
-                        todaysSlot.StartTime,
-                        todaysSlot.EndTime,
                         nowNigeria.ToString("HH:mm"));
                 }
+
+                startTimeStr = todaysSlot.StartTime;
+                endTimeStr = todaysSlot.EndTime;
             }
+
+            if (TimeSpan.TryParse(startTimeStr, out var start) &&
+                TimeSpan.TryParse(endTimeStr, out var end))
+            {
+                var windowStart = start - TimeSpan.FromMinutes(earlyMinutes);
+                var windowEnd = end + TimeSpan.FromHours(lateHours);
+
+                if (currentTime < windowStart)
+                {
+                    var opensAt = windowStart.ToString(@"hh\:mm");
+                    throw CheckinValidationException.OutsideSchedule(
+                        $"Check-in opens at {opensAt} ({earlyMinutes} minutes before the visit starts, Nigerian time). " +
+                        $"Current time: {nowNigeria:HH:mm}.",
+                        nowNigeria.DayOfWeek.ToString(),
+                        startTimeStr,
+                        endTimeStr,
+                        nowNigeria.ToString("HH:mm"));
+                }
+
+                if (currentTime > windowEnd)
+                {
+                    var closedAt = windowEnd.ToString(@"hh\:mm");
+                    throw CheckinValidationException.OutsideSchedule(
+                        $"The check-in window for this visit closed at {closedAt} (Nigerian time). " +
+                        $"Please contact support if you need to record this visit. Current time: {nowNigeria:HH:mm}.",
+                        nowNigeria.DayOfWeek.ToString(),
+                        startTimeStr,
+                        endTimeStr,
+                        nowNigeria.ToString("HH:mm"));
+                }
+
+                var isLate = currentTime > start;
+                var minutesLate = isLate ? Math.Round((currentTime - start).TotalMinutes, 1) : 0;
+                return (isLate, minutesLate);
+            }
+
+            return (false, 0);
         }
 
         private async Task<double?> ValidateProximity(double caregiverLat, double caregiverLng, ClientOrder order, string caregiverId)

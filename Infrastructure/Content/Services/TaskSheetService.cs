@@ -577,6 +577,8 @@ namespace Infrastructure.Content.Services
                 }).ToList(),
                 Status = entity.Status,
                 ScheduledDate = entity.ScheduledDate,
+                ScheduledStartTime = entity.ScheduledStartTime,
+                ScheduledEndTime = entity.ScheduledEndTime,
                 SubmittedAt = entity.SubmittedAt,
                 ClientReviewStatus = entity.ClientReviewStatus,
                 ClientReviewedAt = entity.ClientReviewedAt,
@@ -830,6 +832,8 @@ namespace Infrastructure.Content.Services
 
             for (int i = 0; i < scheduledDates.Count; i++)
             {
+                var slot = contract.Schedule.FirstOrDefault(s => s.DayOfWeek == scheduledDates[i].DayOfWeek);
+
                 var taskSheet = new TaskSheet
                 {
                     Id = ObjectId.GenerateNewId(),
@@ -846,6 +850,8 @@ namespace Infrastructure.Content.Services
                     }).ToList(),
                     Status = "scheduled",
                     ScheduledDate = scheduledDates[i],
+                    ScheduledStartTime = slot?.StartTime,
+                    ScheduledEndTime = slot?.EndTime,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -916,14 +922,14 @@ namespace Infrastructure.Content.Services
             return MapToDTO(taskSheet);
         }
 
-        public async Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string clientId)
+        public async Task<RescheduleTaskSheetResponse> RescheduleTaskSheetAsync(string taskSheetId, RescheduleTaskSheetRequest request, string userId, bool isAdmin)
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
 
             var order = await GetOrderOrThrow(taskSheet.OrderId);
 
-            // Only the client for this order can reschedule
-            if (order.ClientId != clientId)
+            // Only the client for this order (or an admin) can reschedule
+            if (!isAdmin && order.ClientId != userId)
                 throw new UnauthorizedAccessException("You are not authorized to reschedule visits for this order.");
 
             // Can only reschedule "scheduled" sheets
@@ -969,14 +975,29 @@ namespace Infrastructure.Content.Services
 
             var oldDate = taskSheet.ScheduledDate ?? taskSheet.CreatedAt;
 
+            // Backfill time window for old sheets that predate ScheduledStartTime/ScheduledEndTime.
+            // Use the original day-of-week to find the right contract slot before the date changes.
+            if (string.IsNullOrEmpty(taskSheet.ScheduledStartTime) || string.IsNullOrEmpty(taskSheet.ScheduledEndTime))
+            {
+                var originalDow = taskSheet.ScheduledDate.HasValue
+                    ? taskSheet.ScheduledDate.Value.DayOfWeek
+                    : newDate.DayOfWeek;
+                var originalSlot = contract.Schedule.FirstOrDefault(s => s.DayOfWeek == originalDow);
+                if (originalSlot != null)
+                {
+                    taskSheet.ScheduledStartTime = originalSlot.StartTime;
+                    taskSheet.ScheduledEndTime = originalSlot.EndTime;
+                }
+            }
+
             taskSheet.ScheduledDate = newDate;
             taskSheet.UpdatedAt = DateTime.UtcNow;
             _dbContext.TaskSheets.Update(taskSheet);
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation(
-                "TaskSheet {TaskSheetId} rescheduled from {OldDate} to {NewDate} by client {ClientId}",
-                taskSheetId, oldDate.ToString("yyyy-MM-dd"), newDate.ToString("yyyy-MM-dd"), clientId);
+                "TaskSheet {TaskSheetId} rescheduled from {OldDate} to {NewDate} by user {UserId}",
+                taskSheetId, oldDate.ToString("yyyy-MM-dd"), newDate.ToString("yyyy-MM-dd"), userId);
 
             // Notify the caregiver
             try
@@ -990,7 +1011,7 @@ namespace Infrastructure.Content.Services
 
                     await _mediator.Send(new SendNotificationCommand(
                         caregiverId,
-                        clientId,
+                        userId,
                         NotificationTypes.VisitRescheduled,
                         notificationContent,
                         "Visit Rescheduled",
