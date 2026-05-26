@@ -76,6 +76,11 @@ namespace Application.DTOs
 
         // ── Gigs ──
         public const string NewGig = "new_gig";
+        public const string GigPublished = "gig_published";
+        public const string DraftGenerated = "draft_generated";
+        public const string GigPaused = "gig_paused";
+        public const string GigShared = "gig_shared";
+        public const string GigDeleted = "gig_deleted";
 
         // ── Orders ──
         public const string OrderReceived = "order_received";

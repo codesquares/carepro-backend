@@ -54,6 +54,12 @@ namespace Application.Interfaces.Email
         // Account deletion notification emails
         Task SendAccountDeletionScheduledEmailAsync(string toEmail, string firstName, DateTime permanentDeletionDate, string? cancellationLink = null);
         Task SendAccountDeletionCancelledEmailAsync(string toEmail, string firstName);
+
+        // Gig lifecycle notification emails
+        Task SendGigPublishedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId);
+        Task SendDraftGeneratedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId);
+        Task SendGigPausedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId);
+        Task SendGigDeletedEmailAsync(string toEmail, string firstName, string gigTitle);
     }
 
     // Supporting classes for email service

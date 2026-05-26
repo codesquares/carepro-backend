@@ -114,15 +114,30 @@ namespace Application.DTOs
     }
 
     /// <summary>
-    /// Request for client to reschedule a scheduled visit to a different date.
+    /// Request to reschedule a scheduled visit's date, time, or both.
+    /// At least one of NewDate, or both NewStartTime+NewEndTime, must be provided.
+    /// NewStartTime and NewEndTime must always be supplied together.
+    /// All times are Nigerian time (WAT, UTC+1).
     /// </summary>
     public class RescheduleTaskSheetRequest
     {
         /// <summary>
-        /// The new date for the visit (date-only, Nigerian time).
+        /// The new date for the visit (date-only, Nigerian time). Null = keep current date.
         /// Must be within the contract period and must not conflict with an existing active sheet on that day.
         /// </summary>
-        public DateTime NewDate { get; set; }
+        public DateTime? NewDate { get; set; }
+
+        /// <summary>
+        /// New start time for this visit only (e.g. "10:00", Nigerian time).
+        /// Does not affect the recurring contract schedule. Must be paired with NewEndTime.
+        /// </summary>
+        public string? NewStartTime { get; set; }
+
+        /// <summary>
+        /// New end time for this visit only (e.g. "15:00", Nigerian time).
+        /// Does not affect the recurring contract schedule. Must be paired with NewStartTime.
+        /// </summary>
+        public string? NewEndTime { get; set; }
 
         /// <summary>
         /// Optional reason for rescheduling.
@@ -137,5 +152,7 @@ namespace Application.DTOs
         public DateTime OldDate { get; set; }
         public DateTime NewDate { get; set; }
         public string TaskSheetId { get; set; } = string.Empty;
+        public string? ScheduledStartTime { get; set; }
+        public string? ScheduledEndTime { get; set; }
     }
 }

@@ -229,6 +229,30 @@ namespace Infrastructure.Content.Services
                         refundDetails.Amount, refundDetails.Reason);
                     break;
 
+                case NotificationTypes.GigPublished:
+                    await emailService.SendGenericNotificationEmailAsync(
+                        recipient.Email, recipient.FirstName ?? "User",
+                        "Your Gig Is Now Live - CarePro", notification.Content);
+                    break;
+
+                case NotificationTypes.DraftGenerated:
+                    await emailService.SendGenericNotificationEmailAsync(
+                        recipient.Email, recipient.FirstName ?? "User",
+                        "Gig Draft Saved - CarePro", notification.Content);
+                    break;
+
+                case NotificationTypes.GigPaused:
+                    await emailService.SendGenericNotificationEmailAsync(
+                        recipient.Email, recipient.FirstName ?? "User",
+                        "Your Gig Has Been Paused - CarePro", notification.Content);
+                    break;
+
+                case NotificationTypes.GigDeleted:
+                    await emailService.SendGenericNotificationEmailAsync(
+                        recipient.Email, recipient.FirstName ?? "User",
+                        "Your Gig Has Been Deleted - CarePro", notification.Content);
+                    break;
+
                 default:
                     // Fallback to generic notification email
                     await emailService.SendGenericNotificationEmailAsync(
@@ -260,6 +284,10 @@ namespace Infrastructure.Content.Services
                 NotificationTypes.RefundProcessed => "Refund Processed - CarePro",
                 NotificationTypes.GigDeletionReminder => "Gig Deletion Reminder - CarePro",
                 NotificationTypes.GigPermanentlyDeleted => "Gig Permanently Deleted - CarePro",
+                NotificationTypes.GigPublished => "Your Gig Is Now Live - CarePro",
+                NotificationTypes.DraftGenerated => "Gig Draft Saved - CarePro",
+                NotificationTypes.GigPaused => "Your Gig Has Been Paused - CarePro",
+                NotificationTypes.GigDeleted => "Your Gig Has Been Deleted - CarePro",
                 _ => "Notification - CarePro"
             };
         }

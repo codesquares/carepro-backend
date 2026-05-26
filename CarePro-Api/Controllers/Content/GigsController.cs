@@ -50,6 +50,24 @@ namespace CarePro_Api.Controllers.Content
             {
                 return BadRequest(new { Message = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                // Image moderation rejection — deserialize and return structured 422
+                try
+                {
+                    var rejection = System.Text.Json.JsonSerializer.Deserialize<Application.DTOs.GigImageModerationResult>(ex.Message);
+                    if (rejection != null && !rejection.IsApproved)
+                    {
+                        return UnprocessableEntity(new Application.DTOs.GigImageRejectionResponse
+                        {
+                            Reason = rejection.RejectionReason,
+                            Suggestions = rejection.Suggestions
+                        });
+                    }
+                }
+                catch { /* not a moderation error — fall through */ }
+                return BadRequest(new { Message = ex.Message });
+            }
             catch (UnauthorizedAccessException ex)
             {
                 // Eligibility check failed — return 403 with structured error
@@ -418,6 +436,24 @@ namespace CarePro_Api.Controllers.Content
             }
             catch (ArgumentException ex)
             {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Image moderation rejection — deserialize and return structured 422
+                try
+                {
+                    var rejection = System.Text.Json.JsonSerializer.Deserialize<Application.DTOs.GigImageModerationResult>(ex.Message);
+                    if (rejection != null && !rejection.IsApproved)
+                    {
+                        return UnprocessableEntity(new Application.DTOs.GigImageRejectionResponse
+                        {
+                            Reason = rejection.RejectionReason,
+                            Suggestions = rejection.Suggestions
+                        });
+                    }
+                }
+                catch { /* not a moderation error — fall through */ }
                 return BadRequest(new { Message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)

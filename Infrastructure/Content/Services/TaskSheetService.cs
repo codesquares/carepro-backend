@@ -883,34 +883,7 @@ namespace Infrastructure.Content.Services
             if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("This order has been completed.");
 
-            // Sequential gate: previous started sheets (in-progress or submitted) must be completed
-            // Skip cancelled and scheduled sheets — they don't block the sequence
-            var previousSheets = await _dbContext.TaskSheets
-                .Where(ts => ts.OrderId == taskSheet.OrderId
-                    && ts.BillingCycleNumber == taskSheet.BillingCycleNumber
-                    && ts.SheetNumber < taskSheet.SheetNumber
-                    && ts.Status != "cancelled"
-                    && ts.Status != "scheduled")
-                .OrderByDescending(ts => ts.SheetNumber)
-                .ToListAsync();
-
-            if (previousSheets.Count > 0)
-            {
-                var lastSheet = previousSheets.First();
-
-                if (lastSheet.Status != "submitted")
-                {
-                    throw new InvalidOperationException(
-                        $"Visit #{lastSheet.SheetNumber} has not been submitted yet. Please submit it before activating the next visit.");
-                }
-
-                if (lastSheet.ClientReviewStatus != "Approved" && lastSheet.ClientReviewStatus != "Disputed")
-                {
-                    throw new InvalidOperationException(
-                        $"Visit #{lastSheet.SheetNumber} has not been reviewed by the client yet. The client must approve or review the previous visit first.");
-                }
-            }
-
+            // Each visit is an independent event — no sequential dependency on prior sheets.
             taskSheet.Status = "in-progress";
             taskSheet.UpdatedAt = DateTime.UtcNow;
             _dbContext.TaskSheets.Update(taskSheet);
@@ -939,7 +912,37 @@ namespace Infrastructure.Content.Services
             if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("This order has been completed.");
 
-            // Validate the new date is within the contract period
+            // Must provide at least something to change
+            bool changingDate = request.NewDate.HasValue;
+            bool hasNewStart = !string.IsNullOrWhiteSpace(request.NewStartTime);
+            bool hasNewEnd = !string.IsNullOrWhiteSpace(request.NewEndTime);
+            bool changingTime = hasNewStart || hasNewEnd;
+
+            if (!changingDate && !changingTime)
+                throw new InvalidOperationException("Nothing to reschedule — provide a new date, a new time window, or both.");
+
+            // Time fields must always be provided together
+            if (hasNewStart != hasNewEnd)
+                throw new InvalidOperationException("NewStartTime and NewEndTime must be provided together.");
+
+            // Validate and parse new times (Nigerian time, "HH:mm" format)
+            TimeSpan newStart = default;
+            TimeSpan newEnd = default;
+            if (changingTime)
+            {
+                if (!TimeSpan.TryParseExact(request.NewStartTime, @"hh\:mm", null, out newStart) &&
+                    !TimeSpan.TryParseExact(request.NewStartTime, @"h\:mm", null, out newStart))
+                    throw new InvalidOperationException("NewStartTime must be in HH:mm format (e.g. \"09:00\"). All times are Nigerian time (WAT, UTC+1).");
+
+                if (!TimeSpan.TryParseExact(request.NewEndTime, @"hh\:mm", null, out newEnd) &&
+                    !TimeSpan.TryParseExact(request.NewEndTime, @"h\:mm", null, out newEnd))
+                    throw new InvalidOperationException("NewEndTime must be in HH:mm format (e.g. \"14:00\"). All times are Nigerian time (WAT, UTC+1).");
+
+                if (newStart >= newEnd)
+                    throw new InvalidOperationException("NewStartTime must be before NewEndTime.");
+            }
+
+            // Load contract (needed for date validation and/or backfill)
             var contract = await _dbContext.Contracts
                 .FirstOrDefaultAsync(c => c.OrderId == taskSheet.OrderId
                     && (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
@@ -947,41 +950,48 @@ namespace Infrastructure.Content.Services
             if (contract == null)
                 throw new InvalidOperationException("No approved contract found for this order.");
 
-            var newDate = request.NewDate.Date;
-
-            if (newDate < contract.ContractStartDate.Date)
-                throw new InvalidOperationException($"The new date cannot be before the contract start date ({contract.ContractStartDate:yyyy-MM-dd}).");
-
-            if (newDate >= contract.ContractEndDate.Date)
-                throw new InvalidOperationException($"The new date cannot be on or after the contract end date ({contract.ContractEndDate:yyyy-MM-dd}).");
-
-            // Cannot reschedule to a date in the past (Nigerian time)
             var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
             var todayNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone).Date;
-            if (newDate < todayNigeria)
-                throw new InvalidOperationException("Cannot reschedule to a date in the past.");
 
-            // Check no other active (non-cancelled) sheet is already on that date for this order
-            var conflicting = await _dbContext.TaskSheets
-                .Where(ts => ts.OrderId == taskSheet.OrderId
-                    && ts.ScheduledDate.HasValue
-                    && ts.ScheduledDate.Value.Date == newDate
-                    && ts.Status != "cancelled"
-                    && ts.Id != taskSheet.Id)
-                .AnyAsync();
+            // Date validations — only run if a new date is being set
+            DateTime resolvedDate = (taskSheet.ScheduledDate ?? taskSheet.CreatedAt).Date;
+            if (changingDate)
+            {
+                var newDate = request.NewDate!.Value.Date;
 
-            if (conflicting)
-                throw new InvalidOperationException($"Another visit is already scheduled for {newDate:yyyy-MM-dd}. Please choose a different date.");
+                if (newDate < contract.ContractStartDate.Date)
+                    throw new InvalidOperationException($"The new date cannot be before the contract start date ({contract.ContractStartDate:yyyy-MM-dd}).");
+
+                if (newDate >= contract.ContractEndDate.Date)
+                    throw new InvalidOperationException($"The new date cannot be on or after the contract end date ({contract.ContractEndDate:yyyy-MM-dd}).");
+
+                if (newDate < todayNigeria)
+                    throw new InvalidOperationException("Cannot reschedule to a date in the past.");
+
+                var conflicting = await _dbContext.TaskSheets
+                    .Where(ts => ts.OrderId == taskSheet.OrderId
+                        && ts.ScheduledDate.HasValue
+                        && ts.ScheduledDate.Value.Date == newDate
+                        && ts.Status != "cancelled"
+                        && ts.Id != taskSheet.Id)
+                    .AnyAsync();
+
+                if (conflicting)
+                    throw new InvalidOperationException($"Another visit is already scheduled for {newDate:yyyy-MM-dd}. Please choose a different date.");
+
+                resolvedDate = newDate;
+            }
 
             var oldDate = taskSheet.ScheduledDate ?? taskSheet.CreatedAt;
 
-            // Backfill time window for old sheets that predate ScheduledStartTime/ScheduledEndTime.
-            // Use the original day-of-week to find the right contract slot before the date changes.
-            if (string.IsNullOrEmpty(taskSheet.ScheduledStartTime) || string.IsNullOrEmpty(taskSheet.ScheduledEndTime))
+            // Backfill time window for old sheets that predate ScheduledStartTime/ScheduledEndTime
+            // and are not having their time set by this request — use original day-of-week slot.
+            if (!changingTime &&
+                (string.IsNullOrEmpty(taskSheet.ScheduledStartTime) || string.IsNullOrEmpty(taskSheet.ScheduledEndTime)))
             {
                 var originalDow = taskSheet.ScheduledDate.HasValue
                     ? taskSheet.ScheduledDate.Value.DayOfWeek
-                    : newDate.DayOfWeek;
+                    : resolvedDate.DayOfWeek;
                 var originalSlot = contract.Schedule.FirstOrDefault(s => s.DayOfWeek == originalDow);
                 if (originalSlot != null)
                 {
@@ -990,14 +1000,32 @@ namespace Infrastructure.Content.Services
                 }
             }
 
-            taskSheet.ScheduledDate = newDate;
+            // Apply changes
+            if (changingDate)
+                taskSheet.ScheduledDate = resolvedDate;
+
+            if (changingTime)
+            {
+                taskSheet.ScheduledStartTime = request.NewStartTime;
+                taskSheet.ScheduledEndTime = request.NewEndTime;
+            }
+
             taskSheet.UpdatedAt = DateTime.UtcNow;
             _dbContext.TaskSheets.Update(taskSheet);
             await _dbContext.SaveChangesAsync();
 
+            // Build contextual log and notification message
+            var changeDescription = (changingDate, changingTime) switch
+            {
+                (true, true) => $"date from {oldDate:yyyy-MM-dd} to {resolvedDate:yyyy-MM-dd} and time to {request.NewStartTime}–{request.NewEndTime} (WAT)",
+                (true, false) => $"date from {oldDate:yyyy-MM-dd} to {resolvedDate:yyyy-MM-dd}",
+                (false, true) => $"time to {request.NewStartTime}–{request.NewEndTime} (WAT) on {resolvedDate:yyyy-MM-dd}",
+                _ => string.Empty
+            };
+
             _logger.LogInformation(
-                "TaskSheet {TaskSheetId} rescheduled from {OldDate} to {NewDate} by user {UserId}",
-                taskSheetId, oldDate.ToString("yyyy-MM-dd"), newDate.ToString("yyyy-MM-dd"), userId);
+                "TaskSheet {TaskSheetId} rescheduled — {ChangeDescription} — by user {UserId}",
+                taskSheetId, changeDescription, userId);
 
             // Notify the caregiver
             try
@@ -1005,7 +1033,14 @@ namespace Infrastructure.Content.Services
                 var caregiverId = order.CaregiverId;
                 if (!string.IsNullOrEmpty(caregiverId))
                 {
-                    var notificationContent = $"Visit #{taskSheet.SheetNumber} has been rescheduled from {oldDate:MMM dd} to {newDate:MMM dd}.";
+                    var notificationContent = (changingDate, changingTime) switch
+                    {
+                        (true, true) => $"Visit #{taskSheet.SheetNumber} has been rescheduled to {resolvedDate:MMM dd} at {request.NewStartTime}–{request.NewEndTime} (Nigerian time).",
+                        (true, false) => $"Visit #{taskSheet.SheetNumber} has been rescheduled from {oldDate:MMM dd} to {resolvedDate:MMM dd}.",
+                        (false, true) => $"The time for Visit #{taskSheet.SheetNumber} on {resolvedDate:MMM dd} has been updated to {request.NewStartTime}–{request.NewEndTime} (Nigerian time).",
+                        _ => string.Empty
+                    };
+
                     if (!string.IsNullOrEmpty(request.Reason))
                         notificationContent += $" Reason: {request.Reason}";
 
@@ -1025,9 +1060,7 @@ namespace Infrastructure.Content.Services
                             caregiver.Email,
                             caregiver.FirstName ?? "Caregiver",
                             "Visit Rescheduled",
-                            $"Visit #{taskSheet.SheetNumber} has been rescheduled from {oldDate:MMMM dd, yyyy} to {newDate:MMMM dd, yyyy}." +
-                            (!string.IsNullOrEmpty(request.Reason) ? $" Reason: {request.Reason}" : "") +
-                            " Please check your updated schedule.");
+                            notificationContent + " Please check your updated schedule.");
                     }
                 }
             }
@@ -1036,13 +1069,23 @@ namespace Infrastructure.Content.Services
                 _logger.LogWarning(ex, "Failed to send reschedule notification for TaskSheet {TaskSheetId}", taskSheetId);
             }
 
+            var responseMessage = (changingDate, changingTime) switch
+            {
+                (true, true) => $"Visit #{taskSheet.SheetNumber} rescheduled to {resolvedDate:MMMM dd, yyyy} at {request.NewStartTime}–{request.NewEndTime} (Nigerian time).",
+                (true, false) => $"Visit #{taskSheet.SheetNumber} has been rescheduled to {resolvedDate:MMMM dd, yyyy}.",
+                (false, true) => $"Visit #{taskSheet.SheetNumber} time updated to {request.NewStartTime}–{request.NewEndTime} (Nigerian time).",
+                _ => string.Empty
+            };
+
             return new RescheduleTaskSheetResponse
             {
                 Success = true,
-                Message = $"Visit #{taskSheet.SheetNumber} has been rescheduled to {newDate:MMMM dd, yyyy}.",
+                Message = responseMessage,
                 OldDate = oldDate,
-                NewDate = newDate,
-                TaskSheetId = taskSheetId
+                NewDate = resolvedDate,
+                TaskSheetId = taskSheetId,
+                ScheduledStartTime = taskSheet.ScheduledStartTime,
+                ScheduledEndTime = taskSheet.ScheduledEndTime
             };
         }
     }

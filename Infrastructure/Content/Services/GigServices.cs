@@ -12,7 +12,9 @@ using System.Security.Authentication;
 using System.Text;
 using System.Threading.Tasks;
 using System.Threading;
+using Application.Commands;
 using Application.Interfaces.Content;
+using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 
@@ -26,8 +28,10 @@ namespace Infrastructure.Content.Services
         private readonly CloudinaryService cloudinaryService;
         private readonly IEligibilityService eligibilityService;
         private readonly ICaregiverProfileService caregiverProfileService;
+        private readonly IGigImageModerationService gigImageModerationService;
+        private readonly IMediator mediator;
 
-        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService, IEligibilityService eligibilityService, ICaregiverProfileService caregiverProfileService)
+        public GigServices(CareProDbContext careProDbContext, ICareGiverService careGiverService, ILogger<GigServices> logger, CloudinaryService cloudinaryService, IEligibilityService eligibilityService, ICaregiverProfileService caregiverProfileService, IGigImageModerationService gigImageModerationService, IMediator mediator)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
@@ -35,6 +39,8 @@ namespace Infrastructure.Content.Services
             this.cloudinaryService = cloudinaryService;
             this.eligibilityService = eligibilityService;
             this.caregiverProfileService = caregiverProfileService;
+            this.gigImageModerationService = gigImageModerationService;
+            this.mediator = mediator;
         }
 
         public async Task<GigDTO> CreateGigAsync(AddGigRequest addGigRequest)
@@ -102,20 +108,26 @@ namespace Infrastructure.Content.Services
 
             if (addGigRequest.Image1 != null)
             {
+                using var memoryStream = new MemoryStream();
+                await addGigRequest.Image1.CopyToAsync(memoryStream);
+                var imageUri = memoryStream.ToArray();
+
+                // Layer 1 + Layer 2 moderation before upload
+                var moderationResult = await gigImageModerationService.ValidateAsync(
+                    imageUri, addGigRequest.Image1.FileName, addGigRequest.Title);
+
+                if (!moderationResult.IsApproved)
+                    throw new InvalidOperationException(
+                        System.Text.Json.JsonSerializer.Serialize(moderationResult));
+
                 try
                 {
-                    using var memoryStream = new MemoryStream();
-                    await addGigRequest.Image1.CopyToAsync(memoryStream);
-                    var imageUri = memoryStream.ToArray();
-
-                    // Now upload imageUri to Cloudinary
                     imageURL = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{addGigRequest.PackageName}_gig");
                 }
                 catch (Exception ex)
                 {
-                    // Log the image upload error but don't fail the entire gig creation
                     logger.LogWarning(ex, "Failed to upload gig image, proceeding without image");
-                    imageURL = null; // Proceed without image
+                    imageURL = null;
                 }
             }
 
@@ -161,6 +173,22 @@ namespace Infrastructure.Content.Services
             {
                 await RequeueUnmatchedCareRequestsAsync(gig.Category);
             }
+
+            // Notify caregiver of gig lifecycle event
+            var gigNotifType = (gig.Status == "Published" || gig.Status == "Active")
+                ? NotificationTypes.GigPublished
+                : NotificationTypes.DraftGenerated;
+            var gigNotifContent = gigNotifType == NotificationTypes.GigPublished
+                ? $"Your gig \"{gig.Title}\" is now live and visible to clients."
+                : $"Your gig \"{gig.Title}\" has been saved as a draft. Publish it when you're ready.";
+            await mediator.Send(new SendNotificationCommand(
+                gig.CaregiverId,
+                gig.CaregiverId,
+                gigNotifType,
+                gigNotifContent,
+                gigNotifType == NotificationTypes.GigPublished ? "Gig Published" : "Draft Saved",
+                gig.Id.ToString()
+            ));
 
 
             var gigDTO = new GigDTO()
@@ -652,6 +680,40 @@ namespace Infrastructure.Content.Services
                     await RequeueUnmatchedCareRequestsAsync(existingGig.Category);
                 }
 
+                // Notify caregiver of status change (only when status actually changed)
+                if (oldStatus != normalizedStatus)
+                {
+                    string statusNotifType;
+                    string statusNotifContent;
+                    string statusNotifTitle;
+                    if (normalizedStatus == "Published" || normalizedStatus == "Active")
+                    {
+                        statusNotifType = NotificationTypes.GigPublished;
+                        statusNotifContent = $"Your gig \"{existingGig.Title}\" is now live and visible to clients.";
+                        statusNotifTitle = "Gig Published";
+                    }
+                    else if (normalizedStatus == "Paused")
+                    {
+                        statusNotifType = NotificationTypes.GigPaused;
+                        statusNotifContent = $"Your gig \"{existingGig.Title}\" has been paused and is no longer visible to clients.";
+                        statusNotifTitle = "Gig Paused";
+                    }
+                    else
+                    {
+                        statusNotifType = NotificationTypes.DraftGenerated;
+                        statusNotifContent = $"Your gig \"{existingGig.Title}\" has been moved to drafts. Publish it when you're ready.";
+                        statusNotifTitle = "Draft Saved";
+                    }
+                    await mediator.Send(new SendNotificationCommand(
+                        existingGig.CaregiverId,
+                        existingGig.CaregiverId,
+                        statusNotifType,
+                        statusNotifContent,
+                        statusNotifTitle,
+                        gigId
+                    ));
+                }
+
                 logger.LogInformation($"Successfully updated gig {gigId} status to '{normalizedStatus}'");
                 LogAuditEvent($"Gig Status updated from '{oldStatus}' to '{normalizedStatus}' (ID: {gigId})", updateGigStatusToPauseRequest.CaregiverId);
                 
@@ -763,10 +825,15 @@ namespace Infrastructure.Content.Services
                 await updateGigRequest.Image1.CopyToAsync(memoryStream);
                 var imageUri = memoryStream.ToArray();
 
-                // Now upload imageUri to Cloudinary
-                //imageURL = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{addGigRequest.PackageName}_gig");
-                existingGig.Image1 = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{existingGig.PackageName}_gig");
+                // Layer 1 + Layer 2 moderation before upload
+                var moderationResult = await gigImageModerationService.ValidateAsync(
+                    imageUri, updateGigRequest.Image1.FileName, updateGigRequest.Category);
 
+                if (!moderationResult.IsApproved)
+                    throw new InvalidOperationException(
+                        System.Text.Json.JsonSerializer.Serialize(moderationResult));
+
+                existingGig.Image1 = await cloudinaryService.UploadGigImageAsync(imageUri, $"{careGiver.FirstName}{careGiver.LastName}{existingGig.PackageName}_gig");
             }
 
 
@@ -926,6 +993,16 @@ namespace Infrastructure.Content.Services
                     gigId, caregiverId, pendingOrderTasks.Count, pendingPayments.Count, pendingCommitments.Count);
 
                 LogAuditEvent($"Gig soft deleted (ID: {gigId}). Cascaded: {pendingOrderTasks.Count} order tasks cancelled, {pendingPayments.Count} payments expired, {pendingCommitments.Count} commitments expired", caregiverId);
+
+                await mediator.Send(new SendNotificationCommand(
+                    caregiverId,
+                    caregiverId,
+                    NotificationTypes.GigDeleted,
+                    $"Your gig \"{gig.Title}\" has been deleted and is no longer visible to clients.",
+                    "Gig Deleted",
+                    gigId
+                ));
+
                 return $"Gig with ID '{gigId}' has been successfully deleted.";
             }
             catch (Exception ex)

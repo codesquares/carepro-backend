@@ -21,6 +21,10 @@ namespace Infrastructure.Content.Services
         private readonly HashSet<string> _immediateOnceOnlyTypes = new()
         {
             NotificationTypes.NewGig,
+            NotificationTypes.GigPublished,
+            NotificationTypes.DraftGenerated,
+            NotificationTypes.GigPaused,
+            NotificationTypes.GigDeleted,
             NotificationTypes.SystemNotice,
             NotificationTypes.SystemAlert,
             NotificationTypes.OrderReceived,
