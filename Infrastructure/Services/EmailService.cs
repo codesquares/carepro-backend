@@ -898,6 +898,87 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendGigPublishedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your Gig Is Now Live - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>Your gig <strong>{gigTitle}</strong> is now <strong>live</strong> on CarePro.</p>
+                    <p>Clients can now find and book your service. Make sure your profile is complete to increase your chances of being hired.</p>
+                    <p>Log in to your CarePro dashboard to manage your gig at any time.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendDraftGeneratedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Gig Draft Saved - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>Your gig <strong>{gigTitle}</strong> has been saved as a <strong>draft</strong>.</p>
+                    <p>It is not visible to clients yet. Log in to your CarePro dashboard to review and publish it when you are ready.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendGigPausedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your Gig Has Been Paused - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>Your gig <strong>{gigTitle}</strong> has been <strong>paused</strong> and is no longer visible to clients.</p>
+                    <p>You can resume it at any time from your CarePro dashboard.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendGigDeletedEmailAsync(string toEmail, string firstName, string gigTitle)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your Gig Has Been Deleted - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <p>Your gig <strong>{gigTitle}</strong> has been <strong>deleted</strong>.</p>
+                    <p>If this was not intentional or you have any questions, please contact our support team.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
 
 
 

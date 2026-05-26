@@ -113,6 +113,7 @@ builder.Services.AddHttpClient<GoogleAuthService>();
 builder.Services.AddScoped<ICareGiverService, CareGiverService>();
 builder.Services.AddScoped<IClientService, ClientService>();
 builder.Services.AddScoped<IGigServices, GigServices>();
+builder.Services.AddScoped<IGigImageModerationService, GigImageModerationService>();
 builder.Services.AddScoped<IClientOrderService, ClientOrderService>();
 builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
