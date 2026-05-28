@@ -608,8 +608,11 @@ app.UseCors("default");
 // Global exception handler - catches all exceptions
 app.UseGlobalExceptionHandler();
 
-app.UseSwagger();
-app.UseSwaggerUI();
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseHttpsRedirection();
 

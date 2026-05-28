@@ -417,6 +417,8 @@ namespace Application.DTOs
         public DateTime? SubmittedAt { get; set; }
         public List<ScheduledVisitDTO> Schedule { get; set; } = new List<ScheduledVisitDTO>();
         public string? ServiceAddress { get; set; }
+        public bool? ServiceLocationSetByClient { get; set; }
+        public DateTime? ServiceLocationSetAt { get; set; }
         public string? SpecialClientRequirements { get; set; }
         public string? AccessInstructions { get; set; }
         public string? CaregiverAdditionalNotes { get; set; }
@@ -560,5 +562,34 @@ namespace Application.DTOs
         public PackageSelectionDTO SelectedPackage { get; set; }
         public List<ClientTaskDTO> Tasks { get; set; } = new List<ClientTaskDTO>();
         public decimal Amount { get; set; }
+    }
+
+    /// <summary>
+    /// Request body for the dedicated client GPS capture endpoint.
+    /// The client confirms they are physically at the service address
+    /// and the frontend sends the device GPS fix here.
+    /// </summary>
+    public class SetServiceLocationRequest
+    {
+        /// <summary>Device GPS latitude.</summary>
+        public double Latitude { get; set; }
+
+        /// <summary>Device GPS longitude.</summary>
+        public double Longitude { get; set; }
+
+        /// <summary>
+        /// Horizontal accuracy in metres reported by the device.
+        /// Requests with accuracy worse than the configured threshold (default 50m) are rejected.
+        /// </summary>
+        public double Accuracy { get; set; }
+    }
+
+    public class SetServiceLocationResponse
+    {
+        public bool Success { get; set; }
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+        public double Accuracy { get; set; }
+        public DateTime SetAt { get; set; }
     }
 }

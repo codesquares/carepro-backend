@@ -34,7 +34,7 @@ RUN addgroup -g 1001 -S appuser && \
 
 # Install curl for health checks
 RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache curl && \
+    apk add --no-cache curl tzdata && \
     rm -rf /var/cache/apk/*
 
 FROM base AS final

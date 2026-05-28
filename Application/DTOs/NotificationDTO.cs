@@ -231,6 +231,10 @@ namespace Application.DTOs
         public const string AccountDeletionScheduled = "account_deletion_scheduled";
         public const string AccountDeletionCancelled = "account_deletion_cancelled";
         public const string AccountPermanentlyDeleted = "account_permanently_deleted";
+
+        // ── GPS Service Location ──
+        public const string ServiceLocationSet = "service_location_set";
+        public const string ServiceLocationNotSet = "service_location_not_set";
     }
 
     public class BroadcastNotificationRequest

@@ -46,6 +46,14 @@ namespace Domain.Entities
         public string? ServiceAddress { get; set; }
         public double? ServiceLatitude { get; set; }
         public double? ServiceLongitude { get; set; }
+
+        /// <summary>
+        /// True when ServiceLatitude/ServiceLongitude were captured directly from the client's
+        /// device GPS (accurate). False/null means the coordinates came from geocoding a text
+        /// address (potentially inaccurate). Only enforce strict proximity when this is true.
+        /// </summary>
+        public bool? ServiceLocationSetByClient { get; set; }
+        public DateTime? ServiceLocationSetAt { get; set; }
         public string? SpecialClientRequirements { get; set; }
         public string? AccessInstructions { get; set; }
         public string? CaregiverAdditionalNotes { get; set; }

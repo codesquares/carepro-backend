@@ -304,16 +304,20 @@ namespace Infrastructure.Content.Services
 
         private async Task<double?> ValidateProximity(double caregiverLat, double caregiverLng, ClientOrder order, string caregiverId)
         {
-            int maxDistanceMeters = _configuration.GetValue<int>("VisitCheckin:MaxDistanceMeters", 150);
+            int maxDistanceMeters = _configuration.GetValue<int>("VisitCheckin:MaxDistanceMeters", 1500);
 
             // Try to get service location coordinates
             double? serviceLat = null;
             double? serviceLng = null;
+            bool isClientVerifiedGps = false;
 
-            // Priority 1: Contract's geocoded service coordinates
             var contract = await _dbContext.Contracts
                 .FirstOrDefaultAsync(c => c.OrderId == order.Id.ToString() &&
                     (c.Status == ContractStatus.Approved || c.Status == ContractStatus.Accepted));
+
+            // Capture the pre-existing state before any geocoding modifies the field.
+            // Used below to send the client nudge notification exactly once (when it's still null).
+            bool? locationStateBeforeCheck = contract?.ServiceLocationSetByClient;
 
             if (contract != null)
             {
@@ -321,19 +325,24 @@ namespace Infrastructure.Content.Services
                 {
                     serviceLat = contract.ServiceLatitude;
                     serviceLng = contract.ServiceLongitude;
+                    isClientVerifiedGps = contract.ServiceLocationSetByClient == true;
                 }
                 else if (!string.IsNullOrEmpty(contract.ServiceAddress))
                 {
-                    // Geocode the contract service address and cache it
+                    // Geocode the address as a last resort — coordinates will NOT be treated
+                    // as client-verified, so the distance check is informational only.
                     try
                     {
                         var geocoded = await _geocodingService.GeocodeAsync(contract.ServiceAddress);
                         serviceLat = geocoded.Latitude;
                         serviceLng = geocoded.Longitude;
+                        isClientVerifiedGps = false;
 
-                        // Cache for future check-ins
+                        // Cache geocoded result so we don't call the API on every check-in,
+                        // but keep ServiceLocationSetByClient = false to signal it's not GPS-accurate.
                         contract.ServiceLatitude = serviceLat;
                         contract.ServiceLongitude = serviceLng;
+                        contract.ServiceLocationSetByClient = false;
                         _dbContext.Contracts.Update(contract);
                         await _dbContext.SaveChangesAsync();
                     }
@@ -344,19 +353,57 @@ namespace Infrastructure.Content.Services
                 }
             }
 
-            // No fallback to client's personal address — it may differ from the service address.
-            // If the contract has no geocoded service coordinates, reject the check-in.
             if (!serviceLat.HasValue || !serviceLng.HasValue)
             {
-                _logger.LogWarning("No geocoded service address on contract for order {OrderId}. Cannot validate proximity.", order.Id);
-                throw CheckinValidationException.NoGeocodedAddress(
-                    "The service address for this order has not been geocoded yet. Please contact support or ask the client to confirm the service address.");
+                // No reference point at all — allow check-in but log so ops can follow up.
+                _logger.LogWarning(
+                    "No service coordinates on contract for order {OrderId}. " +
+                    "Caregiver {CaregiverId} check-in allowed without proximity validation. " +
+                    "Client should set GPS via POST /api/contracts/{{id}}/service-location.",
+                    order.Id, caregiverId);
+                return null;
             }
 
             // Calculate distance using Haversine
             double distanceKm = CalculateHaversineDistance(caregiverLat, caregiverLng, serviceLat.Value, serviceLng.Value);
             double distanceMeters = distanceKm * 1000;
 
+            if (!isClientVerifiedGps)
+            {
+                // Coordinates came from geocoding — accuracy is unreliable for Nigerian addresses.
+                // Log the distance for audit but do NOT block the check-in.
+                _logger.LogWarning(
+                    "Proximity check INFORMATIONAL (geocoded coords, not client GPS) for caregiver {CaregiverId} " +
+                    "on order {OrderId}. Distance: {Distance:F0}m. Client has not yet set GPS via /service-location endpoint.",
+                    caregiverId, order.Id, distanceMeters);
+
+                // Nudge the client once — only when locationStateBeforeCheck is null,
+                // meaning this is the very first check-in and the client has never been prompted.
+                // After this point ServiceLocationSetByClient = false (geocoded), so it won't fire again.
+                if (locationStateBeforeCheck == null && contract != null && !string.IsNullOrEmpty(order.ClientId))
+                {
+                    try
+                    {
+                        await _mediator.Send(new SendNotificationCommand(
+                            RecipientId: order.ClientId,
+                            SenderId: caregiverId,
+                            Type: NotificationTypes.ServiceLocationNotSet,
+                            Content: "Your caregiver just checked in for their first visit. To enable accurate location verification on future visits, please confirm your service address GPS in the app.",
+                            Title: "Action Needed: Confirm Your Service Location",
+                            RelatedEntityId: contract.Id,
+                            OrderId: order.Id.ToString()
+                        ));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send service_location_not_set notification for order {OrderId}", order.Id);
+                    }
+                }
+
+                return Math.Round(distanceMeters, 1);
+            }
+
+            // Client GPS-verified: enforce the hard limit
             if (distanceMeters > maxDistanceMeters)
             {
                 if (_environment.IsDevelopment())

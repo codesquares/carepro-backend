@@ -968,10 +968,12 @@ namespace Infrastructure.Content.Services
                 if (newDate < todayNigeria)
                     throw new InvalidOperationException("Cannot reschedule to a date in the past.");
 
+                var newDateNext = newDate.AddDays(1);
                 var conflicting = await _dbContext.TaskSheets
                     .Where(ts => ts.OrderId == taskSheet.OrderId
                         && ts.ScheduledDate.HasValue
-                        && ts.ScheduledDate.Value.Date == newDate
+                        && ts.ScheduledDate.Value >= newDate
+                        && ts.ScheduledDate.Value < newDateNext
                         && ts.Status != "cancelled"
                         && ts.Id != taskSheet.Id)
                     .AnyAsync();

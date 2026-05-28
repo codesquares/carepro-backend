@@ -133,6 +133,12 @@ namespace Application.Interfaces.Content
         /// Admin: Cancel all non-terminal contracts (migration to negotiation flow).
         /// </summary>
         Task<int> CancelAllActiveContractsAsync();
+
+        /// <summary>
+        /// Client stamps their real-time GPS onto the contract's service location.
+        /// This replaces any previously geocoded coordinates and enables accurate 1500m proximity enforcement.
+        /// </summary>
+        Task<SetServiceLocationResponse> SetServiceLocationAsync(string contractId, string clientId, SetServiceLocationRequest request);
     }
 
     public interface IContractNotificationService

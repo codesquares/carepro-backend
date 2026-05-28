@@ -1,7 +1,9 @@
+using Application.Commands;
 using Application.Interfaces.Content;
 using Application.DTOs;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +20,7 @@ namespace Infrastructure.Content.Services
         private readonly IGeocodingService _geocodingService;
         private readonly ILogger<ContractService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IMediator _mediator;
 
         public ContractService(
             CareProDbContext context,
@@ -26,7 +29,8 @@ namespace Infrastructure.Content.Services
             ILocationService locationService,
             IGeocodingService geocodingService,
             ILogger<ContractService> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IMediator mediator)
         {
             _context = context;
             _llmService = llmService;
@@ -35,6 +39,7 @@ namespace Infrastructure.Content.Services
             _geocodingService = geocodingService;
             _logger = logger;
             _configuration = configuration;
+            _mediator = mediator;
         }
 
         public async Task<ContractDTO> GenerateContractAsync(ContractGenerationRequestDTO request)
@@ -1064,6 +1069,8 @@ namespace Infrastructure.Content.Services
                             // Client provided device GPS — use that directly, skip geocoding
                             contract.ServiceLatitude = request.ServiceLatitude!.Value;
                             contract.ServiceLongitude = request.ServiceLongitude!.Value;
+                            contract.ServiceLocationSetByClient = true;
+                            contract.ServiceLocationSetAt = DateTime.UtcNow;
                             _logger.LogInformation("Contract {ContractId} service address updated by client with device GPS: {Lat}, {Lng}",
                                 contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
                         }
@@ -1072,6 +1079,8 @@ namespace Infrastructure.Content.Services
                             // No device GPS — geocode the new address
                             contract.ServiceLatitude = null;
                             contract.ServiceLongitude = null;
+                            contract.ServiceLocationSetByClient = false;
+                            contract.ServiceLocationSetAt = null;
 
                             try
                             {
@@ -1091,6 +1100,8 @@ namespace Infrastructure.Content.Services
                         // Same address but client confirmed with device GPS — update coordinates
                         contract.ServiceLatitude = request.ServiceLatitude!.Value;
                         contract.ServiceLongitude = request.ServiceLongitude!.Value;
+                        contract.ServiceLocationSetByClient = true;
+                        contract.ServiceLocationSetAt = DateTime.UtcNow;
                         _logger.LogInformation("Contract {ContractId} received confirmed client device GPS at service address: {Lat}, {Lng}",
                             contractId, request.ServiceLatitude.Value, request.ServiceLongitude.Value);
                     }
@@ -1555,7 +1566,10 @@ namespace Infrastructure.Content.Services
                 double? serviceLat = null;
                 double? serviceLng = null;
 
-                if (request.ConfirmAtServiceAddress && request.ServiceLatitude.HasValue && request.ServiceLongitude.HasValue)
+                bool clientProvidedGps = request.ConfirmAtServiceAddress &&
+                    request.ServiceLatitude.HasValue && request.ServiceLongitude.HasValue;
+
+                if (clientProvidedGps)
                 {
                     serviceLat = request.ServiceLatitude.Value;
                     serviceLng = request.ServiceLongitude.Value;
@@ -1623,6 +1637,8 @@ namespace Infrastructure.Content.Services
                     ServiceAddress = request.ServiceAddress,
                     ServiceLatitude = serviceLat,
                     ServiceLongitude = serviceLng,
+                    ServiceLocationSetByClient = clientProvidedGps ? true : (bool?)null,
+                    ServiceLocationSetAt = clientProvidedGps ? DateTime.UtcNow : (DateTime?)null,
                     SpecialClientRequirements = request.SpecialClientRequirements,
                     AccessInstructions = request.AccessInstructions,
                     GeneratedTerms = contractTerms,
@@ -1838,11 +1854,15 @@ namespace Infrastructure.Content.Services
                     {
                         contract.ServiceLatitude = revision.ServiceLatitude!.Value;
                         contract.ServiceLongitude = revision.ServiceLongitude!.Value;
+                        contract.ServiceLocationSetByClient = true;
+                        contract.ServiceLocationSetAt = DateTime.UtcNow;
                     }
                     else
                     {
                         contract.ServiceLatitude = null;
                         contract.ServiceLongitude = null;
+                        contract.ServiceLocationSetByClient = false;
+                        contract.ServiceLocationSetAt = null;
                         try
                         {
                             var geocode = await _geocodingService.GeocodeAsync(revision.ServiceAddress);
@@ -2149,6 +2169,8 @@ namespace Infrastructure.Content.Services
                     EndTime = s.EndTime
                 }).ToList() ?? new List<ScheduledVisitDTO>(),
                 ServiceAddress = contract.ServiceAddress,
+                ServiceLocationSetByClient = contract.ServiceLocationSetByClient,
+                ServiceLocationSetAt = contract.ServiceLocationSetAt,
                 SpecialClientRequirements = contract.SpecialClientRequirements,
                 AccessInstructions = contract.AccessInstructions,
                 CaregiverAdditionalNotes = contract.CaregiverAdditionalNotes,
@@ -2202,6 +2224,72 @@ namespace Infrastructure.Content.Services
 
             await _context.SaveChangesAsync();
             return activeContracts.Count;
+        }
+
+        public async Task<SetServiceLocationResponse> SetServiceLocationAsync(
+            string contractId, string clientId, SetServiceLocationRequest request)
+        {
+            var maxAccuracyMeters = _configuration.GetValue<double>("VisitCheckin:MaxAccuracyMeters", 50);
+
+            if (request.Accuracy > maxAccuracyMeters)
+                throw new ArgumentException(
+                    $"GPS accuracy is too weak ({request.Accuracy:F0}m). " +
+                    $"Move outdoors and try again once accuracy improves to {maxAccuracyMeters:F0}m or better.");
+
+            var contract = await _context.Contracts.FirstOrDefaultAsync(c => c.Id == contractId);
+            if (contract == null)
+                throw new KeyNotFoundException($"Contract '{contractId}' not found.");
+
+            if (contract.ClientId != clientId)
+                throw new UnauthorizedAccessException("You are not the client on this contract.");
+
+            if (contract.Status == ContractStatus.Cancelled || contract.Status == ContractStatus.Expired)
+                throw new InvalidOperationException("Cannot set service location on a cancelled or expired contract.");
+
+            var previousLat = contract.ServiceLatitude;
+            var previousLng = contract.ServiceLongitude;
+            var wasClientSet = contract.ServiceLocationSetByClient;
+
+            contract.ServiceLatitude = request.Latitude;
+            contract.ServiceLongitude = request.Longitude;
+            contract.ServiceLocationSetByClient = true;
+            contract.ServiceLocationSetAt = DateTime.UtcNow;
+
+            _context.Contracts.Update(contract);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Client {ClientId} set GPS on contract {ContractId}: {Lat}, {Lng} (accuracy {Acc:F0}m). " +
+                "Previous coords: {PrevLat}, {PrevLng}, wasClientSet={WasClientSet}",
+                clientId, contractId, request.Latitude, request.Longitude, request.Accuracy,
+                previousLat, previousLng, wasClientSet);
+
+            // Notify the caregiver so they know location verification is now active
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.CaregiverId,
+                    SenderId: clientId,
+                    Type: NotificationTypes.ServiceLocationSet,
+                    Content: "Your client has confirmed their service location. Please ensure you are at the correct address before checking in.",
+                    Title: "Service Location Confirmed",
+                    RelatedEntityId: contractId,
+                    OrderId: contract.OrderId
+                ));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send service_location_set notification for contract {ContractId}", contractId);
+            }
+
+            return new SetServiceLocationResponse
+            {
+                Success = true,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                Accuracy = request.Accuracy,
+                SetAt = contract.ServiceLocationSetAt!.Value
+            };
         }
     }
 }

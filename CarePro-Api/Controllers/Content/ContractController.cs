@@ -827,6 +827,47 @@ namespace CarePro_Api.Controllers.Content
                 return StatusCode(500, "Failed to generate contract PDF");
             }
         }
+
+        /// <summary>
+        /// Client stamps their real-time device GPS onto the contract's service location.
+        /// Once set, caregiver check-ins use these accurate coordinates for the 1500m proximity check.
+        /// </summary>
+        [HttpPost("{contractId}/service-location")]
+        [Authorize(Roles = "Client")]
+        public async Task<ActionResult<SetServiceLocationResponse>> SetServiceLocation(
+            string contractId, [FromBody] SetServiceLocationRequest request)
+        {
+            try
+            {
+                var clientId = GetUserIdFromToken();
+                if (string.IsNullOrEmpty(clientId))
+                    return Unauthorized("Client authorization required.");
+
+                var result = await _contractService.SetServiceLocationAsync(contractId, clientId, request);
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting service location for contract {ContractId}", contractId);
+                return StatusCode(500, new { error = "Failed to set service location." });
+            }
+        }
     }
 
     // Supporting DTOs
