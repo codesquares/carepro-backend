@@ -155,7 +155,7 @@ jobs:
         
         # Install security updates
         RUN apk update && apk upgrade && \
-            apk add --no-cache curl && \
+            apk add --no-cache curl tzdata && \
             rm -rf /var/cache/apk/*
         
         FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
