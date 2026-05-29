@@ -2229,7 +2229,7 @@ namespace Infrastructure.Content.Services
         public async Task<SetServiceLocationResponse> SetServiceLocationAsync(
             string contractId, string clientId, SetServiceLocationRequest request)
         {
-            var maxAccuracyMeters = _configuration.GetValue<double>("VisitCheckin:MaxAccuracyMeters", 50);
+            var maxAccuracyMeters = _configuration.GetValue<double>("VisitCheckin:MaxAccuracyMeters", 150);
 
             if (request.Accuracy > maxAccuracyMeters)
                 throw new ArgumentException(
