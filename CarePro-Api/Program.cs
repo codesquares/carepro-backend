@@ -632,6 +632,7 @@ app.UseSignupIdempotency();
 app.MapControllers();
 app.MapHub<ChatHub>("/chathub");
 app.MapHub<NotificationHub>("/notificationHub");
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 
 // One-time startup migration: sync existing verified users to caregiver profiles
 using (var scope = app.Services.CreateScope())
