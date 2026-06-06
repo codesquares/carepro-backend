@@ -128,6 +128,7 @@ builder.Services.AddScoped<IEligibilityService, EligibilityService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
+builder.Services.AddScoped<IGigPriceNegotiationService, GigPriceNegotiationService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 
@@ -255,6 +256,9 @@ builder.Services.AddHostedService<CareRequestMatchingProcessor>();
 
 // GDPR: Hard-delete gigs past 30-day grace period (runs daily)
 builder.Services.AddHostedService<GigHardDeleteProcessor>();
+
+// Price negotiation: expire stale negotiations after 48h of inactivity (runs every 4h)
+builder.Services.AddHostedService<NegotiationExpiryProcessor>();
 
 // GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
 builder.Services.AddHostedService<GigDeletionReminderProcessor>();

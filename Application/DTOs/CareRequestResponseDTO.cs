@@ -138,8 +138,29 @@ namespace Application.DTOs
     {
         public bool Success { get; set; }
         public string ResponseId { get; set; } = string.Empty;
-        public string SpecialGigId { get; set; } = string.Empty;
         public string CaregiverId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The ID of the price negotiation record created at hire time.
+        /// Frontend must navigate to the price negotiation offer component using this ID.
+        /// Route: GET /api/gig-price-negotiation/{NegotiationId}
+        /// </summary>
+        public string NegotiationId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The caregiver's initially proposed per-visit rate (from their CareRequest response).
+        /// Shown as the opening price on the offer component.
+        /// </summary>
+        public decimal CaregiverProposedRate { get; set; }
+
+        /// <summary>
+        /// Null at hire time. Populated only after the client and caregiver agree on a price
+        /// through the negotiation flow. At that point the frontend will receive the SpecialGigId
+        /// via the negotiation agreement notification (type: price_negotiation_agreed) and from
+        /// the GET /api/gig-price-negotiation/{NegotiationId} response (field: GigIdForPayment).
+        /// </summary>
+        public string? SpecialGigId { get; set; }
+
         public string Message { get; set; } = string.Empty;
     }
 

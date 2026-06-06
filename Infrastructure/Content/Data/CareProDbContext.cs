@@ -217,6 +217,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Location>().HasQueryFilter(l => !l.IsDeleted);
             modelBuilder.Entity<CareRequest>().HasQueryFilter(cr => cr.DeletedAt == null);
 
+            modelBuilder.Entity<GigPriceNegotiation>().ToCollection("GigPriceNegotiations");
+            modelBuilder.Entity<GigPriceNegotiation>().HasKey(n => n.Id);
+            modelBuilder.Entity<GigPriceNegotiation>().Property(n => n.Id).HasElementName("_id");
+
         }
 
 
@@ -276,5 +280,6 @@ namespace Infrastructure.Content.Data
         public DbSet<AnalyticsEvent> AnalyticsEvents { get; set; }
         public DbSet<CaregiverJourneySnapshot> CaregiverJourneySnapshots { get; set; }
         public DbSet<PushSubscription> PushSubscriptions { get; set; }
+        public DbSet<GigPriceNegotiation> GigPriceNegotiations { get; set; }
     }
 }

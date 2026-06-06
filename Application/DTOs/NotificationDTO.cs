@@ -205,6 +205,18 @@ namespace Application.DTOs
         public const string ContractTaskProposalAccepted = "contract_task_proposal_accepted";
         public const string ContractTaskProposalRejected = "contract_task_proposal_rejected";
 
+        // ── Gig Price Negotiation ──
+        /// <summary>Sent to caregiver when client submits a price proposal.</summary>
+        public const string PriceNegotiationOfferReceived = "price_negotiation_offer_received";
+        /// <summary>Sent to client when caregiver submits a counter-proposal.</summary>
+        public const string PriceNegotiationCounterReceived = "price_negotiation_counter_received";
+        /// <summary>Sent to both parties when agreement is reached. RelatedEntityId = GigIdForPayment.</summary>
+        public const string PriceNegotiationAgreed = "price_negotiation_agreed";
+        /// <summary>Sent to the other party when one party rejects the negotiation.</summary>
+        public const string PriceNegotiationRejected = "price_negotiation_rejected";
+        /// <summary>Sent to both parties when a negotiation expires after 48h of inactivity.</summary>
+        public const string PriceNegotiationExpired = "price_negotiation_expired";
+
         // ── Gig Deletion ──
         public const string GigDeletionReminder = "gig_deletion_reminder";
         public const string GigPermanentlyDeleted = "gig_permanently_deleted";

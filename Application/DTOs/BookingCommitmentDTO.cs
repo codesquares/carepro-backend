@@ -46,6 +46,13 @@ namespace Application.DTOs
         public string? CaregiverId { get; set; }
         public DateTime? UnlockedAt { get; set; }
         public bool IsAppliedToOrder { get; set; }
+
+        /// <summary>
+        /// True when no commitment fee applies to this gig at all — e.g., special gigs created
+        /// through the CareRequest hire path. The cart page should skip the commitment gate
+        /// display entirely when this is true.
+        /// </summary>
+        public bool CommitmentNotRequired { get; set; }
     }
 
     /// <summary>

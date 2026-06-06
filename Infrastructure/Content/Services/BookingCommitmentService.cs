@@ -354,9 +354,35 @@ namespace Infrastructure.Content.Services
 
         public async Task<BookingCommitment?> GetApplicableCommitmentAsync(string clientId, string gigId)
         {
-            return await _dbContext.BookingCommitments
+            // 1. Exact lookup: commitment was paid directly for this gigId
+            var direct = await _dbContext.BookingCommitments
                 .FirstOrDefaultAsync(bc => bc.ClientId == clientId
                                         && bc.GigId == gigId
+                                        && bc.Status == BookingCommitmentStatus.Completed
+                                        && !bc.IsAppliedToOrder);
+
+            if (direct != null)
+                return direct;
+
+            // 2. Fallback for special gigs created through price negotiation (RegularGig path).
+            //    When a client and caregiver agree on a negotiated price, a special gig is created
+            //    whose OriginalGigId points back to the gig the commitment fee was paid for.
+            //    We resolve the OriginalGigId and retry the lookup against that.
+            if (!ObjectId.TryParse(gigId, out var gigOid))
+                return null;
+
+            var gig = await _dbContext.Gigs.FindAsync(gigOid);
+            if (gig == null || gig.IsSpecialGig != true || string.IsNullOrEmpty(gig.OriginalGigId))
+                return null;
+
+            _logger.LogInformation(
+                "GetApplicableCommitmentAsync: Direct lookup missed for SpecialGigId {GigId}. " +
+                "Trying OriginalGigId {OriginalGigId} for ClientId {ClientId}.",
+                gigId, gig.OriginalGigId, clientId);
+
+            return await _dbContext.BookingCommitments
+                .FirstOrDefaultAsync(bc => bc.ClientId == clientId
+                                        && bc.GigId == gig.OriginalGigId
                                         && bc.Status == BookingCommitmentStatus.Completed
                                         && !bc.IsAppliedToOrder);
         }
@@ -402,27 +428,77 @@ namespace Infrastructure.Content.Services
 
         public async Task<CommitmentStatusResponse> GetCommitmentStatusAsync(string clientId, string gigId)
         {
+            // 1. Check if this is a CareRequest-originated special gig.
+            //    These never require a commitment fee — return HasAccess=true + CommitmentNotRequired=true
+            //    so the cart page knows to skip the commitment gate entirely.
+            if (ObjectId.TryParse(gigId, out var gigOidCheck))
+            {
+                var gigCheck = await _dbContext.Gigs.FindAsync(gigOidCheck);
+                if (gigCheck != null
+                    && gigCheck.IsSpecialGig == true
+                    && !string.IsNullOrEmpty(gigCheck.CareRequestId))
+                {
+                    return new CommitmentStatusResponse
+                    {
+                        HasAccess = true,
+                        CommitmentNotRequired = true,
+                        GigId = gigId,
+                        CaregiverId = gigCheck.CaregiverId
+                    };
+                }
+            }
+
+            // 2. Direct lookup (covers regular gigs and RegularGig-path special gigs where
+            //    the client accepted — GigIdForPayment = OriginalGigId in that sub-case)
             var commitment = await _dbContext.BookingCommitments
                 .FirstOrDefaultAsync(bc => bc.ClientId == clientId
                                         && bc.GigId == gigId
                                         && bc.Status == BookingCommitmentStatus.Completed);
 
-            if (commitment == null)
+            if (commitment != null)
             {
                 return new CommitmentStatusResponse
                 {
-                    HasAccess = false,
-                    GigId = gigId
+                    HasAccess = true,
+                    GigId = gigId,
+                    CaregiverId = commitment.CaregiverId,
+                    UnlockedAt = commitment.CompletedAt,
+                    IsAppliedToOrder = commitment.IsAppliedToOrder
                 };
+            }
+
+            // 3. Fallback for special gigs created via RegularGig negotiation when the caregiver
+            //    accepted (GigIdForPayment = SpecialGigId, commitment was paid on OriginalGigId).
+            if (ObjectId.TryParse(gigId, out var gigOid))
+            {
+                var gig = await _dbContext.Gigs.FindAsync(gigOid);
+                if (gig != null
+                    && gig.IsSpecialGig == true
+                    && !string.IsNullOrEmpty(gig.OriginalGigId))
+                {
+                    var fallback = await _dbContext.BookingCommitments
+                        .FirstOrDefaultAsync(bc => bc.ClientId == clientId
+                                                && bc.GigId == gig.OriginalGigId
+                                                && bc.Status == BookingCommitmentStatus.Completed);
+
+                    if (fallback != null)
+                    {
+                        return new CommitmentStatusResponse
+                        {
+                            HasAccess = true,
+                            GigId = gigId,
+                            CaregiverId = fallback.CaregiverId,
+                            UnlockedAt = fallback.CompletedAt,
+                            IsAppliedToOrder = fallback.IsAppliedToOrder
+                        };
+                    }
+                }
             }
 
             return new CommitmentStatusResponse
             {
-                HasAccess = true,
-                GigId = gigId,
-                CaregiverId = commitment.CaregiverId,
-                UnlockedAt = commitment.CompletedAt,
-                IsAppliedToOrder = commitment.IsAppliedToOrder
+                HasAccess = false,
+                GigId = gigId
             };
         }
 

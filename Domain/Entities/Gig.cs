@@ -44,5 +44,13 @@ namespace Domain.Entities
 
         /// <summary>The client who hired this caregiver (scoped access)</summary>
         public string? ScopedClientId { get; set; }
+
+        /// <summary>
+        /// Set when this special gig was created through a price negotiation on an existing gig
+        /// (EntrySource = "RegularGig"). Stores the ID of the original gig so that the
+        /// booking commitment fee (paid against the original gig) can be located and applied.
+        /// Null for all regular gigs and for CareRequest-originated special gigs.
+        /// </summary>
+        public string? OriginalGigId { get; set; }
     }
 }

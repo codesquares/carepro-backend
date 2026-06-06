@@ -21,6 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
+        private readonly IGigPriceNegotiationService _negotiationService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
         private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "unmatched", "active", "escalated" };
@@ -29,11 +30,13 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IMediator mediator,
             IEmailService emailService,
+            IGigPriceNegotiationService negotiationService,
             ILogger<CareRequestResponseService> logger)
         {
             _dbContext = dbContext;
             _mediator = mediator;
             _emailService = emailService;
+            _negotiationService = negotiationService;
             _logger = logger;
         }
 
@@ -229,7 +232,13 @@ namespace Infrastructure.Content.Services
         }
 
         // ─────────────────────────────────────────────────────────────
-        //  Hire Responder (Generate Special Gig)
+        //  Hire Responder — Initiate Price Negotiation
+        //
+        //  CHANGED: No longer creates a special gig immediately.
+        //  Instead, a GigPriceNegotiation record is created using the
+        //  caregiver's ProposedRate as the opening price. The special gig
+        //  is only created when both parties agree on a final per-visit price.
+        //  HireResult now returns NegotiationId instead of SpecialGigId.
         // ─────────────────────────────────────────────────────────────
 
         public async Task<HireResult> HireResponderAsync(string careRequestId, string responseId, string clientId)
@@ -239,80 +248,50 @@ namespace Infrastructure.Content.Services
             if (response.Status == "hired")
                 throw new InvalidOperationException("This responder has already been hired.");
 
-            // Check that only one can be hired per request
+            // Check that only one caregiver can be hired per request
             var existingHire = await _dbContext.CareRequestResponses
                 .AnyAsync(r => r.CareRequestId == careRequestId && r.Status == "hired");
             if (existingHire)
                 throw new InvalidOperationException("You have already hired a caregiver for this request. Only one hire is allowed per request.");
 
-            // Use caregiver's profile image, or fall back to an image from their existing gigs
-            string? gigImage = null;
-            if (ObjectId.TryParse(response.CaregiverId, out var caregiverOid))
-            {
-                var caregiver = await _dbContext.CareGivers.FindAsync(caregiverOid);
-                gigImage = caregiver?.ProfileImage;
+            // Determine the opening price for the negotiation.
+            // Priority: caregiver's proposed rate → client's budget max → budget min → 10,000 (minimum floor)
+            var openingRate = response.ProposedRate.HasValue ? response.ProposedRate.Value
+                            : careRequest.BudgetMax.HasValue ? careRequest.BudgetMax.Value
+                            : careRequest.BudgetMin.HasValue ? careRequest.BudgetMin.Value
+                            : 10_000m;
 
-                if (string.IsNullOrEmpty(gigImage))
-                {
-                    gigImage = await _dbContext.Gigs
-                        .Where(g => g.CaregiverId == response.CaregiverId && g.IsDeleted != true && g.Image1 != null)
-                        .Select(g => g.Image1)
-                        .FirstOrDefaultAsync();
-                }
-            }
-
-            // Generate special gig from care request details
-            // Price priority: caregiver's proposed rate → client's budget max → budget min → 0
-            var gigPrice = response.ProposedRate.HasValue ? (int)response.ProposedRate.Value
-                         : careRequest.BudgetMax.HasValue ? (int)careRequest.BudgetMax.Value
-                         : careRequest.BudgetMin.HasValue ? (int)careRequest.BudgetMin.Value
-                         : 0;
-
-            var specialGig = new Gig
-            {
-                Id = ObjectId.GenerateNewId(),
-                Title = $"[Care Request] {careRequest.Title}",
-                Category = careRequest.ServiceCategory,
-                SubCategory = careRequest.ServicePackageType ?? "General",
-                Tags = string.Join(", ", careRequest.Tasks ?? new List<string>()),
-                PackageType = careRequest.ServicePackageType ?? "Custom",
-                PackageName = "Care Request Package",
-                PackageDetails = careRequest.Tasks ?? new List<string>(),
-                DeliveryTime = careRequest.Duration ?? "As agreed",
-                Price = gigPrice,
-                Image1 = gigImage,
-                Status = "Active",
-                CaregiverId = response.CaregiverId,
-                CreatedAt = DateTime.UtcNow,
-                IsSpecialGig = true,
-                CareRequestId = careRequestId,
-                CareRequestResponseId = responseId,
-                ScopedClientId = clientId
-            };
-
-            await _dbContext.Gigs.AddAsync(specialGig);
-
-            // Update response status
+            // Mark response as hired
             response.Status = "hired";
             response.HiredAt = DateTime.UtcNow;
-            response.SpecialGigId = specialGig.Id.ToString();
+            // SpecialGigId stays null — it will be populated when negotiation reaches Agreed status
             _dbContext.CareRequestResponses.Update(response);
-
             await _dbContext.SaveChangesAsync();
 
-            // Notify caregiver
+            // Initiate the price negotiation (idempotent — safe to call again if needed)
+            var negotiationDTO = await _negotiationService.InitiateFromCareRequestHireAsync(
+                clientId: clientId,
+                caregiverId: response.CaregiverId,
+                careRequestId: careRequestId,
+                responseId: responseId,
+                caregiverProposedRate: openingRate,
+                gigTitleSnapshot: careRequest.Title,
+                gigCategorySnapshot: careRequest.ServiceCategory,
+                gigPackageDetailsSnapshot: careRequest.Tasks ?? new List<string>());
+
+            // Notify caregiver: you've been selected — proceed to price negotiation
             var client = await _dbContext.Clients.FindAsync(ObjectId.Parse(clientId));
             var clientName = client?.FirstName ?? "A client";
 
             await _mediator.Send(new SendNotificationCommand(
-                response.CaregiverId,
-                clientId,
-                NotificationTypes.CareRequestHired,
-                $"{clientName} selected you for their \"{careRequest.Title}\" request. View the booking details and proceed.",
-                "You've been selected!",
-                specialGig.Id.ToString()));
+                RecipientId: response.CaregiverId,
+                SenderId: clientId,
+                Type: NotificationTypes.CareRequestHired,
+                Content: $"{clientName} selected you for their \"{careRequest.Title}\" request. Review the pricing and confirm to get started.",
+                Title: "You've been selected!",
+                RelatedEntityId: negotiationDTO.NegotiationId));
 
-            // Send email to caregiver
+            // Send hire email to caregiver
             try
             {
                 var caregiver = await _dbContext.CareGivers.FindAsync(ObjectId.Parse(response.CaregiverId));
@@ -322,11 +301,13 @@ namespace Infrastructure.Content.Services
                     var html = $@"
                         <h3>Congratulations {caregiver.FirstName}!</h3>
                         <p>{clientName} has selected you for their care request: <strong>{careRequest.Title}</strong>.</p>
-                        <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <div style='background-color:#f8f9fa;padding:15px;border-radius:5px;margin:20px 0;'>
                             <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
                             <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
+                            <p><strong>Opening rate (per visit):</strong> ₦{openingRate:N0}</p>
                         </div>
-                        <p>Log in to view the booking details and start the process.</p>
+                        <p>Log in to review the pricing and confirm or negotiate before the booking is finalised.</p>
+                        <p style='color:#666;font-size:13px;'>Note: the price shown is a per-visit rate. The client will choose the service type and visit frequency at checkout.</p>
                         <p>— The CarePro Team</p>";
                     await _emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, html);
                 }
@@ -336,16 +317,19 @@ namespace Infrastructure.Content.Services
                 _logger.LogWarning(ex, "Failed to send hire email for response {ResponseId}", responseId);
             }
 
-            _logger.LogInformation("Client {ClientId} hired caregiver {CaregiverId} for CareRequest {CareRequestId}. SpecialGig {GigId} created.",
-                clientId, response.CaregiverId, careRequestId, specialGig.Id);
+            _logger.LogInformation(
+                "Client {ClientId} hired caregiver {CaregiverId} for CareRequest {CareRequestId}. Negotiation {NegotiationId} initiated.",
+                clientId, response.CaregiverId, careRequestId, negotiationDTO.NegotiationId);
 
             return new HireResult
             {
                 Success = true,
                 ResponseId = responseId,
-                SpecialGigId = specialGig.Id.ToString(),
+                NegotiationId = negotiationDTO.NegotiationId,
+                CaregiverProposedRate = openingRate,
+                SpecialGigId = null, // Null at hire time — set only after negotiation agreement
                 CaregiverId = response.CaregiverId,
-                Message = "Caregiver has been hired. A special gig has been created for the booking process."
+                Message = "Caregiver selected. Proceed to the price negotiation component to agree on a per-visit rate before payment."
             };
         }
 
