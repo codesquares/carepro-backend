@@ -19,8 +19,17 @@ namespace Domain.Entities
         /// <summary>
         /// The caregiver's OrderFee (base service cost before platform/gateway fees).
         /// Used for wallet crediting — caregiver receives OrderFee minus 20% platform commission.
+        /// For orders where a commitment fee was charged, this reflects the full gig price
+        /// (commitment fee added back) so the caregiver receives their correct earnings.
         /// </summary>
         public decimal? OrderFee { get; set; }
+
+        /// <summary>
+        /// The commitment fee (₦5,000) that was deducted from the client's second payment.
+        /// Stored for audit purposes. OrderFee already includes this amount added back.
+        /// Null on orders created before this field was introduced or where no commitment applied.
+        /// </summary>
+        public decimal? CommitmentFeeDeducted { get; set; }
 
         public string TransactionId { get; set; }
 
