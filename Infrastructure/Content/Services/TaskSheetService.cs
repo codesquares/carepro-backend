@@ -813,11 +813,17 @@ namespace Infrastructure.Content.Services
 
             var order = await GetOrderOrThrow(orderId);
 
-            // Generate dates from contract schedule
+            // Generate dates from contract schedule, then cap to the order's allowed max.
+            // This ensures one-time orders never exceed 1 sheet even if the schedule has
+            // multiple days (e.g. caregiver selected days from a multi-visit gig package).
             var scheduledDates = GenerateScheduledDates(
                 contract.Schedule,
                 contract.ContractStartDate,
                 contract.SelectedPackage.DurationWeeks);
+
+            int maxSheets = CalculateMaxSheets(order);
+            if (scheduledDates.Count > maxSheets)
+                scheduledDates = scheduledDates.Take(maxSheets).ToList();
 
             // Get tasks from the contract
             var tasks = contract.Tasks?.Select(t => new TaskSheetItem

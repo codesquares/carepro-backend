@@ -117,6 +117,9 @@ namespace Infrastructure.Content.Services
                 PaymentOption = addClientOrderRequest.PaymentOption ?? string.Empty,
                 Amount = addClientOrderRequest.Amount,
                 OrderFee = addClientOrderRequest.OrderFee,
+                CommitmentFeeDeducted = addClientOrderRequest.CommitmentFeeDeducted > 0
+                    ? addClientOrderRequest.CommitmentFeeDeducted
+                    : null,
                 TransactionId = addClientOrderRequest.TransactionId ?? string.Empty,
                 TransactionReference = addClientOrderRequest.TransactionReference,
 

@@ -410,14 +410,19 @@ namespace Infrastructure.Content.Services
                 return Result<PendingPayment>.Failure(new List<string> { "Payment amount does not match. This incident has been logged." });
             }
 
-            // Create the client order
+            // Create the client order.
+            // OrderFee is restored to the full gig price by adding back the commitment fee
+            // that was deducted from the client's payment. This ensures the caregiver's wallet
+            // is credited for the full amount they are owed (commitment fee belonged to them).
+            decimal fullOrderFee = pendingPayment.OrderFee + (pendingPayment.CommitmentFeeDeducted ?? 0m);
             var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
             {
                 ClientId = pendingPayment.ClientId,
                 GigId = pendingPayment.GigId,
                 PaymentOption = pendingPayment.ServiceType,
                 Amount = (int)pendingPayment.TotalAmount,
-                OrderFee = pendingPayment.OrderFee,
+                OrderFee = fullOrderFee,
+                CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted ?? 0m,
                 TransactionId = flutterwaveTransactionId,
                 FrequencyPerWeek = pendingPayment.FrequencyPerWeek,
                 ServiceType = pendingPayment.ServiceType,
@@ -605,6 +610,13 @@ namespace Infrastructure.Content.Services
                 var gig = await _gigServices.GetGigAsync(payment.GigId);
                 var caregiverId = gig?.CaregiverId ?? string.Empty;
 
+                // Compute full (commitment-free) amounts for the subscription so that all
+                // future renewal cycles charge the correct full gig price.
+                decimal fullRecurringOrderFee = payment.OrderFee + (payment.CommitmentFeeDeducted ?? 0m);
+                decimal fullRecurringServiceCharge = Math.Round(fullRecurringOrderFee * SERVICE_CHARGE_RATE, 2);
+                decimal fullRecurringGatewayFees = CalculateFlutterwaveFees(fullRecurringOrderFee + fullRecurringServiceCharge);
+                decimal fullRecurringTotal = fullRecurringOrderFee + fullRecurringServiceCharge + fullRecurringGatewayFees;
+
                 var subscriptionResult = await _subscriptionService.CreateSubscriptionAsync(new Application.DTOs.CreateSubscriptionRequest
                 {
                     ClientId = payment.ClientId,
@@ -615,15 +627,18 @@ namespace Infrastructure.Content.Services
                     BillingCycle = payment.ServiceType, // "monthly" (only recurring type)
                     FrequencyPerWeek = payment.FrequencyPerWeek,
                     PricePerVisit = payment.BasePrice,
-                    RecurringAmount = payment.TotalAmount,
+                    // Recurring amounts must be based on the full gig price (no commitment deduction).
+                    // The commitment fee only ever applied to the client's first payment; from cycle 2
+                    // onward the client pays the full amount.
+                    RecurringAmount = fullRecurringTotal,
                     PriceBreakdown = new Application.DTOs.SubscriptionPriceBreakdownDTO
                     {
                         BasePrice = payment.BasePrice,
                         FrequencyPerWeek = payment.FrequencyPerWeek,
-                        OrderFee = payment.OrderFee,
-                        ServiceCharge = payment.ServiceCharge,
-                        GatewayFees = payment.FlutterwaveFees,
-                        TotalAmount = payment.TotalAmount
+                        OrderFee = fullRecurringOrderFee,
+                        ServiceCharge = fullRecurringServiceCharge,
+                        GatewayFees = fullRecurringGatewayFees,
+                        TotalAmount = fullRecurringTotal
                     },
                     Currency = payment.Currency,
                     FlutterwavePaymentToken = paymentToken,

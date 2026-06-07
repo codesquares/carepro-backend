@@ -79,9 +79,16 @@ namespace Application.DTOs
 
         /// <summary>
         /// The base service cost (caregiver's OrderFee) before platform/gateway fees.
-        /// Used for wallet crediting.
+        /// Restored to the full gig price (commitment fee added back) so wallet crediting
+        /// reflects what the caregiver is actually owed.
         /// </summary>
         public decimal OrderFee { get; set; }
+
+        /// <summary>
+        /// The commitment fee that was deducted from the client's second payment.
+        /// Stored for audit — the full OrderFee already includes this amount added back.
+        /// </summary>
+        public decimal CommitmentFeeDeducted { get; set; } = 0m;
 
         public string? TransactionId { get; set; }
         public string? TransactionReference { get; set; }

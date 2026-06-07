@@ -855,11 +855,16 @@ namespace Infrastructure.Content.Services
                 var caregiver = await _context.CareGivers
                     .FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
 
-                // Validate schedule — use order.FrequencyPerWeek as source of truth (same as TaskSheet),
-                // fall back to OrderTasks if available, then default to 1 for legacy orders
-                var expectedVisitsPerWeek = order.FrequencyPerWeek
-                    ?? orderTasks?.PackageSelection?.VisitsPerWeek
-                    ?? 1;
+                // One-time orders always have exactly 1 visit regardless of what the gig package says.
+                // For recurring orders, use order.FrequencyPerWeek as source of truth,
+                // fall back to OrderTasks if available, then default to 1 for legacy orders.
+                var isOneTime = string.Equals(order.ServiceType, "one-time", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
+                var expectedVisitsPerWeek = isOneTime
+                    ? 1
+                    : order.FrequencyPerWeek
+                        ?? orderTasks?.PackageSelection?.VisitsPerWeek
+                        ?? 1;
                 ValidateSchedule(request.Schedule, expectedVisitsPerWeek);
 
                 // Build package selection from order/gig
@@ -867,7 +872,7 @@ namespace Infrastructure.Content.Services
                 {
                     PackageType = order.PaymentOption ?? "standard",
                     VisitsPerWeek = expectedVisitsPerWeek,
-                    DurationWeeks = 4,
+                    DurationWeeks = isOneTime ? 1 : 4,
                     // PricePerVisit = total amount paid ÷ total visits (visitsPerWeek × durationWeeks)
                     PricePerVisit = expectedVisitsPerWeek > 0
                         ? Math.Round((decimal)order.Amount / (expectedVisitsPerWeek * 4), 2)
@@ -1502,9 +1507,13 @@ namespace Infrastructure.Content.Services
                 var caregiver = await _context.CareGivers
                     .FirstOrDefaultAsync(c => c.Id.ToString() == order.CaregiverId);
 
-                var expectedVisitsPerWeek = order.FrequencyPerWeek
-                    ?? orderTasks?.PackageSelection?.VisitsPerWeek
-                    ?? 1;
+                var isOneTime = string.Equals(order.ServiceType, "one-time", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
+                var expectedVisitsPerWeek = isOneTime
+                    ? 1
+                    : order.FrequencyPerWeek
+                        ?? orderTasks?.PackageSelection?.VisitsPerWeek
+                        ?? 1;
 
                 // Validate schedule if client provided one
                 if (request.Schedule != null && request.Schedule.Count > 0)
@@ -1514,7 +1523,7 @@ namespace Infrastructure.Content.Services
                 {
                     PackageType = order.PaymentOption ?? "standard",
                     VisitsPerWeek = expectedVisitsPerWeek,
-                    DurationWeeks = 4,
+                    DurationWeeks = isOneTime ? 1 : 4,
                     // PricePerVisit = total amount paid ÷ total visits (visitsPerWeek × durationWeeks)
                     PricePerVisit = expectedVisitsPerWeek > 0
                         ? Math.Round((decimal)order.Amount / (expectedVisitsPerWeek * 4), 2)
