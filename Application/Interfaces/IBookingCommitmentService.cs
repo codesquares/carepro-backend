@@ -66,5 +66,12 @@ namespace Application.Interfaces
         /// Returns all booking commitments for the authenticated client, ordered newest first.
         /// </summary>
         Task<List<BookingCommitmentListItem>> GetClientCommitmentsAsync(string clientId);
+
+        /// <summary>
+        /// Client cancels a completed, not-yet-applied commitment for a gig.
+        /// The ₦5,000 fee is non-refundable — access (chat + gig payment gate) is revoked immediately.
+        /// Fails if the commitment has already been applied to an active order.
+        /// </summary>
+        Task<Result<CancelCommitmentResponse>> CancelCommitmentAsync(string gigId, string clientId);
     }
 }

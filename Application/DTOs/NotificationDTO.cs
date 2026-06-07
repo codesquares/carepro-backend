@@ -102,6 +102,10 @@ namespace Application.DTOs
         public const string BookingConfirmed = "booking_confirmed";
         public const string CommitmentConfirmed = "commitment_confirmed";
         public const string BookingCommitmentExpired = "booking_commitment_expired";
+        /// <summary>Sent to the client confirming their commitment was cancelled and the fee forfeited.</summary>
+        public const string CommitmentCancelledByClient = "commitment_cancelled_by_client";
+        /// <summary>Sent to the caregiver when a client cancels their commitment, revoking chat and gig access.</summary>
+        public const string CommitmentCancelledAlert = "commitment_cancelled_alert";
 
         // ── Contract lifecycle (caregiver-side) ──
         public const string ContractReceived = "contract_received";

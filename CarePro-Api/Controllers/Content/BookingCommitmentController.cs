@@ -271,6 +271,47 @@ namespace CarePro_Api.Controllers.Content
                 amount = verification.Amount
             });
         }
+
+        /// <summary>
+        /// Cancels the client's active booking commitment for a gig.
+        /// The ₦5,000 fee is non-refundable — all access (chat + gig payment gate) is revoked immediately.
+        /// Fails if the commitment has already been applied to a full gig payment.
+        /// Requires the client to confirm they understand the fee is forfeited.
+        /// </summary>
+        [HttpPost("{gigId}/cancel")]
+        [Authorize(Roles = "Client")]
+        public async Task<IActionResult> CancelCommitment(string gigId, [FromBody] CancelCommitmentRequest request)
+        {
+            if (!request.ConfirmForfeit)
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "You must confirm you understand the ₦5,000 commitment fee is non-refundable. " +
+                              "Set confirmForfeit to true to proceed."
+                });
+
+            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(clientId))
+                return Unauthorized(new { success = false, message = "User not authenticated." });
+
+            var result = await _commitmentService.CancelCommitmentAsync(gigId, clientId);
+
+            if (!result.IsSuccess)
+                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
+
+            return Ok(new
+            {
+                success = true,
+                commitmentId = result.Value.CommitmentId,
+                gigId = result.Value.GigId,
+                status = result.Value.Status,
+                cancelledAt = result.Value.CancelledAt,
+                message = result.Value.Message
+            });
+        }
     }
 }
 

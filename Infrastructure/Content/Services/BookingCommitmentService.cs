@@ -676,5 +676,152 @@ namespace Infrastructure.Content.Services
                 AppliedToOrderId = c.AppliedToOrderId
             }).ToList();
         }
+
+        public async Task<Result<CancelCommitmentResponse>> CancelCommitmentAsync(string gigId, string clientId)
+        {
+            if (string.IsNullOrWhiteSpace(gigId))
+                return Result<CancelCommitmentResponse>.Failure(new List<string> { "GigId is required." });
+
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Result<CancelCommitmentResponse>.Failure(new List<string> { "Client authorization required." });
+
+            // Resolve the actual gig ID to look up — handles OriginalGigId fallback for special/negotiated gigs
+            var resolvedGigId = gigId;
+            if (ObjectId.TryParse(gigId, out var gigOid))
+            {
+                var gig = await _dbContext.Gigs.FindAsync(gigOid);
+                if (gig?.IsSpecialGig == true && !string.IsNullOrEmpty(gig.OriginalGigId))
+                {
+                    _logger.LogInformation(
+                        "CancelCommitmentAsync: SpecialGig {GigId} resolved to OriginalGigId {OriginalGigId} for ClientId {ClientId}.",
+                        gigId, gig.OriginalGigId, clientId);
+                    resolvedGigId = gig.OriginalGigId;
+                }
+            }
+
+            // Find the relevant commitment record — look for any commitment for this client+gig
+            var commitment = await _dbContext.BookingCommitments
+                .FirstOrDefaultAsync(bc => bc.ClientId == clientId
+                                        && (bc.GigId == resolvedGigId || bc.GigId == gigId)
+                                        && bc.Status == BookingCommitmentStatus.Completed);
+
+            if (commitment == null)
+            {
+                // Check if one exists but is already in a terminal/non-cancellable state
+                var anyCommitment = await _dbContext.BookingCommitments
+                    .FirstOrDefaultAsync(bc => bc.ClientId == clientId
+                                            && (bc.GigId == resolvedGigId || bc.GigId == gigId));
+
+                if (anyCommitment != null)
+                {
+                    _logger.LogWarning(
+                        "CancelCommitmentAsync: Commitment for ClientId {ClientId}, GigId {GigId} is in non-cancellable state {Status}.",
+                        clientId, gigId, anyCommitment.Status);
+                    return Result<CancelCommitmentResponse>.Failure(new List<string>
+                    {
+                        $"This commitment cannot be cancelled. Current status: {anyCommitment.Status}."
+                    });
+                }
+
+                _logger.LogWarning(
+                    "CancelCommitmentAsync: No active commitment found for ClientId {ClientId}, GigId {GigId}.",
+                    clientId, gigId);
+                return Result<CancelCommitmentResponse>.Failure(new List<string>
+                {
+                    "No active booking commitment found for this gig."
+                });
+            }
+
+            // GUARD: Cannot cancel if the commitment has already been consumed by a full gig payment
+            if (commitment.IsAppliedToOrder)
+            {
+                _logger.LogWarning(
+                    "CancelCommitmentAsync blocked — commitment {CommitmentId} already applied to order {OrderId}. ClientId: {ClientId}.",
+                    commitment.Id, commitment.AppliedToOrderId, clientId);
+                return Result<CancelCommitmentResponse>.Failure(new List<string>
+                {
+                    "This commitment has already been applied to an active order and cannot be cancelled. " +
+                    "If you want to cancel the service, please use the order cancellation option."
+                });
+            }
+
+            // CONCURRENCY GUARD: Re-read the commitment fresh from DB before mutating
+            // to catch a race where full gig payment ran concurrently and just marked it applied
+            var freshCommitment = await _dbContext.BookingCommitments.FindAsync(commitment.Id);
+            if (freshCommitment == null || freshCommitment.IsAppliedToOrder
+                || freshCommitment.Status != BookingCommitmentStatus.Completed)
+            {
+                _logger.LogWarning(
+                    "CancelCommitmentAsync: Concurrency guard triggered for commitment {CommitmentId}. " +
+                    "State changed between read and write. ClientId: {ClientId}.",
+                    commitment.Id, clientId);
+                return Result<CancelCommitmentResponse>.Failure(new List<string>
+                {
+                    "The commitment state changed while processing your request. " +
+                    "It may have just been applied to an order. Please check your order status."
+                });
+            }
+
+            // Mark as cancelled — all three gates (chat, gig payment, admin order creation) check
+            // for Status == Completed so they will block immediately after this save
+            freshCommitment.Status = BookingCommitmentStatus.CancelledByClient;
+            _dbContext.BookingCommitments.Update(freshCommitment);
+            await _dbContext.SaveChangesAsync();
+
+            var cancelledAt = DateTime.UtcNow;
+
+            _logger.LogInformation(
+                "Commitment {CommitmentId} cancelled by client {ClientId} for gig {GigId}. Fee forfeited: ₦{Amount}.",
+                freshCommitment.Id, clientId, gigId, freshCommitment.Amount);
+
+            // Fetch gig title for notification messages
+            var gigDetails = await _gigServices.GetGigAsync(resolvedGigId != gigId ? resolvedGigId : gigId);
+            var gigTitle = gigDetails?.Title ?? "the gig";
+
+            // Notify the client: confirmation + fee forfeiture reminder
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: clientId,
+                    SenderId: clientId,
+                    Type: NotificationTypes.CommitmentCancelledByClient,
+                    Content: $"You have cancelled your booking commitment for \"{gigTitle}\". " +
+                             $"Your ₦{freshCommitment.Amount:N0} commitment fee is non-refundable. " +
+                             "You will need to pay a new commitment fee to regain access.",
+                    Title: "Booking Commitment Cancelled",
+                    RelatedEntityId: freshCommitment.Id.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send cancellation confirmation notification to client {ClientId}", clientId);
+            }
+
+            // Notify the caregiver: their committed client has withdrawn
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: freshCommitment.CaregiverId,
+                    SenderId: clientId,
+                    Type: NotificationTypes.CommitmentCancelledAlert,
+                    Content: $"A client has cancelled their booking commitment for \"{gigTitle}\". " +
+                             "They will no longer have access to chat with you for this gig unless they pay a new commitment fee.",
+                    Title: "Booking Commitment Withdrawn",
+                    RelatedEntityId: freshCommitment.Id.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send cancellation alert notification to caregiver {CaregiverId}", freshCommitment.CaregiverId);
+            }
+
+            return Result<CancelCommitmentResponse>.Success(new CancelCommitmentResponse
+            {
+                CommitmentId = freshCommitment.Id.ToString(),
+                GigId = gigId,
+                Status = "cancelled_by_client",
+                CancelledAt = cancelledAt,
+                Message = $"Your booking commitment for \"{gigTitle}\" has been cancelled. " +
+                          $"The ₦{freshCommitment.Amount:N0} fee is non-refundable."
+            });
+        }
     }
 }

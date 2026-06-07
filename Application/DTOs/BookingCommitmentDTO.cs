@@ -72,4 +72,29 @@ namespace Application.DTOs
         public bool IsAppliedToOrder { get; set; }
         public string? AppliedToOrderId { get; set; }
     }
+
+    /// <summary>
+    /// Request body for cancelling a booking commitment.
+    /// The client must explicitly confirm they understand the fee is non-refundable.
+    /// </summary>
+    public class CancelCommitmentRequest
+    {
+        /// <summary>
+        /// Must be true. Confirms the client acknowledges the ₦5,000 fee is forfeited.
+        /// The endpoint will reject the request if this is false.
+        /// </summary>
+        public bool ConfirmForfeit { get; set; }
+    }
+
+    /// <summary>
+    /// Response after a commitment cancellation.
+    /// </summary>
+    public class CancelCommitmentResponse
+    {
+        public string CommitmentId { get; set; } = string.Empty;
+        public string GigId { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public DateTime CancelledAt { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
 }

@@ -105,6 +105,11 @@ namespace Domain.Entities
         Completed,
         Failed,
         Expired,
-        AmountMismatch
+        AmountMismatch,
+        /// <summary>
+        /// Client voluntarily cancelled the commitment. The ₦5,000 fee is forfeited (non-refundable).
+        /// All access gates (chat, gig payment) are immediately blocked until a new commitment is paid.
+        /// </summary>
+        CancelledByClient
     }
 }
