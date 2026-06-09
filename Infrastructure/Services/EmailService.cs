@@ -636,6 +636,10 @@ namespace Infrastructure.Services
 
         public async Task SendOrderCompletedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId)
         {
+            _logger.LogInformation(
+                "[ORDER COMPLETED EMAIL - CLIENT] To: {To} | Subject: Order Completed - CarePro | Body: Dear {FirstName}, Service: {GigTitle}, Order Amount: \u20a6{Amount}, Order ID: {OrderId}, Completion Date: {Date}. Your order has been successfully completed. Please consider leaving a review for your caregiver.",
+                toEmail, firstName, gigTitle, amount.ToString("N2"), orderId, DateTime.UtcNow.ToString("MMM dd, yyyy"));
+
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
@@ -655,6 +659,38 @@ namespace Infrastructure.Services
                     </div>
                     <p>Your order has been successfully completed! We hope you had a great experience with our care services.</p>
                     <p>Please consider leaving a review for your caregiver to help other clients make informed decisions.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendOrderCompletedCaregiverEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId)
+        {
+            _logger.LogInformation(
+                "[ORDER COMPLETED EMAIL - CAREGIVER] To: {To} | Subject: Order Completed - CarePro | Body: Dear {FirstName}, Service: {GigTitle}, Total Earnings: \u20a6{Amount}, Order ID: {OrderId}, Completion Date: {Date}. The order has been fully completed and all your earnings have been released to your wallet.",
+                toEmail, firstName, gigTitle, amount.ToString("N2"), orderId, DateTime.UtcNow.ToString("MMM dd, yyyy"));
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Order Completed - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>🎉 Order Completed</h4>
+                    <div style='background-color: #d4edda; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #28a745;'>
+                        <p><strong>Service:</strong> {gigTitle}</p>
+                        <p><strong>Total Earnings:</strong> ₦{amount:N2}</p>
+                        <p><strong>Order ID:</strong> {orderId}</p>
+                        <p><strong>Completion Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                    </div>
+                    <p>The order has been fully completed and all your earnings have been released to your wallet.</p>
+                    <p>Thank you for providing excellent care through CarePro!</p>
                     <p>Thanks,<br />The CarePro Team</p>"
             };
 

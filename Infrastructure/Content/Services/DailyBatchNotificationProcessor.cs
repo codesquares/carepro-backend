@@ -1,3 +1,4 @@
+using Application.DTOs;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
@@ -97,7 +98,7 @@ namespace Infrastructure.Content.Services
                     try
                     {
                         // Check user preferences
-                        var shouldSendEmail = await trackingService.ShouldSendEmailToUserAsync(userId, "Message");
+                        var shouldSendEmail = await trackingService.ShouldSendEmailToUserAsync(userId, NotificationTypes.ChatMessage);
                         if (!shouldSendEmail)
                         {
                             _logger.LogInformation("Skipping batch email for user {UserId} due to preferences", userId);
@@ -129,7 +130,7 @@ namespace Infrastructure.Content.Services
 
                         // Log the batch email
                         var notificationIds = notifications.Select(n => n.Id.ToString()).ToList();
-                        await trackingService.LogBatchEmailSentAsync(userId, "Message", notificationIds, emailSubject);
+                        await trackingService.LogBatchEmailSentAsync(userId, NotificationTypes.ChatMessage, notificationIds, emailSubject);
 
                         _logger.LogInformation("Batch email sent to {Email} for {Count} unread messages", 
                             recipient.Email, notifications.Count);

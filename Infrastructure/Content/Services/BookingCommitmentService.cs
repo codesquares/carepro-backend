@@ -338,10 +338,14 @@ namespace Infrastructure.Content.Services
 
         public async Task<bool> HasActiveCommitmentAsync(string clientId, string gigId)
         {
+            // Only count a commitment as "active" if it hasn't been consumed by an order yet.
+            // A commitment with IsAppliedToOrder=true is spent — the client needs a fresh one
+            // before they can place another order for the same gig.
             return await _dbContext.BookingCommitments
                 .AnyAsync(bc => bc.ClientId == clientId
                              && bc.GigId == gigId
-                             && bc.Status == BookingCommitmentStatus.Completed);
+                             && bc.Status == BookingCommitmentStatus.Completed
+                             && !bc.IsAppliedToOrder);
         }
 
         public async Task<bool> HasActiveCommitmentWithCaregiverAsync(string clientId, string caregiverId)
@@ -448,23 +452,69 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            // Terminal order statuses — an order in one of these states is done and cannot resume.
+            var terminalOrderStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+
             // 2. Direct lookup (covers regular gigs and RegularGig-path special gigs where
-            //    the client accepted — GigIdForPayment = OriginalGigId in that sub-case)
+            //    the client accepted — GigIdForPayment = OriginalGigId in that sub-case).
+            //    Prefer an unused commitment (IsAppliedToOrder=false) over a spent one so that
+            //    a client who paid a fresh commitment after a completed order gets immediate access.
             var commitment = await _dbContext.BookingCommitments
-                .FirstOrDefaultAsync(bc => bc.ClientId == clientId
-                                        && bc.GigId == gigId
-                                        && bc.Status == BookingCommitmentStatus.Completed);
+                .Where(bc => bc.ClientId == clientId
+                          && bc.GigId == gigId
+                          && bc.Status == BookingCommitmentStatus.Completed)
+                .OrderBy(bc => bc.IsAppliedToOrder)      // false (unused) sorts before true (spent)
+                .ThenByDescending(bc => bc.CompletedAt)
+                .FirstOrDefaultAsync();
 
             if (commitment != null)
             {
-                return new CommitmentStatusResponse
+                // If this commitment has already been consumed by an order, verify the order is
+                // still active. If the order has reached a terminal state (Completed, Cancelled,
+                // Terminated), the commitment is fully spent and the client needs a fresh one.
+                if (commitment.IsAppliedToOrder)
                 {
-                    HasAccess = true,
-                    GigId = gigId,
-                    CaregiverId = commitment.CaregiverId,
-                    UnlockedAt = commitment.CompletedAt,
-                    IsAppliedToOrder = commitment.IsAppliedToOrder
-                };
+                    var hasActiveOrder = await _dbContext.ClientOrders
+                        .AnyAsync(o => o.ClientId == clientId
+                                    && o.GigId == gigId
+                                    && o.ClientOrderStatus != null
+                                    && !terminalOrderStatuses.Contains(o.ClientOrderStatus));
+
+                    if (!hasActiveOrder)
+                    {
+                        // Commitment is fully spent and no active order remains.
+                        // Fall through to return HasAccess=false so the frontend prompts
+                        // the client to pay a new commitment fee.
+                        _logger.LogInformation(
+                            "GetCommitmentStatusAsync: Commitment {CommitmentId} is spent (IsAppliedToOrder=true) " +
+                            "and no active order exists for ClientId: {ClientId}, GigId: {GigId}. Returning HasAccess=false.",
+                            commitment.Id, clientId, gigId);
+                    }
+                    else
+                    {
+                        // Order is still in progress — commitment is tied to that active order.
+                        return new CommitmentStatusResponse
+                        {
+                            HasAccess = true,
+                            GigId = gigId,
+                            CaregiverId = commitment.CaregiverId,
+                            UnlockedAt = commitment.CompletedAt,
+                            IsAppliedToOrder = true
+                        };
+                    }
+                }
+                else
+                {
+                    // Commitment is unused — client has paid but not yet placed a full order.
+                    return new CommitmentStatusResponse
+                    {
+                        HasAccess = true,
+                        GigId = gigId,
+                        CaregiverId = commitment.CaregiverId,
+                        UnlockedAt = commitment.CompletedAt,
+                        IsAppliedToOrder = false
+                    };
+                }
             }
 
             // 3. Fallback for special gigs created via RegularGig negotiation when the caregiver
@@ -476,21 +526,56 @@ namespace Infrastructure.Content.Services
                     && gig.IsSpecialGig == true
                     && !string.IsNullOrEmpty(gig.OriginalGigId))
                 {
+                    // Same preference ordering: unused over spent, newest first.
                     var fallback = await _dbContext.BookingCommitments
-                        .FirstOrDefaultAsync(bc => bc.ClientId == clientId
-                                                && bc.GigId == gig.OriginalGigId
-                                                && bc.Status == BookingCommitmentStatus.Completed);
+                        .Where(bc => bc.ClientId == clientId
+                                  && bc.GigId == gig.OriginalGigId
+                                  && bc.Status == BookingCommitmentStatus.Completed)
+                        .OrderBy(bc => bc.IsAppliedToOrder)
+                        .ThenByDescending(bc => bc.CompletedAt)
+                        .FirstOrDefaultAsync();
 
                     if (fallback != null)
                     {
-                        return new CommitmentStatusResponse
+                        if (fallback.IsAppliedToOrder)
                         {
-                            HasAccess = true,
-                            GigId = gigId,
-                            CaregiverId = fallback.CaregiverId,
-                            UnlockedAt = fallback.CompletedAt,
-                            IsAppliedToOrder = fallback.IsAppliedToOrder
-                        };
+                            var hasActiveOrder = await _dbContext.ClientOrders
+                                .AnyAsync(o => o.ClientId == clientId
+                                            && o.GigId == gigId
+                                            && o.ClientOrderStatus != null
+                                            && !terminalOrderStatuses.Contains(o.ClientOrderStatus));
+
+                            if (!hasActiveOrder)
+                            {
+                                _logger.LogInformation(
+                                    "GetCommitmentStatusAsync (fallback): Commitment {CommitmentId} is spent " +
+                                    "and no active order exists for ClientId: {ClientId}, SpecialGigId: {GigId}. Returning HasAccess=false.",
+                                    fallback.Id, clientId, gigId);
+                                // Fall through to HasAccess=false below.
+                            }
+                            else
+                            {
+                                return new CommitmentStatusResponse
+                                {
+                                    HasAccess = true,
+                                    GigId = gigId,
+                                    CaregiverId = fallback.CaregiverId,
+                                    UnlockedAt = fallback.CompletedAt,
+                                    IsAppliedToOrder = true
+                                };
+                            }
+                        }
+                        else
+                        {
+                            return new CommitmentStatusResponse
+                            {
+                                HasAccess = true,
+                                GigId = gigId,
+                                CaregiverId = fallback.CaregiverId,
+                                UnlockedAt = fallback.CompletedAt,
+                                IsAppliedToOrder = false
+                            };
+                        }
                     }
                 }
             }

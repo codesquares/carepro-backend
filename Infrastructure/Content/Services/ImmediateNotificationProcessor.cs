@@ -203,9 +203,19 @@ namespace Infrastructure.Content.Services
 
                 case NotificationTypes.OrderCompleted:
                     var completedDetails = ExtractOrderCompletionDetailsFromContent(notification.Content);
-                    await emailService.SendOrderCompletedEmailAsync(
-                        recipient.Email, recipient.FirstName ?? "User",
-                        completedDetails.Amount, completedDetails.GigTitle, completedDetails.OrderId);
+                    var completedRole = ExtractRoleFromContent(notification.Content);
+                    if (completedRole == "caregiver")
+                    {
+                        await emailService.SendOrderCompletedCaregiverEmailAsync(
+                            recipient.Email, recipient.FirstName ?? "User",
+                            completedDetails.Amount, completedDetails.GigTitle, completedDetails.OrderId);
+                    }
+                    else
+                    {
+                        await emailService.SendOrderCompletedEmailAsync(
+                            recipient.Email, recipient.FirstName ?? "User",
+                            completedDetails.Amount, completedDetails.GigTitle, completedDetails.OrderId);
+                    }
                     break;
 
                 case NotificationTypes.OrderCancelled:
@@ -386,12 +396,23 @@ namespace Infrastructure.Content.Services
 
         private OrderCompletionDetails ExtractOrderCompletionDetailsFromContent(string content)
         {
+            // Parse structured format: [COMPLETED] Service: X | OrderRef: Y | Total: ₦Z | Recipient: R
+            var amountMatch = System.Text.RegularExpressions.Regex.Match(content, @"Total:\s*₦?([\d,]+\.?\d*)");
+            var orderIdMatch = System.Text.RegularExpressions.Regex.Match(content, @"OrderRef:\s*([^\s|]+)");
+            var gigTitleMatch = System.Text.RegularExpressions.Regex.Match(content, @"Service:\s*([^|]+?)\s*\|");
+
             return new OrderCompletionDetails
             {
-                Amount = ExtractAmountFromContent(content),
-                GigTitle = ExtractGigTitleFromContent(content),
-                OrderId = ExtractOrderIdFromContent(content)
+                Amount = amountMatch.Success && decimal.TryParse(amountMatch.Groups[1].Value.Replace(",", ""), out var amt) ? amt : 0m,
+                GigTitle = gigTitleMatch.Success ? gigTitleMatch.Groups[1].Value.Trim() : "Care Service",
+                OrderId = orderIdMatch.Success ? orderIdMatch.Groups[1].Value.Trim() : DateTime.UtcNow.Ticks.ToString()
             };
+        }
+
+        private string ExtractRoleFromContent(string content)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(content, @"Recipient:\s*(\w+)");
+            return match.Success ? match.Groups[1].Value.ToLowerInvariant() : "client";
         }
 
         private OrderCancellationDetails ExtractOrderCancellationDetailsFromContent(string content)

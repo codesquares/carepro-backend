@@ -30,6 +30,7 @@ namespace Application.Interfaces.Email
         Task SendOrderReceivedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string clientName, string orderId);
         Task SendOrderConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId);
         Task SendOrderCompletedEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId);
+        Task SendOrderCompletedCaregiverEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId);
         Task SendOrderCancelledEmailAsync(string toEmail, string firstName, string gigTitle, string reason, string orderId);
 
         // Batch notification methods

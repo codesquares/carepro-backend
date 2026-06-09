@@ -195,27 +195,39 @@ namespace Infrastructure.Content.Services
         {
             try
             {
+                // Only consider messages older than 24 hours — gives the user time to read them first
                 var twentyFourHoursAgo = DateTime.UtcNow.AddHours(-24);
-                
+
                 var unreadMessageNotifications = await _dbContext.Notifications
                     .Where(n => _messageTypes.Contains(n.Type)
                              && !n.IsRead
                              && n.CreatedAt <= twentyFourHoursAgo)
                     .ToListAsync();
 
-                // Group by recipient and filter out users who already received batch email today
+                if (!unreadMessageNotifications.Any())
+                    return new Dictionary<string, List<Notification>>();
+
+                // Load all notification IDs that have already been included in a batch email.
+                // This is timezone-agnostic: once a notification ID is logged it is never emailed again,
+                // regardless of UTC date boundaries or server timezone.
+                var alreadyEmailedLogs = await _dbContext.EmailNotificationLogs
+                    .Where(log => log.EmailType == EmailType.Batch
+                               && log.NotificationType == NotificationTypes.ChatMessage)
+                    .ToListAsync();
+
+                var alreadyEmailedIds = alreadyEmailedLogs
+                    .SelectMany(log => log.NotificationIds)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                // Keep only notifications that have never been included in a prior batch email
                 var result = new Dictionary<string, List<Notification>>();
-                var groupedByUser = unreadMessageNotifications.GroupBy(n => n.RecipientId);
+                var groupedByUser = unreadMessageNotifications
+                    .Where(n => !alreadyEmailedIds.Contains(n.Id.ToString()))
+                    .GroupBy(n => n.RecipientId);
 
                 foreach (var userGroup in groupedByUser)
                 {
-                    var userId = userGroup.Key;
-                    var hasBatchEmailToday = await HasBatchEmailBeenSentTodayAsync(userId, NotificationTypes.ChatMessage);
-                    
-                    if (!hasBatchEmailToday)
-                    {
-                        result[userId] = userGroup.ToList();
-                    }
+                    result[userGroup.Key] = userGroup.ToList();
                 }
 
                 return result;

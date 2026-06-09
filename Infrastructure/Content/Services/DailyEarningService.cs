@@ -215,11 +215,15 @@ namespace Infrastructure.Content.Services
                         // ── Notify caregiver and client that the order is fully complete ──
                         try
                         {
+                            var gig = await dbContext.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
+                            var gigTitle = gig?.Title ?? "Care Service";
+                            decimal caregiverEarnings = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+
                             await mediator.Send(new SendNotificationCommand(
                                 RecipientId: order.CaregiverId,
                                 SenderId: "system",
                                 Type: NotificationTypes.OrderCompleted,
-                                Content: $"Your order has been completed. All {maxVisits} visits have been approved and your earnings have been fully released.",
+                                Content: $"[COMPLETED] Service: {gigTitle} | OrderRef: {order.Id} | Total: ₦{caregiverEarnings:N2} | Recipient: caregiver",
                                 Title: "Order Completed",
                                 RelatedEntityId: order.Id.ToString(),
                                 OrderId: order.Id.ToString()));
@@ -228,7 +232,7 @@ namespace Infrastructure.Content.Services
                                 RecipientId: order.ClientId,
                                 SenderId: "system",
                                 Type: NotificationTypes.OrderCompleted,
-                                Content: $"Your care order has been completed. All {maxVisits} visits have been approved.",
+                                Content: $"[COMPLETED] Service: {gigTitle} | OrderRef: {order.Id} | Total: ₦{order.OrderFee:N2} | Recipient: client",
                                 Title: "Order Completed",
                                 RelatedEntityId: order.Id.ToString(),
                                 OrderId: order.Id.ToString()));
