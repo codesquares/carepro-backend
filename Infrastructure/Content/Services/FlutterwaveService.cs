@@ -18,6 +18,7 @@ public class FlutterwaveService
     private readonly string _encryptionKey;
     private readonly string _webhookSecretHash;
     private readonly string _baseUrl = "https://api.flutterwave.com";
+    private readonly string _frontendUrl;
     private readonly ILogger<FlutterwaveService> _logger;
 
     public FlutterwaveService(IConfiguration configuration, ILogger<FlutterwaveService> logger)
@@ -39,6 +40,10 @@ public class FlutterwaveService
         _webhookSecretHash = configuration["Flutterwave:WebhookSecretHash"]
             ?? Environment.GetEnvironmentVariable("FLUTTERWAVE_WEBHOOK_SECRET_HASH")
             ?? string.Empty;
+
+        _frontendUrl = configuration["FrontendUrl"]
+            ?? Environment.GetEnvironmentVariable("FRONTEND_URL")
+            ?? "https://oncarepro.com";
         
         _logger.LogInformation("FlutterwaveService initialized with PublicKey: {PublicKey}", 
             _publicKey.Substring(0, Math.Min(20, _publicKey.Length)) + "...");
@@ -135,7 +140,8 @@ public class FlutterwaveService
                 amount = amount,
                 email = email,
                 tx_ref = txRef,
-                narration = $"CarePro Recurring Service - {txRef}"
+                narration = $"CarePro Recurring Service - {txRef}",
+                redirect_url = $"{_frontendUrl}/subscription/payment-confirmed"
             };
 
             request.AddJsonBody(body);

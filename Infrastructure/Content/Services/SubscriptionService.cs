@@ -1035,7 +1035,7 @@ namespace Infrastructure.Content.Services
                     subscription.ClientId,
                     "system",
                     NotificationTypes.PaymentFailed,
-                    $"Your subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
+                    $"Your ₦{subscription.RecurringAmount:N2} subscription payment failed: {errorMessage}. We'll retry automatically. Please ensure your payment method is up to date.",
                     "Payment Failed",
                     subscriptionId,
                     failedLinkedOrderId));
