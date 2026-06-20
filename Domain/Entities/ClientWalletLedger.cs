@@ -50,6 +50,7 @@ namespace Domain.Entities
     {
         public const string CancellationCredit = "CancellationCredit";
         public const string OrderCancellationCredit = "OrderCancellationCredit";
+        public const string SubscriptionTerminationCredit = "SubscriptionTerminationCredit";
         public const string CreditApplied = "CreditApplied";
         public const string Adjustment = "Adjustment";
         public const string RefundDebit = "RefundDebit";

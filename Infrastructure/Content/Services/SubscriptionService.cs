@@ -19,8 +19,6 @@ namespace Infrastructure.Content.Services
         private readonly IMediator _mediator;
         private readonly ILogger<SubscriptionService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly ICaregiverWalletService _walletService;
-        private readonly IEarningsLedgerService _ledgerService;
         private readonly IBillingRecordService _billingRecordService;
 
         // Same fee structure as PendingPaymentService
@@ -35,8 +33,6 @@ namespace Infrastructure.Content.Services
             IMediator mediator,
             ILogger<SubscriptionService> logger,
             IConfiguration configuration,
-            ICaregiverWalletService walletService,
-            IEarningsLedgerService ledgerService,
             IBillingRecordService billingRecordService)
         {
             _dbContext = dbContext;
@@ -45,8 +41,6 @@ namespace Infrastructure.Content.Services
             _mediator = mediator;
             _logger = logger;
             _configuration = configuration;
-            _walletService = walletService;
-            _ledgerService = ledgerService;
             _billingRecordService = billingRecordService;
         }
 
@@ -334,122 +328,14 @@ namespace Infrastructure.Content.Services
             if (!isClient && !isCaregiver)
                 return Result<SubscriptionDTO>.Failure(new List<string> { "Not authorized to terminate this subscription." });
 
-            var terminalStatuses = new[] { SubscriptionStatus.Cancelled, SubscriptionStatus.Terminated, SubscriptionStatus.Expired };
-            if (terminalStatuses.Contains(subscription.Status))
-                return Result<SubscriptionDTO>.Failure(new List<string>
-                {
-                    $"Subscription is already '{subscription.Status}'."
-                });
+            var actor = isClient ? "client" : "caregiver";
+            var result = await TerminateSubscriptionInternalAsync(
+                subscription,
+                actor,
+                request.Reason,
+                terminateLinkedContract: true);
 
-            var now = DateTime.UtcNow;
-            subscription.Status = SubscriptionStatus.Terminated;
-            subscription.TerminatedAt = now;
-            subscription.CancellationReason = request.Reason;
-            subscription.CancelledBy = isClient ? "client" : "caregiver";
-            subscription.AutoRenew = false;
-            subscription.NextChargeDate = null;
-            subscription.UpdatedAt = now;
-
-            // Calculate pro-rated refund if requested
-            if (request.IssueProRatedRefund)
-            {
-                var refundAmount = subscription.CalculateProRatedRefund();
-                if (refundAmount > 0)
-                {
-                    subscription.RefundAmount = refundAmount;
-                    _logger.LogInformation(
-                        "Pro-rated refund of {RefundAmount} {Currency} calculated for subscription {SubscriptionId}. " +
-                        "Remaining days: {RemainingDays}/{TotalDays}",
-                        refundAmount, subscription.Currency, subscriptionId,
-                        subscription.RemainingDaysInPeriod, subscription.TotalDaysInPeriod);
-
-                    // Debit the caregiver's wallet for the refund amount (order fee portion only)
-                    try
-                    {
-                        // Calculate what portion of the refund is the caregiver's order fee (exclude service charge & gateway fees)
-                        var totalWithoutFees = subscription.PriceBreakdown.OrderFee;
-                        var totalWithFees = subscription.PriceBreakdown.TotalAmount;
-                        var caregiverRefundPortion = totalWithFees > 0
-                            ? refundAmount * (totalWithoutFees / totalWithFees)
-                            : refundAmount;
-                        caregiverRefundPortion = Math.Round(caregiverRefundPortion, 2);
-
-                        await _walletService.DebitRefundAsync(subscription.CaregiverId, caregiverRefundPortion);
-                        await _ledgerService.RecordRefundAsync(
-                            subscription.CaregiverId,
-                            caregiverRefundPortion,
-                            subscription.OriginalOrderId,
-                            subscriptionId,
-                            $"Pro-rated refund for terminated subscription {subscriptionId}. Refund: {subscription.Currency} {refundAmount:N2}");
-                    }
-                    catch (Exception walletEx)
-                    {
-                        _logger.LogError(walletEx, "Failed to debit wallet for refund on subscription {SubscriptionId}", subscriptionId);
-                    }
-                }
-            }
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "Subscription {SubscriptionId} terminated immediately by {Actor}. Reason: {Reason}",
-                subscriptionId, subscription.CancelledBy, request.Reason);
-
-            // Terminate the linked contract if exists
-            if (!string.IsNullOrEmpty(subscription.ContractId))
-            {
-                var contract = await _dbContext.Contracts
-                    .FirstOrDefaultAsync(c => c.Id == subscription.ContractId);
-                if (contract != null && contract.Status != ContractStatus.Terminated && contract.Status != ContractStatus.Completed)
-                {
-                    contract.Status = ContractStatus.Terminated;
-                    contract.UpdatedAt = now;
-                    await _dbContext.SaveChangesAsync();
-                    _logger.LogInformation("Linked contract {ContractId} also terminated", subscription.ContractId);
-                }
-            }
-
-            // ── EXPIRE BOOKING COMMITMENT ────────────────────────────────────
-            // When an order is terminated, expire the booking commitment that was
-            // applied to it so the client must pay a new commitment fee to re-engage.
-            if (!string.IsNullOrEmpty(subscription.OriginalOrderId))
-            {
-                var linkedCommitment = await _dbContext.BookingCommitments
-                    .FirstOrDefaultAsync(bc => bc.AppliedToOrderId == subscription.OriginalOrderId
-                                            && bc.Status == BookingCommitmentStatus.Completed);
-                if (linkedCommitment != null)
-                {
-                    linkedCommitment.Status = BookingCommitmentStatus.Expired;
-                    await _dbContext.SaveChangesAsync();
-                    _logger.LogInformation(
-                        "Booking commitment {CommitmentId} expired due to subscription termination. Client {ClientId} must pay again to re-engage caregiver {CaregiverId}",
-                        linkedCommitment.Id, subscription.ClientId, subscription.CaregiverId);
-                }
-            }
-            // ── END EXPIRE BOOKING COMMITMENT ────────────────────────────────
-
-            // Notify both parties
-            var refundMsg = subscription.RefundAmount > 0
-                ? $" A pro-rated refund of {subscription.Currency} {subscription.RefundAmount:N2} will be processed."
-                : "";
-
-            await _mediator.Send(new SendNotificationCommand(
-                subscription.ClientId,
-                "system",
-                NotificationTypes.SubscriptionTerminated,
-                $"Your subscription has been terminated immediately.{refundMsg}",
-                "Subscription Terminated",
-                subscriptionId));
-
-            await _mediator.Send(new SendNotificationCommand(
-                subscription.CaregiverId,
-                "system",
-                NotificationTypes.SubscriptionTerminated,
-                "A subscription for your service has been terminated.",
-                "Subscription Terminated",
-                subscriptionId));
-
-            return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
+            return result;
         }
 
         // ══════════════════════════════════════════
@@ -608,7 +494,8 @@ namespace Infrastructure.Content.Services
                     subscription.Email,
                     subscription.Currency,
                     txRef,
-                    request.RedirectUrl);
+                    request.RedirectUrl,
+                    "card"); // Force card payment so a token can always be captured
 
                 var paymentLink = ExtractPaymentLink(flutterwaveResponse);
                 if (string.IsNullOrEmpty(paymentLink))
@@ -618,6 +505,14 @@ namespace Infrastructure.Content.Services
                         "Failed to initiate card verification with payment provider."
                     });
                 }
+
+                // Store the txRef so the webhook can look up this subscription when the 50 NGN charge completes
+                subscription.PendingCardUpdateTxRef = txRef;
+                subscription.CardUpdateState = "pending";
+                subscription.CardUpdateStartedAt = DateTime.UtcNow;
+                subscription.CardUpdateFailureReason = null;
+                subscription.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
 
                 return Result<UpdatePaymentMethodResponse>.Success(new UpdatePaymentMethodResponse
                 {
@@ -634,6 +529,164 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<Result<SubscriptionPaymentRecordDTO>> CompleteRecurringChargeFromWebhookAsync(
+            string txRef, string flutterwaveTransactionId, decimal amount)
+        {
+            // Find the subscription that has a pending payment record with this txRef
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.PaymentHistory.Any(p =>
+                    p.TransactionReference == txRef && p.Status == "pending"));
+
+            if (subscription == null)
+            {
+                _logger.LogWarning(
+                    "CompleteRecurringChargeFromWebhook: No subscription found with pending txRef {TxRef}",
+                    txRef);
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Subscription not found for this transaction." });
+            }
+
+            var paymentRecord = subscription.PaymentHistory
+                .FirstOrDefault(p => p.TransactionReference == txRef && p.Status == "pending");
+
+            if (paymentRecord == null)
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment record not found." });
+
+            // Amount verification
+            if (Math.Abs(amount - subscription.RecurringAmount) > 0.01m)
+            {
+                _logger.LogCritical(
+                    "SECURITY: AMOUNT MISMATCH on webhook recurring charge! Subscription {SubscriptionId}, Expected: {Expected}, Received: {Received}",
+                    subscription.Id, subscription.RecurringAmount, amount);
+                paymentRecord.Status = "amount_mismatch";
+                paymentRecord.ErrorMessage = $"Expected {subscription.RecurringAmount}, received {amount}";
+                subscription.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment amount mismatch detected." });
+            }
+
+            var cycleNumber = paymentRecord.BillingCycleNumber;
+
+            // Create the ClientOrder for this billing cycle
+            var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
+            {
+                ClientId = subscription.ClientId,
+                GigId = subscription.GigId,
+                PaymentOption = subscription.BillingCycle,
+                Amount = (int)Math.Round(subscription.RecurringAmount, 0),
+                OrderFee = subscription.PriceBreakdown.OrderFee,
+                TransactionId = flutterwaveTransactionId,
+                BillingCycleNumber = cycleNumber
+            });
+
+            paymentRecord.Status = "successful";
+            paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
+            paymentRecord.CompletedAt = DateTime.UtcNow;
+            paymentRecord.ClientOrderId = orderResult.Value?.Id;
+
+            var now = DateTime.UtcNow;
+            subscription.CurrentPeriodStart = now;
+            subscription.CurrentPeriodEnd = now.AddDays(30);
+            subscription.NextChargeDate = subscription.CurrentPeriodEnd;
+            subscription.BillingCyclesCompleted = cycleNumber;
+            subscription.FailedChargeAttempts = 0;
+            subscription.LastChargeError = null;
+            subscription.Status = SubscriptionStatus.Active;
+            subscription.UpdatedAt = now;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Recurring charge completed via webhook for subscription {SubscriptionId}. Cycle #{Cycle}, Amount: {Amount}",
+                subscription.Id, cycleNumber, amount);
+
+            // Billing record
+            try
+            {
+                await _billingRecordService.CreateBillingRecordAsync(
+                    orderId: orderResult.Value?.Id ?? string.Empty,
+                    clientId: subscription.ClientId,
+                    caregiverId: subscription.CaregiverId,
+                    gigId: subscription.GigId,
+                    serviceType: subscription.BillingCycle,
+                    frequencyPerWeek: subscription.FrequencyPerWeek,
+                    amountPaid: subscription.RecurringAmount,
+                    orderFee: subscription.PriceBreakdown.OrderFee,
+                    serviceCharge: subscription.PriceBreakdown.ServiceCharge,
+                    gatewayFees: subscription.PriceBreakdown.GatewayFees,
+                    paymentTransactionId: flutterwaveTransactionId,
+                    subscriptionId: subscription.Id,
+                    contractId: subscription.ContractId,
+                    billingCycleNumber: cycleNumber,
+                    periodStart: subscription.CurrentPeriodStart,
+                    periodEnd: subscription.CurrentPeriodEnd,
+                    nextChargeDate: subscription.NextChargeDate
+                );
+            }
+            catch (Exception billingEx)
+            {
+                _logger.LogError(billingEx,
+                    "Failed to create BillingRecord for subscription {SubscriptionId} cycle {Cycle} (webhook path)",
+                    subscription.Id, cycleNumber);
+            }
+
+            await _mediator.Send(new SendNotificationCommand(
+                subscription.ClientId,
+                "system",
+                NotificationTypes.RecurringPaymentSuccessful,
+                $"Your {subscription.BillingCycle} subscription payment of {subscription.Currency} {subscription.RecurringAmount:N2} was successful. " +
+                $"Next charge: {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
+                "Payment Successful",
+                subscription.Id));
+
+            return Result<SubscriptionPaymentRecordDTO>.Success(new SubscriptionPaymentRecordDTO
+            {
+                Id = paymentRecord.Id,
+                TransactionReference = paymentRecord.TransactionReference,
+                FlutterwaveTransactionId = paymentRecord.FlutterwaveTransactionId,
+                Amount = paymentRecord.Amount,
+                Currency = paymentRecord.Currency,
+                Status = paymentRecord.Status,
+                BillingCycleNumber = paymentRecord.BillingCycleNumber,
+                AttemptedAt = paymentRecord.AttemptedAt,
+                CompletedAt = paymentRecord.CompletedAt,
+                ClientOrderId = paymentRecord.ClientOrderId
+            });
+        }
+
+        public async Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(
+            string txRef, string token, string cardLastFour, string cardBrand, string cardExpiry)
+        {
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.PendingCardUpdateTxRef == txRef);
+
+            if (subscription == null)
+            {
+                _logger.LogWarning(
+                    "CompletePaymentMethodUpdateByTxRef: No subscription found with PendingCardUpdateTxRef={TxRef}", txRef);
+                return Result<SubscriptionDTO>.Failure(new List<string> { "Subscription not found for this card update." });
+            }
+
+            return await CompletePaymentMethodUpdateAsync(subscription.Id, token, cardLastFour, cardBrand, cardExpiry);
+        }
+
+        public async Task MarkPaymentMethodUpdateFailedByTxRefAsync(string txRef, string reason)
+        {
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.PendingCardUpdateTxRef == txRef);
+
+            if (subscription == null)
+            {
+                _logger.LogWarning(
+                    "MarkPaymentMethodUpdateFailedByTxRef: No subscription found with PendingCardUpdateTxRef={TxRef}", txRef);
+                return;
+            }
+
+            subscription.CardUpdateState = "failed";
+            subscription.CardUpdateFailureReason = reason;
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+        }
+
         public async Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(
             string subscriptionId, string flutterwaveToken, string cardLastFour, string cardBrand, string cardExpiry)
         {
@@ -647,10 +700,15 @@ namespace Infrastructure.Content.Services
             subscription.CardLastFour = cardLastFour;
             subscription.CardBrand = cardBrand;
             subscription.CardExpiry = cardExpiry;
+            subscription.PendingCardUpdateTxRef = null; // Clear pending update marker
+            subscription.CardUpdateState = "completed";
+            subscription.CardUpdateCompletedAt = DateTime.UtcNow;
+            subscription.CardUpdateFailureReason = null;
             subscription.UpdatedAt = DateTime.UtcNow;
 
-            // If subscription was suspended due to payment failures, reactivate it
-            if (subscription.Status == SubscriptionStatus.Suspended)
+            // If subscription was suspended or past-due due to payment failures, reactivate it
+            if (subscription.Status == SubscriptionStatus.Suspended ||
+                subscription.Status == SubscriptionStatus.PastDue)
             {
                 subscription.Status = SubscriptionStatus.Active;
                 subscription.FailedChargeAttempts = 0;
@@ -763,7 +821,7 @@ namespace Infrastructure.Content.Services
             var now = DateTime.UtcNow;
             return await _dbContext.Subscriptions
                 .Where(s =>
-                    s.Status == SubscriptionStatus.Active &&
+                    (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.PastDue) &&
                     s.AutoRenew &&
                     s.NextChargeDate.HasValue &&
                     s.NextChargeDate.Value <= now &&
@@ -826,6 +884,37 @@ namespace Infrastructure.Content.Services
 
                 if (chargeResult == null || !chargeResult.Success)
                 {
+                    if (chargeResult?.IsPending == true)
+                    {
+                        // 3DS/OTP required — not a permanent failure, awaiting user action
+                        paymentRecord.Status = "pending";
+                        paymentRecord.ErrorMessage = "Awaiting cardholder authentication";
+                        subscription.PaymentHistory.Add(paymentRecord);
+                        subscription.Status = previousStatus;
+                        subscription.UpdatedAt = DateTime.UtcNow;
+                        await _dbContext.SaveChangesAsync();
+
+                        var authUrl = chargeResult.AuthUrl ?? $"{_configuration["FrontendUrl"] ?? "https://oncarepro.com"}/subscription/payment-confirmed";
+                        var pendingLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
+                            ? null
+                            : subscription.OriginalOrderId;
+
+                        await _mediator.Send(new SendNotificationCommand(
+                            subscription.ClientId,
+                            "system",
+                            NotificationTypes.PaymentActionRequired,
+                            $"Your ₦{subscription.RecurringAmount:N2} subscription payment requires your authorisation. Please complete your payment here: {authUrl} AUTH_URL={authUrl}",
+                            "Payment Authorisation Required",
+                            subscriptionId,
+                            pendingLinkedOrderId));
+
+                        _logger.LogInformation(
+                            "Subscription {SubscriptionId} charge requires 3DS. AuthUrl: {AuthUrl}",
+                            subscriptionId, authUrl);
+
+                        return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Awaiting cardholder authentication." });
+                    }
+
                     var error = chargeResult?.ErrorMessage ?? "Charge failed";
                     paymentRecord.Status = "failed";
                     paymentRecord.ErrorMessage = error;
@@ -1178,6 +1267,114 @@ namespace Infrastructure.Content.Services
             return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
         }
 
+        private async Task<Result<SubscriptionDTO>> TerminateSubscriptionInternalAsync(
+            Subscription subscription,
+            string actor,
+            string reason,
+            bool terminateLinkedContract)
+        {
+            if (IsSubscriptionTerminal(subscription.Status))
+            {
+                return Result<SubscriptionDTO>.Failure(new List<string>
+                {
+                    $"Subscription is already '{subscription.Status}'."
+                });
+            }
+
+            var now = DateTime.UtcNow;
+            subscription.Status = SubscriptionStatus.Terminated;
+            subscription.TerminatedAt = now;
+            subscription.CancellationReason = reason;
+            subscription.CancelledBy = actor;
+            subscription.AutoRenew = false;
+            subscription.NextChargeDate = null;
+            subscription.RefundAmount = null;
+            subscription.UpdatedAt = now;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Subscription {SubscriptionId} terminated immediately by {Actor}. Reason: {Reason}",
+                subscription.Id, actor, reason);
+
+            if (terminateLinkedContract)
+            {
+                await TerminateLinkedContractIfNeededAsync(subscription.ContractId, now);
+            }
+
+            await ExpireLinkedCommitmentIfNeededAsync(subscription);
+            await SendTerminationNotificationsAsync(subscription);
+
+            return Result<SubscriptionDTO>.Success(MapToDTO(subscription));
+        }
+
+        private async Task TerminateLinkedContractIfNeededAsync(string? contractId, DateTime now)
+        {
+            if (string.IsNullOrEmpty(contractId))
+                return;
+
+            var contract = await _dbContext.Contracts
+                .FirstOrDefaultAsync(c => c.Id == contractId);
+
+            if (contract == null ||
+                contract.Status == ContractStatus.Terminated ||
+                contract.Status == ContractStatus.Completed)
+                return;
+
+            contract.Status = ContractStatus.Terminated;
+            contract.UpdatedAt = now;
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Linked contract {ContractId} also terminated", contractId);
+        }
+
+        private async Task ExpireLinkedCommitmentIfNeededAsync(Subscription subscription)
+        {
+            if (string.IsNullOrEmpty(subscription.OriginalOrderId))
+                return;
+
+            var linkedCommitment = await _dbContext.BookingCommitments
+                .FirstOrDefaultAsync(bc => bc.AppliedToOrderId == subscription.OriginalOrderId
+                                        && bc.Status == BookingCommitmentStatus.Completed);
+
+            if (linkedCommitment == null)
+                return;
+
+            linkedCommitment.Status = BookingCommitmentStatus.Expired;
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation(
+                "Booking commitment {CommitmentId} expired due to subscription termination. Client {ClientId} must pay again to re-engage caregiver {CaregiverId}",
+                linkedCommitment.Id, subscription.ClientId, subscription.CaregiverId);
+        }
+
+        private async Task SendTerminationNotificationsAsync(Subscription subscription)
+        {
+            var clientGuidance = string.IsNullOrEmpty(subscription.OriginalOrderId)
+                ? string.Empty
+                : " If you want an immediate refund for undelivered service, please cancel the current order as well.";
+
+            await _mediator.Send(new SendNotificationCommand(
+                subscription.ClientId,
+                "system",
+                NotificationTypes.SubscriptionTerminated,
+                $"Your subscription has been terminated immediately.{clientGuidance}",
+                "Subscription Terminated",
+                subscription.Id));
+
+            await _mediator.Send(new SendNotificationCommand(
+                subscription.CaregiverId,
+                "system",
+                NotificationTypes.SubscriptionTerminated,
+                "A subscription for your service has been terminated.",
+                "Subscription Terminated",
+                subscription.Id));
+        }
+
+        private static bool IsSubscriptionTerminal(SubscriptionStatus status)
+        {
+            var terminalStatuses = new[] { SubscriptionStatus.Cancelled, SubscriptionStatus.Terminated, SubscriptionStatus.Expired };
+            return terminalStatuses.Contains(status);
+        }
+
         // ══════════════════════════════════════════
         //  PRIVATE HELPERS
         // ══════════════════════════════════════════
@@ -1215,6 +1412,11 @@ namespace Infrastructure.Content.Services
             CardLastFour = s.CardLastFour,
             CardBrand = s.CardBrand,
             CardExpiry = s.CardExpiry,
+            CardUpdateState = string.IsNullOrWhiteSpace(s.CardUpdateState) ? "none" : s.CardUpdateState,
+            PendingCardUpdateTxRef = s.PendingCardUpdateTxRef,
+            CardUpdateStartedAt = s.CardUpdateStartedAt,
+            CardUpdateCompletedAt = s.CardUpdateCompletedAt,
+            CardUpdateFailureReason = s.CardUpdateFailureReason,
             CancelAtPeriodEnd = s.CancelAtPeriodEnd,
             CancellationRequestedAt = s.CancellationRequestedAt,
             CancellationReason = s.CancellationReason,

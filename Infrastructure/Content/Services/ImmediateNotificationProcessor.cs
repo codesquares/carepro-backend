@@ -232,6 +232,26 @@ namespace Infrastructure.Content.Services
                         failedPaymentDetails.Amount, failedPaymentDetails.Reason);
                     break;
 
+                case NotificationTypes.PaymentActionRequired:
+                    var actionDetails = ExtractPaymentActionDetailsFromContent(notification.Content);
+                    if (string.IsNullOrWhiteSpace(actionDetails.AuthUrl))
+                    {
+                        // Graceful fallback for malformed legacy payloads without a valid auth URL
+                        await emailService.SendGenericNotificationEmailAsync(
+                            recipient.Email,
+                            recipient.FirstName ?? "User",
+                            "Action Required: Complete Your Subscription Payment - CarePro",
+                            "Your subscription payment requires authorisation. Please open your CarePro dashboard and follow the payment prompt, or check your email for the payment link.");
+                    }
+                    else
+                    {
+                        await emailService.SendPaymentActionRequiredEmailAsync(
+                            recipient.Email, recipient.FirstName ?? "User",
+                            actionDetails.Amount, actionDetails.AuthUrl,
+                            actionDetails.CardBrand, actionDetails.CardLastFour);
+                    }
+                    break;
+
                 case NotificationTypes.RefundProcessed:
                     var refundDetails = ExtractRefundDetailsFromContent(notification.Content);
                     await emailService.SendRefundNotificationEmailAsync(
@@ -291,6 +311,7 @@ namespace Infrastructure.Content.Services
                 NotificationTypes.EarningsAdded => "Earnings Added - CarePro",
                 NotificationTypes.OrderPayment => "Payment Received - CarePro",
                 NotificationTypes.PaymentFailed => "Payment Failed - CarePro",
+                NotificationTypes.PaymentActionRequired => "Action Required: Complete Your Subscription Payment - CarePro",
                 NotificationTypes.RefundProcessed => "Refund Processed - CarePro",
                 NotificationTypes.GigDeletionReminder => "Gig Deletion Reminder - CarePro",
                 NotificationTypes.GigPermanentlyDeleted => "Gig Permanently Deleted - CarePro",
@@ -347,6 +368,15 @@ namespace Infrastructure.Content.Services
                 Amount = ExtractAmountFromContent(content),
                 Reason = content // Use full content as reason for now
             };
+        }
+
+        private PaymentActionDetails ExtractPaymentActionDetailsFromContent(string content)
+        {
+            var amount = ExtractAmountFromContent(content);
+            // Extract only HTTPS URLs from the content for safety
+            var urlMatch = System.Text.RegularExpressions.Regex.Match(content, @"https://\S+");
+            var authUrl = urlMatch.Success ? urlMatch.Value : string.Empty;
+            return new PaymentActionDetails { Amount = amount, AuthUrl = authUrl };
         }
 
         private RefundDetails ExtractRefundDetailsFromContent(string content)
@@ -490,6 +520,14 @@ namespace Infrastructure.Content.Services
     {
         public decimal Amount { get; set; }
         public string Reason { get; set; } = "";
+    }
+
+    public class PaymentActionDetails
+    {
+        public decimal Amount { get; set; }
+        public string AuthUrl { get; set; } = "";
+        public string? CardBrand { get; set; }
+        public string? CardLastFour { get; set; }
     }
 
     public class RefundDetails

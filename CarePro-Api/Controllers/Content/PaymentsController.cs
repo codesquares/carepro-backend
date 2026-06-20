@@ -16,6 +16,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IReceiptPdfService _receiptPdfService;
+        private readonly ISubscriptionService _subscriptionService;
         private readonly ILogger<PaymentsController> _logger;
 
         public PaymentsController(
@@ -23,12 +24,14 @@ namespace CarePro_Api.Controllers.Content
             IBookingCommitmentService bookingCommitmentService,
             FlutterwaveService flutterwaveService,
             IReceiptPdfService receiptPdfService,
+            ISubscriptionService subscriptionService,
             ILogger<PaymentsController> logger)
         {
             _pendingPaymentService = pendingPaymentService;
             _bookingCommitmentService = bookingCommitmentService;
             _flutterwaveService = flutterwaveService;
             _receiptPdfService = receiptPdfService;
+            _subscriptionService = subscriptionService;
             _logger = logger;
         }
 
@@ -136,7 +139,66 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogWarning("Transaction verification failed for TxRef: {TxRef}", txRef);
                 return BadRequest(new { success = false, message = "Transaction verification failed." });
             }
+            // ── ROUTE: Recurring subscription charge completed via 3DS ─────────
+            if (txRef.StartsWith("CAREPRO-RECURRING-", StringComparison.OrdinalIgnoreCase))
+            {
+                var recurringResult = await _subscriptionService.CompleteRecurringChargeFromWebhookAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
 
+                if (!recurringResult.IsSuccess)
+                {
+                    _logger.LogError(
+                        "Failed to complete recurring charge via webhook for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", recurringResult.Errors));
+                    return BadRequest(new { success = false, message = "Recurring charge completion failed." });
+                }
+
+                _logger.LogInformation("Recurring charge completed via webhook for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Recurring payment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
+
+            // ── ROUTE: Card update 50 NGN verification charge ─────────────
+            if (txRef.StartsWith("CAREPRO-CARDUPDATE-", StringComparison.OrdinalIgnoreCase))
+            {
+                var tokenResult = await _flutterwaveService.VerifyAndExtractTokenAsync(transactionId);
+                if (tokenResult == null || string.IsNullOrEmpty(tokenResult.PaymentToken))
+                {
+                    await _subscriptionService.MarkPaymentMethodUpdateFailedByTxRefAsync(
+                        txRef,
+                        "Could not extract card token from Flutterwave verification response.");
+                    _logger.LogError(
+                        "Card update webhook: could not extract token for TxRef: {TxRef}", txRef);
+                    return BadRequest(new { success = false, message = "Could not extract card token." });
+                }
+
+                // Look up the subscription that initiated this card update
+                var cardUpdateResult = await _subscriptionService.CompletePaymentMethodUpdateByTxRefAsync(
+                    txRef,
+                    tokenResult.PaymentToken,
+                    tokenResult.CardLastFour ?? string.Empty,
+                    tokenResult.CardBrand ?? string.Empty,
+                    tokenResult.CardExpiry ?? string.Empty
+                );
+
+                if (!cardUpdateResult.IsSuccess)
+                {
+                    await _subscriptionService.MarkPaymentMethodUpdateFailedByTxRefAsync(
+                        txRef,
+                        string.Join(", ", cardUpdateResult.Errors));
+                    _logger.LogError(
+                        "Card update failed for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", cardUpdateResult.Errors));
+                    return BadRequest(new { success = false, message = "Card update could not be completed." });
+                }
+
+                _logger.LogInformation("Payment method updated via webhook for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Payment method updated successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
             // ── ROUTE: Booking commitment payments vs regular gig payments ──────
             if (txRef.StartsWith("CAREPRO-COMMIT-", StringComparison.OrdinalIgnoreCase))
             {

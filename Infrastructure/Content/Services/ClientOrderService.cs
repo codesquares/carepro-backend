@@ -1152,6 +1152,8 @@ namespace Infrastructure.Content.Services
                 });
             }
 
+            var canonicalOrderId = order.Id.ToString();
+
             var gig = await gigServices.GetGigAsync(order.GigId);
             var gigTitle = gig?.Title ?? "a gig";
 
@@ -1160,19 +1162,114 @@ namespace Infrastructure.Content.Services
             bool isOneTime = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
             int maxVisits = isOneTime ? 1 : (order.FrequencyPerWeek ?? 1) * 4;
 
-            decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
-            decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+            const decimal caregiverShareRate = 0.80m;
+            decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * caregiverShareRate, 2);
 
-            // Count approved visits (already released to WithdrawableBalance)
-            int approvedVisitCount = await careProDbContext.EarningsLedger
-                .CountAsync(e => e.ClientOrderId == orderId
-                    && e.Type == LedgerEntryType.VisitApproved
-                    && e.BillingCycleNumber == currentBillingCycle);
+            // Block full cancellation while there are active visit disputes on this order.
+            // Disputed completed visits must be resolved first so funds are settled fairly.
+            int activeVisitDisputes = await careProDbContext.Disputes
+                .CountAsync(d => d.OrderId == canonicalOrderId
+                    && d.DisputeType == DisputeType.Visit
+                    && (d.Status == DisputeStatus.Open || d.Status == DisputeStatus.UnderReview));
 
-            decimal releasedAmount = perVisitAmount * approvedVisitCount;
-            // Account for rounding on last visit
-            if (approvedVisitCount >= maxVisits)
-                releasedAmount = caregiverTotal;
+            if (activeVisitDisputes > 0)
+            {
+                return Result<string>.Failure(new List<string>
+                {
+                    "This order has active visit dispute(s). Resolve disputed visit(s) before cancelling the order."
+                });
+            }
+
+            // Submitted-but-pending visits represent completed service.
+            // On cancellation, release these visits to caregiver so the client is not refunded for already completed work.
+            var submittedPendingVisits = await careProDbContext.TaskSheets
+                .Where(ts => ts.OrderId == canonicalOrderId
+                    && ts.BillingCycleNumber == currentBillingCycle
+                    && ts.Status == "submitted"
+                    && (string.IsNullOrEmpty(ts.ClientReviewStatus) || ts.ClientReviewStatus == "Pending"))
+                .OrderBy(ts => ts.SheetNumber)
+                .ToListAsync();
+
+            int releasedOnCancellationCount = 0;
+            decimal releasedOnCancellationAmount = 0m;
+
+            if (submittedPendingVisits.Any())
+            {
+                foreach (var visit in submittedPendingVisits)
+                {
+                    var taskSheetId = visit.Id.ToString();
+
+                    // Idempotency: skip if this visit was already credited.
+                    bool alreadyCreditedVisit = await careProDbContext.EarningsLedger
+                        .AnyAsync(e => e.TaskSheetId == taskSheetId && e.Type == LedgerEntryType.VisitApproved);
+                    if (alreadyCreditedVisit)
+                        continue;
+
+                    decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+
+                    // Rounding remainder: make the last paid visit absorb remainder.
+                    int alreadyCreditedCount = await careProDbContext.EarningsLedger
+                        .CountAsync(e => e.ClientOrderId == canonicalOrderId
+                            && e.Type == LedgerEntryType.VisitApproved
+                            && e.BillingCycleNumber == currentBillingCycle);
+
+                    if (alreadyCreditedCount == maxVisits - 1)
+                    {
+                        decimal alreadyCreditedTotal = perVisitAmount * alreadyCreditedCount;
+                        perVisitAmount = caregiverTotal - alreadyCreditedTotal;
+                    }
+
+                    if (perVisitAmount <= 0)
+                        continue;
+
+                    string serviceType = string.IsNullOrEmpty(order.SubscriptionId) ? "one-time" : "monthly";
+
+                    await ledgerService.RecordVisitApprovedAsync(
+                        order.CaregiverId,
+                        perVisitAmount,
+                        canonicalOrderId,
+                        taskSheetId,
+                        order.SubscriptionId,
+                        order.BillingCycleNumber,
+                        serviceType,
+                        $"Visit #{visit.SheetNumber} released during order cancellation — visit submitted but pending client review.");
+
+                    await walletService.CreditVisitApprovedAsync(order.CaregiverId, perVisitAmount);
+
+                    releasedOnCancellationCount++;
+                    releasedOnCancellationAmount += perVisitAmount;
+                }
+
+                releasedOnCancellationAmount = Math.Round(releasedOnCancellationAmount, 2);
+
+                if (releasedOnCancellationCount > 0)
+                {
+                    logger.LogInformation(
+                        "Order {OrderId} cancellation released {Count} submitted pending visit(s) worth ₦{Amount} to caregiver {CaregiverId}",
+                        canonicalOrderId,
+                        releasedOnCancellationCount,
+                        releasedOnCancellationAmount,
+                        order.CaregiverId);
+                }
+            }
+
+            // Source of truth: actual released credits already recorded in ledger for this order.
+            // Includes VisitApproved (current flow) and FundsReleased (legacy flow).
+            var releasedAmountRaw = await careProDbContext.EarningsLedger
+                .Where(e => e.ClientOrderId == canonicalOrderId
+                    && (e.Type == LedgerEntryType.VisitApproved || e.Type == LedgerEntryType.FundsReleased)
+                    && e.Amount > 0)
+                .SumAsync(e => (decimal?)e.Amount) ?? 0m;
+
+            decimal releasedAmount = Math.Min(caregiverTotal, Math.Round(releasedAmountRaw, 2));
+
+            // Keep visit count for user-facing messaging only.
+            int approvedVisitCount = await careProDbContext.TaskSheets
+                .CountAsync(ts => ts.OrderId == canonicalOrderId
+                    && ts.BillingCycleNumber == currentBillingCycle
+                    && ts.ClientReviewStatus == "Approved");
+
+            int completedVisitCount = approvedVisitCount + releasedOnCancellationCount;
 
             decimal unreleasedAmount = Math.Max(0, caregiverTotal - releasedAmount);
 
@@ -1184,16 +1281,16 @@ namespace Infrastructure.Content.Services
 
             logger.LogInformation(
                 "Order {OrderId} cancelled by client {ClientId}. Released: ₦{Released}, Unreleased: ₦{Unreleased} (visits: {Approved}/{MaxVisits})",
-                orderId, clientUserId, releasedAmount, unreleasedAmount, approvedVisitCount, maxVisits);
+                canonicalOrderId, clientUserId, releasedAmount, unreleasedAmount, approvedVisitCount, maxVisits);
 
             // ── 3. Invalidate booking commitment fee ──
             try
             {
-                await bookingCommitmentService.InvalidateCommitmentForOrderAsync(orderId);
+                await bookingCommitmentService.InvalidateCommitmentForOrderAsync(canonicalOrderId);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error invalidating commitment for cancelled order {OrderId}", orderId);
+                logger.LogError(ex, "Error invalidating commitment for cancelled order {OrderId}", canonicalOrderId);
             }
 
             // ── 4. Debit unreleased earnings from caregiver wallet ──
@@ -1205,13 +1302,13 @@ namespace Infrastructure.Content.Services
 
                     string serviceType = string.IsNullOrEmpty(order.SubscriptionId) ? "one-time" : "monthly";
                     await ledgerService.RecordOrderCancellationAsync(
-                        order.CaregiverId, unreleasedAmount, orderId,
+                        order.CaregiverId, unreleasedAmount, canonicalOrderId,
                         order.SubscriptionId, order.BillingCycleNumber, serviceType,
-                        $"Order cancelled — ₦{unreleasedAmount} unreleased earnings removed ({approvedVisitCount}/{maxVisits} visits completed for {gigTitle})");
+                        $"Order cancelled — ₦{unreleasedAmount} unreleased earnings removed ({completedVisitCount}/{maxVisits} visits completed for {gigTitle})");
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Error debiting unreleased earnings for cancelled order {OrderId}", orderId);
+                    logger.LogError(ex, "Error debiting unreleased earnings for cancelled order {OrderId}", canonicalOrderId);
                 }
             }
 
@@ -1219,32 +1316,48 @@ namespace Infrastructure.Content.Services
             // The client paid the full OrderFee. For completed visits, the caregiver earned their share.
             // The remaining undelivered portion goes back to the client's wallet.
             decimal clientRefundAmount = 0m;
-            if ((order.OrderFee ?? 0m) > 0 && maxVisits > 0)
+            if ((order.OrderFee ?? 0m) > 0)
             {
                 decimal orderFee = order.OrderFee ?? 0m;
-                decimal perVisitCost = Math.Round(orderFee / maxVisits, 2);
-                int deliveredVisits = approvedVisitCount;
-                decimal deliveredCost = perVisitCost * deliveredVisits;
-                if (deliveredVisits >= maxVisits) deliveredCost = orderFee;
-                clientRefundAmount = Math.Max(0, orderFee - deliveredCost);
+                decimal deliveredCost = Math.Round(releasedAmount / caregiverShareRate, 2);
+                if (deliveredCost > orderFee)
+                    deliveredCost = orderFee;
+
+                clientRefundAmount = Math.Max(0, Math.Round(orderFee - deliveredCost, 2));
             }
 
             if (clientRefundAmount > 0)
             {
                 try
                 {
-                    await clientWalletService.CreditAsync(
-                        order.ClientId, clientRefundAmount,
-                        $"Order cancelled — ₦{clientRefundAmount} credited for {maxVisits - approvedVisitCount} undelivered visit(s) on {gigTitle}",
-                        orderId, null, ClientLedgerEntryType.OrderCancellationCredit);
+                    var existingCancellationCredit = await careProDbContext.ClientWalletLedgers
+                        .FirstOrDefaultAsync(l =>
+                            l.ClientId == order.ClientId &&
+                            l.Type == ClientLedgerEntryType.OrderCancellationCredit &&
+                            l.ClientOrderId == canonicalOrderId);
 
-                    logger.LogInformation(
-                        "Client {ClientId} wallet credited ₦{Amount} for cancelled order {OrderId}",
-                        order.ClientId, clientRefundAmount, orderId);
+                    if (existingCancellationCredit == null)
+                    {
+                        await clientWalletService.CreditAsync(
+                            order.ClientId, clientRefundAmount,
+                            $"Order cancelled — ₦{clientRefundAmount} credited for {Math.Max(0, maxVisits - completedVisitCount)} undelivered visit(s) on {gigTitle}",
+                            canonicalOrderId, null, ClientLedgerEntryType.OrderCancellationCredit);
+
+                        logger.LogInformation(
+                            "Client {ClientId} wallet credited ₦{Amount} for cancelled order {OrderId}",
+                            order.ClientId, clientRefundAmount, canonicalOrderId);
+                    }
+                    else
+                    {
+                        clientRefundAmount = existingCancellationCredit.Amount;
+                        logger.LogInformation(
+                            "Order cancellation credit already exists for client {ClientId}, order {OrderId}. Skipping duplicate credit.",
+                            order.ClientId, canonicalOrderId);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Error crediting client wallet for cancelled order {OrderId}", orderId);
+                    logger.LogError(ex, "Error crediting client wallet for cancelled order {OrderId}", canonicalOrderId);
                 }
             }
 
@@ -1252,7 +1365,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var pendingTaskSheets = await careProDbContext.TaskSheets
-                    .Where(ts => ts.OrderId == orderId
+                    .Where(ts => ts.OrderId == canonicalOrderId
                         && ts.Status != "submitted"
                         && ts.Status != "cancelled")
                     .ToListAsync();
@@ -1268,12 +1381,12 @@ namespace Infrastructure.Content.Services
                     careProDbContext.TaskSheets.UpdateRange(pendingTaskSheets);
                     await careProDbContext.SaveChangesAsync();
                     logger.LogInformation("Cancelled {Count} pending task sheets for order {OrderId}",
-                        pendingTaskSheets.Count, orderId);
+                        pendingTaskSheets.Count, canonicalOrderId);
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error cancelling task sheets for order {OrderId}", orderId);
+                logger.LogError(ex, "Error cancelling task sheets for order {OrderId}", canonicalOrderId);
             }
 
             // ── 6. Send notifications to client and caregiver ──
@@ -1286,9 +1399,12 @@ namespace Infrastructure.Content.Services
 
                 // In-app notification to client
                 string clientNotification = $"Your order for {gigTitle} has been cancelled. " +
-                    (approvedVisitCount > 0
-                        ? $"{approvedVisitCount} visit(s) were completed before cancellation. "
+                    (completedVisitCount > 0
+                        ? $"{completedVisitCount} visit(s) were completed before cancellation. "
                         : "No visits were completed. ") +
+                    (releasedOnCancellationCount > 0
+                        ? $"{releasedOnCancellationCount} submitted visit(s) were automatically released to the caregiver on cancellation. "
+                        : "") +
                     (clientRefundAmount > 0
                         ? $"₦{clientRefundAmount} has been credited to your wallet. "
                         : "") +
@@ -1299,12 +1415,12 @@ namespace Infrastructure.Content.Services
                     order.ClientId, order.ClientId,
                     NotificationTypes.OrderCancelled,
                     clientNotification, "Order Cancelled",
-                    orderId));
+                    canonicalOrderId));
 
                 // In-app notification to caregiver
                 string caregiverNotification = $"Order for {gigTitle} has been cancelled by the client. " +
-                    (approvedVisitCount > 0
-                        ? $"You earned ₦{releasedAmount} for {approvedVisitCount} completed visit(s). "
+                    (completedVisitCount > 0
+                        ? $"You earned ₦{releasedAmount} for {completedVisitCount} completed visit(s). "
                         : "") +
                     (unreleasedAmount > 0
                         ? $"₦{unreleasedAmount} in unreleased earnings has been removed from your pending balance."
@@ -1314,31 +1430,31 @@ namespace Infrastructure.Content.Services
                     order.CaregiverId, order.ClientId,
                     NotificationTypes.OrderCancelled,
                     caregiverNotification, "Order Cancelled",
-                    orderId));
+                    canonicalOrderId));
 
                 // Email to client
                 if (client?.Email != null)
                 {
                     await emailService.SendOrderCancelledEmailAsync(
-                        client.Email, client.FirstName ?? "Client", gigTitle, cancelReason, orderId);
+                        client.Email, client.FirstName ?? "Client", gigTitle, cancelReason, canonicalOrderId);
                 }
 
                 // Email to caregiver
                 if (caregiver?.Email != null)
                 {
                     await emailService.SendOrderCancelledEmailAsync(
-                        caregiver.Email, caregiver.FirstName ?? "Caregiver", gigTitle, cancelReason, orderId);
+                        caregiver.Email, caregiver.FirstName ?? "Caregiver", gigTitle, cancelReason, canonicalOrderId);
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error sending cancellation notifications for order {OrderId}", orderId);
+                logger.LogError(ex, "Error sending cancellation notifications for order {OrderId}", canonicalOrderId);
             }
 
-            LogAuditEvent($"Order cancelled (ID: {orderId}), client credited ₦{clientRefundAmount}, caregiver debited ₦{unreleasedAmount}", clientUserId);
+            LogAuditEvent($"Order cancelled (ID: {canonicalOrderId}), client credited ₦{clientRefundAmount}, caregiver debited ₦{unreleasedAmount}", clientUserId);
 
             return Result<string>.Success(
-                $"Order cancelled successfully. {approvedVisitCount} visit(s) were completed. " +
+                $"Order cancelled successfully. {completedVisitCount} visit(s) were completed. " +
                 (clientRefundAmount > 0 ? $"₦{clientRefundAmount} has been credited to your wallet. " : "") +
                 "Booking commitment fee has been invalidated. You can request a refund from your wallet.");
         }

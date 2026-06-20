@@ -49,23 +49,36 @@ public class FlutterwaveService
             _publicKey.Substring(0, Math.Min(20, _publicKey.Length)) + "...");
     }
 
-    public async Task<string> InitiatePayment(decimal amount, string email, string currency, string txRef, string redirectUrl)
+    public async Task<string> InitiatePayment(decimal amount, string email, string currency, string txRef, string redirectUrl, string? paymentOptions = null)
     {
         var client = new RestClient(_baseUrl);
         var request = new RestRequest("/v3/payments", Method.Post);
         request.AddHeader("Authorization", $"Bearer {_secretKey}");
         request.AddHeader("Content-Type", "application/json");
 
-        var body = new
+        if (!string.IsNullOrEmpty(paymentOptions))
         {
-            tx_ref = txRef,
-            amount = amount,
-            currency = currency,
-            redirect_url = redirectUrl,
-            customer = new { email = email }
-        };
-
-        request.AddJsonBody(body);
+            request.AddJsonBody(new
+            {
+                tx_ref = txRef,
+                amount = amount,
+                currency = currency,
+                redirect_url = redirectUrl,
+                payment_options = paymentOptions,
+                customer = new { email = email }
+            });
+        }
+        else
+        {
+            request.AddJsonBody(new
+            {
+                tx_ref = txRef,
+                amount = amount,
+                currency = currency,
+                redirect_url = redirectUrl,
+                customer = new { email = email }
+            });
+        }
         
         _logger.LogInformation("Initiating Flutterwave payment: TxRef={TxRef}, Amount={Amount} {Currency}", 
             txRef, amount, currency);
@@ -172,6 +185,21 @@ public class FlutterwaveService
                         TransactionId = data.GetProperty("id").GetInt64().ToString(),
                         Status = chargeStatus,
                         Amount = data.GetProperty("amount").GetDecimal()
+                    };
+                }
+                else if (chargeStatus.ToLower() == "pending")
+                {
+                    var authUrl = data.TryGetProperty("auth_url", out var au) ? au.GetString() : null;
+                    _logger.LogInformation(
+                        "Tokenized charge requires 3DS for TxRef {TxRef}. AuthUrl present: {HasAuthUrl}",
+                        txRef, authUrl != null);
+                    return new FlutterwaveChargeResult
+                    {
+                        Success = false,
+                        IsPending = true,
+                        Status = chargeStatus,
+                        AuthUrl = authUrl,
+                        ErrorMessage = "Transaction is pending authentication"
                     };
                 }
                 else
@@ -403,6 +431,15 @@ public class FlutterwaveChargeResult
     public string Status { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string? ErrorMessage { get; set; }
+    /// <summary>
+    /// True when the charge is awaiting 3DS/OTP from the cardholder.
+    /// Not a permanent failure — the user must visit AuthUrl to complete payment.
+    /// </summary>
+    public bool IsPending { get; set; }
+    /// <summary>
+    /// Flutterwave redirect URL for 3DS/OTP completion. Only set when IsPending is true.
+    /// </summary>
+    public string? AuthUrl { get; set; }
 }
 
 /// <summary>

@@ -219,6 +219,53 @@ namespace CarePro_Api.Controllers.Content
             return Ok(new { success = true, data = result.Value });
         }
 
+        /// <summary>
+        /// Get explicit status for payment method update flow.
+        /// Use this endpoint after Flutterwave redirect instead of inferring from card fields.
+        /// </summary>
+        [HttpGet("{subscriptionId}/payment-method/status")]
+        public async Task<IActionResult> GetPaymentMethodUpdateStatus(string subscriptionId)
+        {
+            var userId = GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(new { success = false, message = "User not authenticated." });
+
+            var subscription = await _subscriptionService.GetSubscriptionByIdAsync(subscriptionId);
+            if (subscription == null)
+                return NotFound(new { success = false, message = "Subscription not found." });
+
+            var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+            if (subscription.ClientId != userId && !isAdmin)
+                return Forbid();
+
+            var state = string.IsNullOrWhiteSpace(subscription.CardUpdateState)
+                ? "none"
+                : subscription.CardUpdateState;
+
+            var nextAction = state switch
+            {
+                "pending" => "wait",
+                "completed" => "refresh_subscription",
+                "failed" => "retry",
+                "expired" => "retry",
+                _ => "none"
+            };
+
+            return Ok(new
+            {
+                success = true,
+                data = new PaymentMethodUpdateStatusResponse
+                {
+                    CardUpdateState = state,
+                    PendingTxRef = subscription.PendingCardUpdateTxRef,
+                    StartedAt = subscription.CardUpdateStartedAt,
+                    CompletedAt = subscription.CardUpdateCompletedAt,
+                    FailureReason = subscription.CardUpdateFailureReason,
+                    NextAction = nextAction
+                }
+            });
+        }
+
         // ══════════════════════════════════════════
         //  PAUSE / RESUME
         // ══════════════════════════════════════════

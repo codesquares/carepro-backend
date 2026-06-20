@@ -314,7 +314,8 @@ namespace Infrastructure.Content.Services
                     request.Email,
                     "NGN",
                     transactionReference,
-                    request.RedirectUrl
+                    request.RedirectUrl,
+                    request.ServiceType?.ToLower() == "monthly" ? "card" : null
                 );
 
                 // Parse Flutterwave response to extract payment link

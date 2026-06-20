@@ -24,6 +24,7 @@ namespace Application.Interfaces.Email
         Task SendEarningsNotificationEmailAsync(string toEmail, string firstName, decimal amount, string clientName, string serviceType);
         Task SendWithdrawalRequestEmailAsync(string toEmail, string firstName, decimal amount, string status);
         Task SendPaymentFailedEmailAsync(string toEmail, string firstName, decimal amount, string reason);
+        Task SendPaymentActionRequiredEmailAsync(string toEmail, string firstName, decimal amount, string authUrl, string? cardBrand, string? cardLastFour);
         Task SendRefundNotificationEmailAsync(string toEmail, string firstName, decimal amount, string reason);
 
         // Order-related notification methods
