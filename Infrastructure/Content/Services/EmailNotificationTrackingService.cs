@@ -39,6 +39,7 @@ namespace Infrastructure.Content.Services
             NotificationTypes.PaymentConfirmed,
             NotificationTypes.EarningsAdded,
             NotificationTypes.OrderPayment,
+            NotificationTypes.PaymentActionRequired,
             NotificationTypes.PaymentFailed,
             NotificationTypes.RefundProcessed
         };

@@ -742,23 +742,12 @@ namespace Infrastructure.Content.Services
                 var subscription = await _context.Subscriptions
                     .FirstOrDefaultAsync(s => s.ContractId == contractId &&
                         s.Status != SubscriptionStatus.Cancelled &&
-                        s.Status != SubscriptionStatus.Terminated);
+                        s.Status != SubscriptionStatus.Terminated &&
+                        s.Status != SubscriptionStatus.Expired);
 
                 if (subscription != null)
                 {
-                    subscription.Status = SubscriptionStatus.Terminated;
-                    subscription.TerminatedAt = DateTime.UtcNow;
-                    subscription.CancellationReason = reason;
-                    subscription.CancelledBy = "system";
-                    subscription.AutoRenew = false;
-                    subscription.NextChargeDate = null;
-                    subscription.RefundAmount = subscription.CalculateProRatedRefund();
-                    subscription.UpdatedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
-
-                    _logger.LogInformation(
-                        "Linked subscription {SubscriptionId} also terminated. Pro-rated refund: {Refund} {Currency}",
-                        subscription.Id, subscription.RefundAmount, subscription.Currency);
+                    await TerminateLinkedSubscriptionAsync(subscription, reason);
                 }
 
                 return true;
@@ -768,6 +757,44 @@ namespace Infrastructure.Content.Services
                 _logger.LogError(ex, "Error terminating contract {ContractId}", contractId);
                 return false;
             }
+        }
+
+        private async Task TerminateLinkedSubscriptionAsync(Subscription subscription, string reason)
+        {
+            var now = DateTime.UtcNow;
+            subscription.Status = SubscriptionStatus.Terminated;
+            subscription.TerminatedAt = now;
+            subscription.CancellationReason = reason;
+            subscription.CancelledBy = "system";
+            subscription.AutoRenew = false;
+            subscription.NextChargeDate = null;
+            subscription.RefundAmount = null;
+            subscription.UpdatedAt = now;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Linked subscription {SubscriptionId} terminated via contract termination.",
+                subscription.Id);
+
+            var clientGuidance = string.IsNullOrEmpty(subscription.OriginalOrderId)
+                ? string.Empty
+                : " If you want an immediate refund for undelivered service, please cancel the current order as well.";
+
+            await _mediator.Send(new SendNotificationCommand(
+                subscription.ClientId,
+                "system",
+                NotificationTypes.SubscriptionTerminated,
+                $"Your subscription has been terminated because the associated contract was ended.{clientGuidance}",
+                "Subscription Terminated",
+                subscription.Id));
+
+            await _mediator.Send(new SendNotificationCommand(
+                subscription.CaregiverId,
+                "system",
+                NotificationTypes.SubscriptionTerminated,
+                "A subscription for your service has been terminated because the associated contract was ended.",
+                "Subscription Terminated",
+                subscription.Id));
         }
 
         public async Task<ContractDTO> SendContractToAlternativeCaregiverAsync(string originalContractId, string newCaregiverId)
@@ -2238,7 +2265,7 @@ namespace Infrastructure.Content.Services
         public async Task<SetServiceLocationResponse> SetServiceLocationAsync(
             string contractId, string clientId, SetServiceLocationRequest request)
         {
-            var maxAccuracyMeters = _configuration.GetValue<double>("VisitCheckin:MaxAccuracyMeters", 150);
+            var maxAccuracyMeters = _configuration.GetValue<double>("VisitCheckin:MaxAccuracyMeters", 300);
 
             if (request.Accuracy > maxAccuracyMeters)
                 throw new ArgumentException(

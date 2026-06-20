@@ -99,6 +99,33 @@ namespace Domain.Entities
         /// </summary>
         public string Email { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Stored txRef for an in-progress card update.
+        /// Set when the client initiates a payment method update; cleared once complete.
+        /// </summary>
+        public string? PendingCardUpdateTxRef { get; set; }
+
+        /// <summary>
+        /// Card update state for explicit frontend status tracking.
+        /// Values: none, pending, completed, failed, expired.
+        /// </summary>
+        public string CardUpdateState { get; set; } = "none";
+
+        /// <summary>
+        /// When the current card update flow started.
+        /// </summary>
+        public DateTime? CardUpdateStartedAt { get; set; }
+
+        /// <summary>
+        /// When the latest card update completed successfully.
+        /// </summary>
+        public DateTime? CardUpdateCompletedAt { get; set; }
+
+        /// <summary>
+        /// Failure reason for the latest card update attempt, if any.
+        /// </summary>
+        public string? CardUpdateFailureReason { get; set; }
+
         // ── Retry & failure tracking ──
         /// <summary>
         /// Number of consecutive failed charge attempts in current cycle

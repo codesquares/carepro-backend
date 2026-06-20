@@ -84,6 +84,12 @@ namespace Application.Interfaces.Content
         /// </summary>
         Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(string subscriptionId, string flutterwaveToken, string cardLastFour, string cardBrand, string cardExpiry);
 
+        /// <summary>
+        /// Marks a payment method update attempt as failed by txRef.
+        /// Used by webhook processing when token extraction or completion fails.
+        /// </summary>
+        Task MarkPaymentMethodUpdateFailedByTxRefAsync(string txRef, string reason);
+
         // ── Pause / Resume ──
 
         /// <summary>
@@ -108,6 +114,18 @@ namespace Application.Interfaces.Content
         /// Creates a new ClientOrder on success.
         /// </summary>
         Task<Result<SubscriptionPaymentRecordDTO>> ProcessRecurringChargeAsync(string subscriptionId);
+
+        /// <summary>
+        /// Completes a recurring charge that was previously pending (3DS),
+        /// triggered by the Flutterwave webhook after the user authorises.
+        /// </summary>
+        Task<Result<SubscriptionPaymentRecordDTO>> CompleteRecurringChargeFromWebhookAsync(string txRef, string flutterwaveTransactionId, decimal amount);
+
+        /// <summary>
+        /// Completes a payment method update triggered by the Flutterwave webhook.
+        /// Looks up the subscription by PendingCardUpdateTxRef.
+        /// </summary>
+        Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(string txRef, string token, string cardLastFour, string cardBrand, string cardExpiry);
 
         /// <summary>
         /// Handles a failed recurring charge (increment retry count, check max retries)

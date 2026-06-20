@@ -44,6 +44,13 @@ namespace Application.DTOs
         public string? CardBrand { get; set; }
         public string? CardExpiry { get; set; }
 
+        // Card update tracking
+        public string CardUpdateState { get; set; } = "none";
+        public string? PendingCardUpdateTxRef { get; set; }
+        public DateTime? CardUpdateStartedAt { get; set; }
+        public DateTime? CardUpdateCompletedAt { get; set; }
+        public string? CardUpdateFailureReason { get; set; }
+
         // Cancellation
         public bool CancelAtPeriodEnd { get; set; }
         public DateTime? CancellationRequestedAt { get; set; }
@@ -180,6 +187,16 @@ namespace Application.DTOs
         /// </summary>
         public string? AuthorizationLink { get; set; }
         public string? TransactionReference { get; set; }
+    }
+
+    public class PaymentMethodUpdateStatusResponse
+    {
+        public string CardUpdateState { get; set; } = "none";
+        public string? PendingTxRef { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public string? FailureReason { get; set; }
+        public string NextAction { get; set; } = "none";
     }
 
     // ── Pause / Resume ──

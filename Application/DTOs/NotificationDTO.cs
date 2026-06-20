@@ -152,6 +152,7 @@ namespace Application.DTOs
         public const string PaymentMethodUpdated = "payment_method_updated";
         public const string RecurringPaymentSuccessful = "recurring_payment_successful";
         public const string PaymentFailed = "payment_failed";
+        public const string PaymentActionRequired = "payment_action_required";
         public const string EarningsAdded = "earnings_added";
         public const string OrderPayment = "order_payment";
         public const string RefundProcessed = "refund_processed";

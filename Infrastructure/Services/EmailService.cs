@@ -369,6 +369,55 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendPaymentActionRequiredEmailAsync(string toEmail, string firstName, decimal amount, string authUrl, string? cardBrand, string? cardLastFour)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Action Required: Complete Your Subscription Payment - CarePro";
+
+            var cardInfo = (!string.IsNullOrEmpty(cardBrand) && !string.IsNullOrEmpty(cardLastFour))
+                ? $"{cardBrand} ending ****{cardLastFour}"
+                : "your saved card";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {firstName},</h3>
+                        <br />
+                        <h4 style='color: #e67e22;'>&#9888; Payment Authorisation Required</h4>
+                        <p>We attempted to renew your CarePro subscription but your bank requires you to authorise this payment before it can be processed.</p>
+
+                        <div style='background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #e67e22;'>
+                            <p><strong>Amount:</strong> &#8358;{amount:N2}</p>
+                            <p><strong>Card:</strong> {cardInfo}</p>
+                            <p><strong>Date:</strong> {DateTime.UtcNow:MMM dd, yyyy}</p>
+                        </div>
+
+                        <h4>What you need to do:</h4>
+                        <ol>
+                            <li>Click the button below to open your bank's secure authorisation page.</li>
+                            <li>Enter your OTP or follow your bank's instructions to approve the payment.</li>
+                            <li>Once approved, your subscription will continue automatically and you will receive a payment confirmation email.</li>
+                        </ol>
+
+                        <div style='text-align: center; margin: 30px 0;'>
+                            <a href='{authUrl}' style='background-color: #e67e22; color: white; padding: 14px 32px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold; display: inline-block;'>Authorise Payment</a>
+                        </div>
+
+                        <p style='color: #6c757d; font-size: 13px;'>This link is provided by Flutterwave, our secure payment partner. If the button does not work, copy and paste this link into your browser:</p>
+                        <p style='color: #6c757d; font-size: 12px; word-break: break-all;'>{authUrl}</p>
+
+                        <p>If you did not expect this charge or have any questions, please contact our support team immediately.</p>
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         public async Task SendPaymentFailedEmailAsync(string toEmail, string firstName, decimal amount, string reason)
         {
             var message = new MimeMessage();
