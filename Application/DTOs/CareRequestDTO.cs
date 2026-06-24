@@ -175,6 +175,14 @@ namespace Application.DTOs
         public int MatchCount { get; set; }
 
         public int RespondersCount { get; set; }
+
+        public bool? IsFilled { get; set; }
+
+        public DateTime? FilledAt { get; set; }
+
+        public string? FilledByOrderId { get; set; }
+
+        public string? FilledByGigId { get; set; }
     }
 
     /// <summary>

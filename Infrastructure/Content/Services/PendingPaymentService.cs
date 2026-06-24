@@ -454,6 +454,45 @@ namespace Infrastructure.Content.Services
                 "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
                 transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
 
+            // If this payment is for a care-request-originated gig, mark the request as filled.
+            try
+            {
+                if (ObjectId.TryParse(pendingPayment.GigId, out var gigOid))
+                {
+                    var gigEntity = await _dbContext.Gigs.FindAsync(gigOid);
+                    if (gigEntity != null && !string.IsNullOrEmpty(gigEntity.CareRequestId)
+                        && ObjectId.TryParse(gigEntity.CareRequestId, out var careRequestOid))
+                    {
+                        var careRequest = await _dbContext.CareRequests.FindAsync(careRequestOid);
+                        if (careRequest != null && careRequest.IsFilled != true)
+                        {
+                            careRequest.IsFilled = true;
+                            careRequest.FilledAt = DateTime.UtcNow;
+                            careRequest.FilledByOrderId = orderResult.Value?.Id;
+                            careRequest.FilledByGigId = pendingPayment.GigId;
+                            careRequest.Status = "closed";
+                            careRequest.UpdatedAt = DateTime.UtcNow;
+
+                            _dbContext.CareRequests.Update(careRequest);
+                            await _dbContext.SaveChangesAsync();
+
+                            _logger.LogInformation(
+                                "CareRequest {CareRequestId} marked filled by Order {OrderId} and Gig {GigId}.",
+                                careRequest.Id,
+                                orderResult.Value?.Id,
+                                pendingPayment.GigId);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to mark care request filled for GigId {GigId} after successful payment TxRef {TxRef}.",
+                    pendingPayment.GigId,
+                    transactionReference);
+            }
+
             // ── Create BillingRecord for this payment ──
             try
             {

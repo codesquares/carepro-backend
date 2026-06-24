@@ -21,6 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
+        private readonly IGeocodingService _geocodingService;
         private readonly IGigPriceNegotiationService _negotiationService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
@@ -30,12 +31,14 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IMediator mediator,
             IEmailService emailService,
+            IGeocodingService geocodingService,
             IGigPriceNegotiationService negotiationService,
             ILogger<CareRequestResponseService> logger)
         {
             _dbContext = dbContext;
             _mediator = mediator;
             _emailService = emailService;
+            _geocodingService = geocodingService;
             _negotiationService = negotiationService;
             _logger = logger;
         }
@@ -105,6 +108,16 @@ namespace Infrastructure.Content.Services
                 $"{caregiverName} is interested in your \"{careRequest.Title}\" request. View their profile.",
                 $"{caregiverName} responded to your request",
                 careRequestId));
+
+            // Notify the client by email as well, including caregiver location and approximate distance.
+            try
+            {
+                await SendClientResponderEmailAsync(careRequest, caregiver);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send responder email to client for CareRequest {CareRequestId}", careRequestId);
+            }
 
             _logger.LogInformation("Caregiver {CaregiverId} responded to CareRequest {CareRequestId}", caregiverId, careRequestId);
 
@@ -566,9 +579,98 @@ namespace Infrastructure.Content.Services
                 UpdatedAt = cr.UpdatedAt,
                 MatchedAt = cr.MatchedAt,
                 MatchCount = cr.MatchCount ?? 0,
-                RespondersCount = cr.RespondersCount ?? 0
+                RespondersCount = cr.RespondersCount ?? 0,
+                IsFilled = cr.IsFilled,
+                FilledAt = cr.FilledAt,
+                FilledByOrderId = cr.FilledByOrderId,
+                FilledByGigId = cr.FilledByGigId
             };
         }
+
+        private async Task SendClientResponderEmailAsync(CareRequest careRequest, Caregiver? caregiver)
+        {
+            if (caregiver == null || !ObjectId.TryParse(careRequest.ClientId, out var clientOid))
+            {
+                return;
+            }
+
+            var client = await _dbContext.Clients.FindAsync(clientOid);
+            if (client == null || string.IsNullOrEmpty(client.Email))
+            {
+                return;
+            }
+
+            var requestLat = careRequest.Latitude;
+            var requestLng = careRequest.Longitude;
+
+            if ((!requestLat.HasValue || !requestLng.HasValue) && !string.IsNullOrEmpty(careRequest.Location))
+            {
+                try
+                {
+                    var geo = await _geocodingService.GeocodeAsync(careRequest.Location);
+                    requestLat = geo.Latitude;
+                    requestLng = geo.Longitude;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Geocoding failed for care request location while preparing responder email.");
+                }
+            }
+
+            if ((!requestLat.HasValue || !requestLng.HasValue) && client.Latitude.HasValue && client.Longitude.HasValue)
+            {
+                requestLat = client.Latitude;
+                requestLng = client.Longitude;
+            }
+
+            string caregiverLocation = caregiver.ServiceAddress ?? caregiver.ServiceCity ?? "Not specified";
+            string distanceText = BuildDistanceText(requestLat, requestLng, caregiver.Latitude, caregiver.Longitude);
+            string caregiverName = $"{caregiver.FirstName} {caregiver.LastName}".Trim();
+
+            var subject = $"New responder for your care request: {careRequest.Title}";
+            var html = $@"
+                <h3>Hi {client.FirstName},</h3>
+                <p>{caregiverName} responded to your care request <strong>{careRequest.Title}</strong>.</p>
+                <div style='background-color:#f8f9fa;padding:15px;border-radius:5px;margin:20px 0;'>
+                    <p><strong>Caregiver location on file:</strong> {caregiverLocation}</p>
+                    <p><strong>Approximate distance from you:</strong> {distanceText}</p>
+                </div>
+                <p>Open your dashboard to review the caregiver profile and response details.</p>
+                <p>- The CarePro Team</p>";
+
+            await _emailService.SendGenericNotificationEmailAsync(
+                client.Email,
+                client.FirstName ?? "Client",
+                subject,
+                html);
+        }
+
+        private static string BuildDistanceText(double? srcLat, double? srcLng, double? dstLat, double? dstLng)
+        {
+            if (!srcLat.HasValue || !srcLng.HasValue || !dstLat.HasValue || !dstLng.HasValue)
+            {
+                return "Unavailable";
+            }
+
+            var distance = CalculateHaversineDistance(srcLat.Value, srcLng.Value, dstLat.Value, dstLng.Value);
+            return $"{Math.Round(distance, 1):N1} km";
+        }
+
+        private static double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double earthRadiusKm = 6371.0;
+            var dLat = ToRadians(lat2 - lat1);
+            var dLon = ToRadians(lon2 - lon1);
+
+            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                    Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2)) *
+                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            return earthRadiusKm * c;
+        }
+
+        private static double ToRadians(double degrees) => degrees * (Math.PI / 180.0);
 
         // ─────────────────────────────────────────────────────────────
         //  Caregiver: My Submitted Responses

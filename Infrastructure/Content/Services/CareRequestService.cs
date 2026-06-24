@@ -477,7 +477,11 @@ namespace Infrastructure.Content.Services
                 UpdatedAt = careRequest.UpdatedAt,
                 MatchedAt = careRequest.MatchedAt,
                 MatchCount = careRequest.MatchCount ?? 0,
-                RespondersCount = careRequest.RespondersCount ?? 0
+                RespondersCount = careRequest.RespondersCount ?? 0,
+                IsFilled = careRequest.IsFilled,
+                FilledAt = careRequest.FilledAt,
+                FilledByOrderId = careRequest.FilledByOrderId,
+                FilledByGigId = careRequest.FilledByGigId
             };
         }
 

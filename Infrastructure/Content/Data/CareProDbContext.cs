@@ -178,6 +178,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<CareRequestNotifiedCaregiver>().HasKey(cn => cn.Id);
             modelBuilder.Entity<CareRequestNotifiedCaregiver>().Property(cn => cn.Id).HasElementName("_id");
 
+            modelBuilder.Entity<CareRequestBroadcastEmailLog>().ToCollection("CareRequestBroadcastEmailLogs");
+            modelBuilder.Entity<CareRequestBroadcastEmailLog>().HasKey(cn => cn.Id);
+            modelBuilder.Entity<CareRequestBroadcastEmailLog>().Property(cn => cn.Id).HasElementName("_id");
+
             modelBuilder.Entity<RefundRequest>().ToCollection("RefundRequests");
             modelBuilder.Entity<RefundRequest>().HasKey(rr => rr.Id);
             modelBuilder.Entity<RefundRequest>().Property(rr => rr.Id).HasElementName("_id");
@@ -270,6 +274,7 @@ namespace Infrastructure.Content.Data
         public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
         public DbSet<CareRequestResponse> CareRequestResponses { get; set; }
         public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
+        public DbSet<CareRequestBroadcastEmailLog> CareRequestBroadcastEmailLogs { get; set; }
         public DbSet<RefundRequest> RefundRequests { get; set; }
         public DbSet<GigTemplateCategory> GigTemplateCategories { get; set; }
         public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }

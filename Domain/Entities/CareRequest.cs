@@ -85,6 +85,27 @@ namespace Domain.Entities
         /// <summary>Timestamp when the no-match admin email was sent (null = not yet sent)</summary>
         public DateTime? NoMatchEmailSentAt { get; set; }
 
+        /// <summary>
+        /// Timestamp when post-created outreach emails to caregivers completed.
+        /// Null means outreach is pending or partially processed.
+        /// </summary>
+        public DateTime? AllCaregiversEmailSentAt { get; set; }
+
+        /// <summary>
+        /// Optional flag showing that a booking has been completed for this request.
+        /// Nullable for backward compatibility with existing records.
+        /// </summary>
+        public bool? IsFilled { get; set; }
+
+        /// <summary>When this request became filled via successful booking.</summary>
+        public DateTime? FilledAt { get; set; }
+
+        /// <summary>ClientOrder ID that filled this request.</summary>
+        public string? FilledByOrderId { get; set; }
+
+        /// <summary>Gig ID used in the successful booking that filled this request.</summary>
+        public string? FilledByGigId { get; set; }
+
         /// <summary>Soft-delete timestamp. Null = not deleted.</summary>
         public DateTime? DeletedAt { get; set; }
     }
