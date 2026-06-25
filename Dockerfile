@@ -22,7 +22,7 @@ RUN dotnet build "CarePro-Api.csproj" -c Release -o /app/build
 RUN dotnet publish "CarePro-Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Use the official .NET 8 runtime image for the final stage (latest patch version)
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 WORKDIR /app
 
 # Create a non-root user for security (Alpine version)
