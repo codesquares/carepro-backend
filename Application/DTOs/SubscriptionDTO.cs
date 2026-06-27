@@ -189,6 +189,42 @@ namespace Application.DTOs
         public string? TransactionReference { get; set; }
     }
 
+    /// <summary>
+    /// Request to trigger a client-initiated renewal attempt.
+    /// </summary>
+    public class ManualRenewSubscriptionRequest
+    {
+        /// <summary>
+        /// Optional frontend redirect URL for 3DS/cardholder authorisation.
+        /// If omitted, backend falls back to configured FrontendUrl.
+        /// </summary>
+        public string? RedirectUrl { get; set; }
+    }
+
+    public class ManualRenewSubscriptionResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>
+        /// success | action_required | failed | blocked
+        /// </summary>
+        public string Outcome { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public string SubscriptionId { get; set; } = string.Empty;
+        public string? NextAction { get; set; }
+        public SubscriptionPaymentRecordDTO? LatestPaymentAttempt { get; set; }
+    }
+
+    public class SubscriptionRenewalStatusResponse
+    {
+        public string SubscriptionId { get; set; } = string.Empty;
+        public string SubscriptionStatus { get; set; } = string.Empty;
+        public string RenewalState { get; set; } = string.Empty;
+        public string NextAction { get; set; } = string.Empty;
+        public int FailedChargeAttempts { get; set; }
+        public DateTime? NextChargeDate { get; set; }
+        public SubscriptionPaymentRecordDTO? LatestPaymentAttempt { get; set; }
+    }
+
     public class PaymentMethodUpdateStatusResponse
     {
         public string CardUpdateState { get; set; } = "none";
@@ -225,6 +261,8 @@ namespace Application.DTOs
         public string Currency { get; set; } = "NGN";
         public string Status { get; set; } = string.Empty;
         public string? ErrorMessage { get; set; }
+        public string? AuthorizationUrl { get; set; }
+        public string InitiatedBy { get; set; } = "system";
         public int BillingCycleNumber { get; set; }
         public DateTime AttemptedAt { get; set; }
         public DateTime? CompletedAt { get; set; }

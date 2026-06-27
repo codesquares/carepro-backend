@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Authentication;
+using System.Security.Claims;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 
@@ -22,6 +23,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly IClientService clientService;
         private readonly IEmailService emailService;
         private readonly ICertificationService certificationService;
+        private readonly IDefaultAddressCleanupService defaultAddressCleanupService;
         private readonly ILogger<AdminsController> logger;
 
         public AdminsController(
@@ -31,6 +33,7 @@ namespace CarePro_Api.Controllers.Content
             IClientService clientService,
             IEmailService emailService,
             ICertificationService certificationService,
+            IDefaultAddressCleanupService defaultAddressCleanupService,
             ILogger<AdminsController> logger)
         {
             this.adminUserService = adminUserService;
@@ -39,6 +42,7 @@ namespace CarePro_Api.Controllers.Content
             this.clientService = clientService;
             this.emailService = emailService;
             this.certificationService = certificationService;
+            this.defaultAddressCleanupService = defaultAddressCleanupService;
             this.logger = logger;
         }
 
@@ -863,6 +867,43 @@ namespace CarePro_Api.Controllers.Content
                     message = "Failed to process certificate review",
                     error = ex.Message
                 });
+            }
+        }
+
+        /// <summary>
+        /// Cleans up users and location records that still contain the historical
+        /// placeholder address used during signup.
+        /// </summary>
+        [HttpPost("Cleanup/DefaultAddress")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> CleanupDefaultAddressAsync([FromBody] DefaultAddressCleanupRequest request)
+        {
+            var adminId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                          ?? User.FindFirst("sub")?.Value
+                          ?? User.FindFirst("userId")?.Value;
+            var adminEmail = User.FindFirst(ClaimTypes.Email)?.Value
+                             ?? User.FindFirst("email")?.Value
+                             ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(adminId))
+                return Unauthorized(new { message = "Unable to identify admin user." });
+
+            if (!request.DryRun && string.IsNullOrWhiteSpace(request.Reason))
+                return BadRequest(new { message = "Reason is required when DryRun is false." });
+
+            try
+            {
+                var result = await defaultAddressCleanupService.CleanupDefaultAddressAsync(request, adminId, adminEmail);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error running default address cleanup");
+                return StatusCode(500, new { message = "An error occurred while running cleanup." });
             }
         }
 

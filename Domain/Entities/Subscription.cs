@@ -287,6 +287,14 @@ namespace Domain.Entities
         public string Currency { get; set; } = "NGN";
         public string Status { get; set; } = string.Empty; // "successful", "failed", "pending"
         public string? ErrorMessage { get; set; }
+        /// <summary>
+        /// Present when a payment attempt is pending cardholder authentication.
+        /// </summary>
+        public string? AuthorizationUrl { get; set; }
+        /// <summary>
+        /// "system" for auto-renew background processing, "client" for manual renew.
+        /// </summary>
+        public string InitiatedBy { get; set; } = "system";
         public int BillingCycleNumber { get; set; }
         public DateTime AttemptedAt { get; set; } = DateTime.UtcNow;
         public DateTime? CompletedAt { get; set; }

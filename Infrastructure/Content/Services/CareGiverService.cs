@@ -105,6 +105,11 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException("This Service can only be used to create a user with Caregiver Role!");
             }
 
+            if (string.IsNullOrWhiteSpace(addCaregiverRequest.HomeAddress))
+            {
+                throw new InvalidOperationException("Home address is required.");
+            }
+
             if (!IsValidEmail(addCaregiverRequest.Email))
             {
                 throw new InvalidOperationException("Please enter a valid email address.");
@@ -150,6 +155,7 @@ namespace Infrastructure.Content.Services
                 LastName = addCaregiverRequest.LastName,
                 Email = normalizedEmail,
                 PhoneNo = addCaregiverRequest.PhoneNo,
+                HomeAddress = addCaregiverRequest.HomeAddress?.Trim(),
                 Password = hashedPassword,
 
                 // Assign new ID
@@ -268,28 +274,26 @@ namespace Infrastructure.Content.Services
 
             #endregion EmailVerificationHandling
 
-            #region CreateDefaultLocation
+            #region CreateInitialLocation
 
-            // Auto-create default location for new caregiver
             try
             {
-                var defaultLocationRequest = new SetLocationRequest
+                var initialLocationRequest = new SetLocationRequest
                 {
                     UserId = caregiver.Id.ToString(),
                     UserType = "Caregiver",
-                    Address = "Adeola Odeku Street, Victoria Island, Lagos, Nigeria"
+                    Address = addCaregiverRequest.HomeAddress.Trim()
                 };
 
-                await locationService.SetUserLocationAsync(defaultLocationRequest);
+                await locationService.SetUserLocationAsync(initialLocationRequest);
             }
             catch (Exception locationEx)
             {
                 // Log location creation error but don't fail the registration
-                logger.LogWarning(locationEx, "Default location creation failed for caregiver: {CaregiverId}", caregiver.Id);
+                logger.LogWarning(locationEx, "Initial location creation failed for caregiver: {CaregiverId}", caregiver.Id);
             }
 
-            #endregion CreateDefaultLocation
-
+            #endregion CreateInitialLocation
 
             var careGiverUserDTO = new CaregiverDTO()
             {

@@ -80,6 +80,20 @@ namespace Application.Interfaces.Content
         Task<Result<UpdatePaymentMethodResponse>> InitiatePaymentMethodUpdateAsync(string subscriptionId, string userId, UpdatePaymentMethodRequest request);
 
         /// <summary>
+        /// Client-triggered renewal attempt for an existing subscription.
+        /// Uses the same recurring charge flow as background auto-renew.
+        /// </summary>
+        Task<Result<ManualRenewSubscriptionResponse>> InitiateClientRenewalAsync(
+            string subscriptionId,
+            string userId,
+            ManualRenewSubscriptionRequest request);
+
+        /// <summary>
+        /// Returns the latest renewal attempt state and next action for frontend polling.
+        /// </summary>
+        Task<Result<SubscriptionRenewalStatusResponse>> GetRenewalStatusAsync(string subscriptionId, string userId);
+
+        /// <summary>
         /// Completes payment method update after card authorization webhook
         /// </summary>
         Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(string subscriptionId, string flutterwaveToken, string cardLastFour, string cardBrand, string cardExpiry);
@@ -120,6 +134,12 @@ namespace Application.Interfaces.Content
         /// triggered by the Flutterwave webhook after the user authorises.
         /// </summary>
         Task<Result<SubscriptionPaymentRecordDTO>> CompleteRecurringChargeFromWebhookAsync(string txRef, string flutterwaveTransactionId, decimal amount);
+
+        /// <summary>
+        /// Marks a pending recurring charge attempt as failed based on webhook outcome,
+        /// then applies normal retry/suspension policy.
+        /// </summary>
+        Task<Result<SubscriptionPaymentRecordDTO>> HandleFailedRecurringChargeFromWebhookAsync(string txRef, string errorMessage);
 
         /// <summary>
         /// Completes a payment method update triggered by the Flutterwave webhook.

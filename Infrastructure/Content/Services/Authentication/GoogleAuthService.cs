@@ -246,21 +246,24 @@ namespace Infrastructure.Content.Services.Authentication
                     });
                 }
 
-                // Create default location
-                try
+                // Create location only when user provided an address.
+                if (!string.IsNullOrWhiteSpace(request.HomeAddress))
                 {
-                    var defaultLocationRequest = new SetLocationRequest
+                    try
                     {
-                        UserId = appUser.AppUserId.ToString(),
-                        UserType = role,
-                        Address = "Adeola Odeku Street, Victoria Island, Lagos, Nigeria"
-                    };
-                    await _locationService.SetUserLocationAsync(defaultLocationRequest);
-                }
-                catch (Exception locationEx)
-                {
-                    _logger.LogWarning(locationEx, "Default location creation failed for {Role}: {UserId}", 
-                        role, appUser.AppUserId);
+                        var initialLocationRequest = new SetLocationRequest
+                        {
+                            UserId = appUser.AppUserId.ToString(),
+                            UserType = role,
+                            Address = request.HomeAddress.Trim()
+                        };
+                        await _locationService.SetUserLocationAsync(initialLocationRequest);
+                    }
+                    catch (Exception locationEx)
+                    {
+                        _logger.LogWarning(locationEx, "Initial location creation failed for {Role}: {UserId}", 
+                            role, appUser.AppUserId);
+                    }
                 }
 
                 _logger.LogInformation("New {Role} created via Google OAuth: {Email}", role, googleUser.Email);
@@ -333,7 +336,7 @@ namespace Infrastructure.Content.Services.Authentication
                 Email = googleUser.Email.ToLower(),
                 Password = "", // No password for Google accounts
                 PhoneNo = request.PhoneNo ?? "",
-                HomeAddress = request.HomeAddress,
+                HomeAddress = request.HomeAddress?.Trim(),
                 ProfileImage = googleUser.ProfilePicture, // Use Google's profile picture
                 GoogleId = googleUser.GoogleId,
                 AuthProvider = "google",

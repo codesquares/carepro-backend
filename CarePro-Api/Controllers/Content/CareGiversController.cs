@@ -55,6 +55,11 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(request.HomeAddress))
+                {
+                    return BadRequest(new { message = "HomeAddress is required for caregiver signup." });
+                }
+
                 HttpContext httpContext = httpContextAccessor.HttpContext!;
                 string origin = httpContext.Request.Headers["Origin"].FirstOrDefault()
                                 ?? $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
@@ -681,6 +686,12 @@ namespace CarePro_Api.Controllers.Content
             {
                 ModelState.AddModelError(nameof(addCaregiverRequest.Role),
                     $"{nameof(addCaregiverRequest.Role)} is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(addCaregiverRequest.HomeAddress))
+            {
+                ModelState.AddModelError(nameof(addCaregiverRequest.HomeAddress),
+                    $"{nameof(addCaregiverRequest.HomeAddress)} is required.");
             }
 
 

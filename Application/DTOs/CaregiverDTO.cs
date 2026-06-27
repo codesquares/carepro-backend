@@ -75,6 +75,10 @@ namespace Application.DTOs
         [StringLength(20, ErrorMessage = "Phone number cannot exceed 20 characters")]
         public string? PhoneNo { get; set; }
 
+        [Required(ErrorMessage = "Home address is required")]
+        [StringLength(500, ErrorMessage = "Home address cannot exceed 500 characters")]
+        public string HomeAddress { get; set; } = null!;
+
         [Required(ErrorMessage = "Password is required")]
         [StringLength(128, MinimumLength = 8, ErrorMessage = "Password must be between 8 and 128 characters")]
         [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$", 

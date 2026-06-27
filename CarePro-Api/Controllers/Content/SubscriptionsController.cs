@@ -220,6 +220,59 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
+        /// Client-initiated renewal attempt for a subscription.
+        /// Useful when auto-renew requires cardholder action or has recently failed.
+        /// </summary>
+        [HttpPost("{subscriptionId}/renew")]
+        public async Task<IActionResult> RenewSubscription(
+            string subscriptionId,
+            [FromBody] ManualRenewSubscriptionRequest? request)
+        {
+            var userId = GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(new { success = false, message = "User not authenticated." });
+
+            var result = await _subscriptionService.InitiateClientRenewalAsync(
+                subscriptionId,
+                userId,
+                request ?? new ManualRenewSubscriptionRequest());
+
+            if (!result.IsSuccess)
+                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
+
+            var isFailed = string.Equals(result.Value?.Outcome, "failed", StringComparison.OrdinalIgnoreCase);
+            if (isFailed)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = result.Value?.Message ?? "Renewal attempt failed.",
+                    data = result.Value
+                });
+            }
+
+            return Ok(new { success = true, data = result.Value });
+        }
+
+        /// <summary>
+        /// Get latest renewal status for frontend polling/state recovery.
+        /// </summary>
+        [HttpGet("{subscriptionId}/renew/status")]
+        public async Task<IActionResult> GetRenewalStatus(string subscriptionId)
+        {
+            var userId = GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(new { success = false, message = "User not authenticated." });
+
+            var result = await _subscriptionService.GetRenewalStatusAsync(subscriptionId, userId);
+
+            if (!result.IsSuccess)
+                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
+
+            return Ok(new { success = true, data = result.Value });
+        }
+
+        /// <summary>
         /// Get explicit status for payment method update flow.
         /// Use this endpoint after Flutterwave redirect instead of inferring from card fields.
         /// </summary>

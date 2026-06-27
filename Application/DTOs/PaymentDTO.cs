@@ -165,6 +165,15 @@ namespace Application.DTOs
         
         [System.Text.Json.Serialization.JsonPropertyName("payment_type")]
         public string? PaymentType { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("processor_response")]
+        public string? ProcessorResponseSnake { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("processorResponse")]
+        public string? ProcessorResponseCamel { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? ProcessorResponse => ProcessorResponseSnake ?? ProcessorResponseCamel;
     }
     
     public class FlutterwaveCustomer

@@ -117,8 +117,39 @@ namespace CarePro_Api.Controllers.Content
                 "Webhook received. TxRef: {TxRef}, Status: {Status}, Amount: {Amount}",
                 payload.TxRef, payload.Status, payload.Amount);
 
+            // Get transaction reference and ID from flat structure
+            var txRef = payload.TxRef ?? string.Empty;
+            var transactionId = payload.Id.ToString();
+
             // Flutterwave v3 sends status directly at root level
             var status = payload.Status?.ToLower() ?? string.Empty;
+
+            // ── ROUTE: Recurring subscription charge FAILED (webhook) ─────────
+            if (txRef.StartsWith("CAREPRO-RECURRING-", StringComparison.OrdinalIgnoreCase) && status != "successful")
+            {
+                var failureMessage = !string.IsNullOrWhiteSpace(payload.ProcessorResponse)
+                    ? payload.ProcessorResponse!
+                    : $"Flutterwave status: {status}";
+
+                var failedResult = await _subscriptionService.HandleFailedRecurringChargeFromWebhookAsync(
+                    txRef,
+                    failureMessage);
+
+                if (!failedResult.IsSuccess)
+                {
+                    _logger.LogWarning(
+                        "Recurring failed webhook could not be mapped to pending attempt for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", failedResult.Errors));
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Recurring failed webhook processed for TxRef: {TxRef}. Reason: {Reason}",
+                        txRef, failureMessage);
+                }
+
+                return Ok(new { success = true, message = "Recurring failed webhook received." });
+            }
             
             // Only process successful payments
             if (status != "successful")
@@ -126,10 +157,6 @@ namespace CarePro_Api.Controllers.Content
                 _logger.LogInformation("Ignoring non-successful webhook. Status: {Status}", status);
                 return Ok(new { success = true, message = "Webhook received." });
             }
-
-            // Get transaction reference and ID from flat structure
-            var txRef = payload.TxRef ?? string.Empty;
-            var transactionId = payload.Id.ToString();
 
             // Verify the transaction with Flutterwave API for extra security
             var verification = await _flutterwaveService.VerifyTransactionAsync(transactionId);

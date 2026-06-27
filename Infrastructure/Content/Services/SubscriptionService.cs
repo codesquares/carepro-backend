@@ -529,6 +529,156 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        public async Task<Result<ManualRenewSubscriptionResponse>> InitiateClientRenewalAsync(
+            string subscriptionId,
+            string userId,
+            ManualRenewSubscriptionRequest request)
+        {
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId);
+
+            if (subscription == null)
+            {
+                return Result<ManualRenewSubscriptionResponse>.Failure(new List<string> { "Subscription not found." });
+            }
+
+            if (subscription.ClientId != userId)
+            {
+                return Result<ManualRenewSubscriptionResponse>.Failure(new List<string> { "Not authorized." });
+            }
+
+            // Avoid duplicate manual retries while the previous attempt is still pending auth.
+            var existingPending = subscription.PaymentHistory
+                .Where(p => p.TransactionReference.StartsWith("CAREPRO-RECURRING-") && p.Status == "pending")
+                .OrderByDescending(p => p.AttemptedAt)
+                .FirstOrDefault();
+
+            if (existingPending != null)
+            {
+                return Result<ManualRenewSubscriptionResponse>.Success(new ManualRenewSubscriptionResponse
+                {
+                    Success = true,
+                    Outcome = "action_required",
+                    Message = "A renewal payment is already awaiting your authorisation.",
+                    SubscriptionId = subscriptionId,
+                    NextAction = "complete_authorization",
+                    LatestPaymentAttempt = MapPaymentRecordToDTO(existingPending)
+                });
+            }
+
+            var allowedStatuses = new[]
+            {
+                SubscriptionStatus.Active,
+                SubscriptionStatus.PastDue,
+                SubscriptionStatus.Suspended
+            };
+
+            if (!allowedStatuses.Contains(subscription.Status))
+            {
+                return Result<ManualRenewSubscriptionResponse>.Failure(new List<string>
+                {
+                    $"Cannot renew subscription while status is '{subscription.Status}'."
+                });
+            }
+
+            var renewalResult = await ProcessRecurringChargeInternalAsync(
+                subscriptionId,
+                initiatedBy: "client",
+                redirectUrlOverride: request?.RedirectUrl);
+
+            if (renewalResult.IsSuccess)
+            {
+                return Result<ManualRenewSubscriptionResponse>.Success(new ManualRenewSubscriptionResponse
+                {
+                    Success = true,
+                    Outcome = "success",
+                    Message = "Renewal payment processed successfully.",
+                    SubscriptionId = subscriptionId,
+                    NextAction = "refresh_subscription",
+                    LatestPaymentAttempt = renewalResult.Value
+                });
+            }
+
+            var renewalStatus = await GetRenewalStatusAsync(subscriptionId, userId);
+            var latestAttempt = renewalStatus.IsSuccess ? renewalStatus.Value?.LatestPaymentAttempt : null;
+
+            var isActionRequired = renewalResult.Errors.Any(e =>
+                e.Contains("Awaiting cardholder authentication", StringComparison.OrdinalIgnoreCase));
+
+            return Result<ManualRenewSubscriptionResponse>.Success(new ManualRenewSubscriptionResponse
+            {
+                Success = false,
+                Outcome = isActionRequired ? "action_required" : "failed",
+                Message = string.Join(", ", renewalResult.Errors),
+                SubscriptionId = subscriptionId,
+                NextAction = isActionRequired ? "complete_authorization" : "retry_or_update_payment_method",
+                LatestPaymentAttempt = latestAttempt
+            });
+        }
+
+        public async Task<Result<SubscriptionRenewalStatusResponse>> GetRenewalStatusAsync(string subscriptionId, string userId)
+        {
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId);
+
+            if (subscription == null)
+            {
+                return Result<SubscriptionRenewalStatusResponse>.Failure(new List<string> { "Subscription not found." });
+            }
+
+            if (subscription.ClientId != userId)
+            {
+                return Result<SubscriptionRenewalStatusResponse>.Failure(new List<string> { "Not authorized." });
+            }
+
+            var latest = subscription.PaymentHistory
+                .Where(p => p.TransactionReference.StartsWith("CAREPRO-RECURRING-"))
+                .OrderByDescending(p => p.AttemptedAt)
+                .FirstOrDefault();
+
+            var renewalState = "none";
+            var nextAction = "none";
+
+            if (latest != null)
+            {
+                if (latest.Status == "successful")
+                {
+                    renewalState = "paid";
+                    nextAction = "none";
+                }
+                else if (latest.Status == "pending")
+                {
+                    renewalState = "action_required";
+                    nextAction = string.IsNullOrWhiteSpace(latest.AuthorizationUrl)
+                        ? "wait"
+                        : "complete_authorization";
+                }
+                else
+                {
+                    renewalState = "failed";
+                    nextAction = subscription.Status == SubscriptionStatus.Suspended
+                        ? "update_payment_method"
+                        : "retry_now";
+                }
+            }
+            else if (subscription.Status == SubscriptionStatus.PastDue)
+            {
+                renewalState = "failed";
+                nextAction = "retry_now";
+            }
+
+            return Result<SubscriptionRenewalStatusResponse>.Success(new SubscriptionRenewalStatusResponse
+            {
+                SubscriptionId = subscription.Id,
+                SubscriptionStatus = subscription.Status.ToString(),
+                RenewalState = renewalState,
+                NextAction = nextAction,
+                FailedChargeAttempts = subscription.FailedChargeAttempts,
+                NextChargeDate = subscription.NextChargeDate,
+                LatestPaymentAttempt = latest != null ? MapPaymentRecordToDTO(latest) : null
+            });
+        }
+
         public async Task<Result<SubscriptionPaymentRecordDTO>> CompleteRecurringChargeFromWebhookAsync(
             string txRef, string flutterwaveTransactionId, decimal amount)
         {
@@ -582,6 +732,7 @@ namespace Infrastructure.Content.Services
             paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
             paymentRecord.CompletedAt = DateTime.UtcNow;
             paymentRecord.ClientOrderId = orderResult.Value?.Id;
+            paymentRecord.AuthorizationUrl = null;
 
             var now = DateTime.UtcNow;
             subscription.CurrentPeriodStart = now;
@@ -646,11 +797,52 @@ namespace Infrastructure.Content.Services
                 Amount = paymentRecord.Amount,
                 Currency = paymentRecord.Currency,
                 Status = paymentRecord.Status,
+                AuthorizationUrl = paymentRecord.AuthorizationUrl,
+                InitiatedBy = paymentRecord.InitiatedBy,
                 BillingCycleNumber = paymentRecord.BillingCycleNumber,
                 AttemptedAt = paymentRecord.AttemptedAt,
                 CompletedAt = paymentRecord.CompletedAt,
                 ClientOrderId = paymentRecord.ClientOrderId
             });
+        }
+
+        public async Task<Result<SubscriptionPaymentRecordDTO>> HandleFailedRecurringChargeFromWebhookAsync(string txRef, string errorMessage)
+        {
+            var subscription = await _dbContext.Subscriptions
+                .FirstOrDefaultAsync(s => s.PaymentHistory.Any(p =>
+                    p.TransactionReference == txRef && p.Status == "pending"));
+
+            if (subscription == null)
+            {
+                _logger.LogWarning(
+                    "HandleFailedRecurringChargeFromWebhook: No subscription found with pending txRef {TxRef}",
+                    txRef);
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Subscription not found for this transaction." });
+            }
+
+            var paymentRecord = subscription.PaymentHistory
+                .FirstOrDefault(p => p.TransactionReference == txRef && p.Status == "pending");
+
+            if (paymentRecord == null)
+            {
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment record not found." });
+            }
+
+            var failureReason = string.IsNullOrWhiteSpace(errorMessage)
+                ? "Recurring charge failed"
+                : errorMessage;
+
+            paymentRecord.Status = "failed";
+            paymentRecord.ErrorMessage = failureReason;
+            paymentRecord.AuthorizationUrl = null;
+            paymentRecord.CompletedAt = DateTime.UtcNow;
+
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            await HandleFailedChargeAsync(subscription.Id, failureReason);
+
+            return Result<SubscriptionPaymentRecordDTO>.Success(MapPaymentRecordToDTO(paymentRecord));
         }
 
         public async Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(
@@ -830,6 +1022,12 @@ namespace Infrastructure.Content.Services
         }
 
         public async Task<Result<SubscriptionPaymentRecordDTO>> ProcessRecurringChargeAsync(string subscriptionId)
+            => await ProcessRecurringChargeInternalAsync(subscriptionId, initiatedBy: "system", redirectUrlOverride: null);
+
+        private async Task<Result<SubscriptionPaymentRecordDTO>> ProcessRecurringChargeInternalAsync(
+            string subscriptionId,
+            string initiatedBy,
+            string? redirectUrlOverride)
         {
             var subscription = await _dbContext.Subscriptions
                 .FirstOrDefaultAsync(s => s.Id == subscriptionId);
@@ -868,6 +1066,7 @@ namespace Infrastructure.Content.Services
                 Amount = subscription.RecurringAmount,
                 Currency = subscription.Currency,
                 Status = "pending",
+                InitiatedBy = string.IsNullOrWhiteSpace(initiatedBy) ? "system" : initiatedBy,
                 BillingCycleNumber = cycleNumber,
                 AttemptedAt = DateTime.UtcNow
             };
@@ -894,7 +1093,10 @@ namespace Infrastructure.Content.Services
                         subscription.UpdatedAt = DateTime.UtcNow;
                         await _dbContext.SaveChangesAsync();
 
-                        var authUrl = chargeResult.AuthUrl ?? $"{_configuration["FrontendUrl"] ?? "https://oncarepro.com"}/subscription/payment-confirmed";
+                        var authUrl = chargeResult.AuthUrl
+                            ?? redirectUrlOverride
+                            ?? $"{_configuration["FrontendUrl"] ?? "https://oncarepro.com"}/subscription/payment-confirmed";
+                        paymentRecord.AuthorizationUrl = authUrl;
                         var pendingLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
                             ? null
                             : subscription.OriginalOrderId;
@@ -918,6 +1120,7 @@ namespace Infrastructure.Content.Services
                     var error = chargeResult?.ErrorMessage ?? "Charge failed";
                     paymentRecord.Status = "failed";
                     paymentRecord.ErrorMessage = error;
+                    paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus; // Restore previous status
                     await _dbContext.SaveChangesAsync();
@@ -938,6 +1141,7 @@ namespace Infrastructure.Content.Services
 
                     paymentRecord.Status = "verification_failed";
                     paymentRecord.ErrorMessage = "Charge reported success but verification failed";
+                    paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus;
                     await _dbContext.SaveChangesAsync();
@@ -954,6 +1158,7 @@ namespace Infrastructure.Content.Services
 
                     paymentRecord.Status = "amount_mismatch";
                     paymentRecord.ErrorMessage = $"Expected {subscription.RecurringAmount}, verified {verification.Amount}";
+                    paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus;
                     await _dbContext.SaveChangesAsync();
@@ -976,6 +1181,7 @@ namespace Infrastructure.Content.Services
                 paymentRecord.FlutterwaveTransactionId = chargeResult.TransactionId;
                 paymentRecord.CompletedAt = DateTime.UtcNow;
                 paymentRecord.ClientOrderId = orderResult.Value?.Id;
+                paymentRecord.AuthorizationUrl = null;
 
                 // Advance the billing period
                 var now = DateTime.UtcNow;
@@ -1041,6 +1247,8 @@ namespace Infrastructure.Content.Services
                     Amount = paymentRecord.Amount,
                     Currency = paymentRecord.Currency,
                     Status = paymentRecord.Status,
+                    AuthorizationUrl = paymentRecord.AuthorizationUrl,
+                    InitiatedBy = paymentRecord.InitiatedBy,
                     BillingCycleNumber = paymentRecord.BillingCycleNumber,
                     AttemptedAt = paymentRecord.AttemptedAt,
                     CompletedAt = paymentRecord.CompletedAt,
@@ -1056,6 +1264,7 @@ namespace Infrastructure.Content.Services
 
                 paymentRecord.Status = "failed";
                 paymentRecord.ErrorMessage = ex.Message;
+                paymentRecord.AuthorizationUrl = null;
                 subscription.PaymentHistory.Add(paymentRecord);
                 await _dbContext.SaveChangesAsync();
                 await HandleFailedChargeAsync(subscriptionId, ex.Message);
@@ -1199,6 +1408,8 @@ namespace Infrastructure.Content.Services
                     Currency = p.Currency,
                     Status = p.Status,
                     ErrorMessage = p.ErrorMessage,
+                    AuthorizationUrl = p.AuthorizationUrl,
+                    InitiatedBy = p.InitiatedBy,
                     BillingCycleNumber = p.BillingCycleNumber,
                     AttemptedAt = p.AttemptedAt,
                     CompletedAt = p.CompletedAt,
@@ -1440,6 +1651,26 @@ namespace Infrastructure.Content.Services
         {
             decimal fee = amount * FLUTTERWAVE_FEE_RATE;
             return Math.Min(Math.Round(fee, 2), FLUTTERWAVE_FEE_CAP);
+        }
+
+        private static SubscriptionPaymentRecordDTO MapPaymentRecordToDTO(SubscriptionPaymentRecord p)
+        {
+            return new SubscriptionPaymentRecordDTO
+            {
+                Id = p.Id,
+                TransactionReference = p.TransactionReference,
+                FlutterwaveTransactionId = p.FlutterwaveTransactionId,
+                Amount = p.Amount,
+                Currency = p.Currency,
+                Status = p.Status,
+                ErrorMessage = p.ErrorMessage,
+                AuthorizationUrl = p.AuthorizationUrl,
+                InitiatedBy = p.InitiatedBy,
+                BillingCycleNumber = p.BillingCycleNumber,
+                AttemptedAt = p.AttemptedAt,
+                CompletedAt = p.CompletedAt,
+                ClientOrderId = p.ClientOrderId
+            };
         }
 
         private string? ExtractPaymentLink(string flutterwaveResponse)

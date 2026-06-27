@@ -221,6 +221,7 @@ builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 
 // Admin data export (Excel)
 builder.Services.AddScoped<IAdminExportService, AdminExportService>();
+builder.Services.AddScoped<IDefaultAddressCleanupService, DefaultAddressCleanupService>();
 
 // Caregiver journey snapshot (read-model for admin journey tracking)
 builder.Services.AddScoped<ICaregiverSnapshotService, CaregiverSnapshotService>();

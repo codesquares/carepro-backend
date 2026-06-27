@@ -215,22 +215,25 @@ namespace Infrastructure.Content.Services
 
             #region CreateDefaultLocation
 
-            // Auto-create default location for new client
-            try
+            // Create location from user-provided address only.
+            if (!string.IsNullOrWhiteSpace(addClientUserRequest.HomeAddress))
             {
-                var defaultLocationRequest = new SetLocationRequest
+                try
                 {
-                    UserId = clientUser.Id.ToString(),
-                    UserType = "Client",
-                    Address = "Adeola Odeku Street, Victoria Island, Lagos, Nigeria"
-                };
+                    var initialLocationRequest = new SetLocationRequest
+                    {
+                        UserId = clientUser.Id.ToString(),
+                        UserType = "Client",
+                        Address = addClientUserRequest.HomeAddress.Trim()
+                    };
 
-                await locationService.SetUserLocationAsync(defaultLocationRequest);
-            }
-            catch (Exception locationEx)
-            {
-                // Log location creation error but don't fail the registration
-                logger.LogWarning(locationEx, "Default location creation failed for client: {ClientId}", clientUser.Id);
+                    await locationService.SetUserLocationAsync(initialLocationRequest);
+                }
+                catch (Exception locationEx)
+                {
+                    // Log location creation error but don't fail the registration
+                    logger.LogWarning(locationEx, "Initial location creation failed for client: {ClientId}", clientUser.Id);
+                }
             }
 
             #endregion CreateDefaultLocation
