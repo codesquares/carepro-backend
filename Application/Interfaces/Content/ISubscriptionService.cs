@@ -96,7 +96,14 @@ namespace Application.Interfaces.Content
         /// <summary>
         /// Completes payment method update after card authorization webhook
         /// </summary>
-        Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(string subscriptionId, string flutterwaveToken, string cardLastFour, string cardBrand, string cardExpiry);
+        Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(
+            string subscriptionId,
+            string flutterwaveToken,
+            string cardLastFour,
+            string cardBrand,
+            string cardExpiry,
+            string? flutterwaveCustomerId = null,
+            string? flutterwavePaymentMethodId = null);
 
         /// <summary>
         /// Marks a payment method update attempt as failed by txRef.
@@ -145,7 +152,14 @@ namespace Application.Interfaces.Content
         /// Completes a payment method update triggered by the Flutterwave webhook.
         /// Looks up the subscription by PendingCardUpdateTxRef.
         /// </summary>
-        Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(string txRef, string token, string cardLastFour, string cardBrand, string cardExpiry);
+        Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(
+            string txRef,
+            string token,
+            string cardLastFour,
+            string cardBrand,
+            string cardExpiry,
+            string? flutterwaveCustomerId = null,
+            string? flutterwavePaymentMethodId = null);
 
         /// <summary>
         /// Handles a failed recurring charge (increment retry count, check max retries)

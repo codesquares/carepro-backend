@@ -125,7 +125,8 @@ namespace CarePro_Api.Controllers.Content
             var status = payload.Status?.ToLower() ?? string.Empty;
 
             // ── ROUTE: Recurring subscription charge FAILED (webhook) ─────────
-            if (txRef.StartsWith("CAREPRO-RECURRING-", StringComparison.OrdinalIgnoreCase) && status != "successful")
+            if (txRef.StartsWith("CAREPRO-RECURRING-", StringComparison.OrdinalIgnoreCase) &&
+                status != "successful" && status != "succeeded")
             {
                 var failureMessage = !string.IsNullOrWhiteSpace(payload.ProcessorResponse)
                     ? payload.ProcessorResponse!
@@ -152,7 +153,7 @@ namespace CarePro_Api.Controllers.Content
             }
             
             // Only process successful payments
-            if (status != "successful")
+            if (status != "successful" && status != "succeeded")
             {
                 _logger.LogInformation("Ignoring non-successful webhook. Status: {Status}", status);
                 return Ok(new { success = true, message = "Webhook received." });
@@ -161,7 +162,7 @@ namespace CarePro_Api.Controllers.Content
             // Verify the transaction with Flutterwave API for extra security
             var verification = await _flutterwaveService.VerifyTransactionAsync(transactionId);
             if (verification == null || !verification.Success || 
-                verification.Status.ToLower() != "successful")
+                (verification.Status.ToLower() != "successful" && verification.Status.ToLower() != "succeeded"))
             {
                 _logger.LogWarning("Transaction verification failed for TxRef: {TxRef}", txRef);
                 return BadRequest(new { success = false, message = "Transaction verification failed." });
@@ -208,7 +209,9 @@ namespace CarePro_Api.Controllers.Content
                     tokenResult.PaymentToken,
                     tokenResult.CardLastFour ?? string.Empty,
                     tokenResult.CardBrand ?? string.Empty,
-                    tokenResult.CardExpiry ?? string.Empty
+                    tokenResult.CardExpiry ?? string.Empty,
+                    tokenResult.CustomerId,
+                    tokenResult.PaymentMethodId
                 );
 
                 if (!cardUpdateResult.IsSuccess)

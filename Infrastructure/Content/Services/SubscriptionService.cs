@@ -25,6 +25,7 @@ namespace Infrastructure.Content.Services
         private const decimal SERVICE_CHARGE_RATE = 0.10m;
         private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
         private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
+        private const double RETRY_JITTER_PERCENT = 0.20d;
 
         public SubscriptionService(
             CareProDbContext dbContext,
@@ -109,6 +110,8 @@ namespace Infrastructure.Content.Services
                 NextChargeDate = periodEnd,
                 BillingCyclesCompleted = 1, // Initial payment counts as first cycle
                 AutoRenew = true,
+                FlutterwaveCustomerId = request.FlutterwaveCustomerId,
+                FlutterwavePaymentMethodId = request.FlutterwavePaymentMethodId,
                 FlutterwavePaymentToken = request.FlutterwavePaymentToken,
                 CardLastFour = request.CardLastFour,
                 CardBrand = request.CardBrand,
@@ -136,8 +139,15 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation(
-                "Subscription created: {SubscriptionId} for Client {ClientId}, Gig {GigId}, Cycle: {Cycle}, Amount: {Amount}",
-                subscription.Id, request.ClientId, request.GigId, request.BillingCycle, request.RecurringAmount);
+                "Subscription created: {SubscriptionId} for Client {ClientId}, Gig {GigId}, Cycle: {Cycle}, Amount: {Amount}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}, HasLegacyToken={HasToken}",
+                subscription.Id,
+                request.ClientId,
+                request.GigId,
+                request.BillingCycle,
+                request.RecurringAmount,
+                subscription.FlutterwaveCustomerId ?? "<null>",
+                subscription.FlutterwavePaymentMethodId ?? "<null>",
+                !string.IsNullOrWhiteSpace(subscription.FlutterwavePaymentToken));
 
             // Notify client
             await _mediator.Send(new SendNotificationCommand(
@@ -846,7 +856,13 @@ namespace Infrastructure.Content.Services
         }
 
         public async Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateByTxRefAsync(
-            string txRef, string token, string cardLastFour, string cardBrand, string cardExpiry)
+            string txRef,
+            string token,
+            string cardLastFour,
+            string cardBrand,
+            string cardExpiry,
+            string? flutterwaveCustomerId = null,
+            string? flutterwavePaymentMethodId = null)
         {
             var subscription = await _dbContext.Subscriptions
                 .FirstOrDefaultAsync(s => s.PendingCardUpdateTxRef == txRef);
@@ -858,7 +874,14 @@ namespace Infrastructure.Content.Services
                 return Result<SubscriptionDTO>.Failure(new List<string> { "Subscription not found for this card update." });
             }
 
-            return await CompletePaymentMethodUpdateAsync(subscription.Id, token, cardLastFour, cardBrand, cardExpiry);
+            return await CompletePaymentMethodUpdateAsync(
+                subscription.Id,
+                token,
+                cardLastFour,
+                cardBrand,
+                cardExpiry,
+                flutterwaveCustomerId,
+                flutterwavePaymentMethodId);
         }
 
         public async Task MarkPaymentMethodUpdateFailedByTxRefAsync(string txRef, string reason)
@@ -880,7 +903,13 @@ namespace Infrastructure.Content.Services
         }
 
         public async Task<Result<SubscriptionDTO>> CompletePaymentMethodUpdateAsync(
-            string subscriptionId, string flutterwaveToken, string cardLastFour, string cardBrand, string cardExpiry)
+            string subscriptionId,
+            string flutterwaveToken,
+            string cardLastFour,
+            string cardBrand,
+            string cardExpiry,
+            string? flutterwaveCustomerId = null,
+            string? flutterwavePaymentMethodId = null)
         {
             var subscription = await _dbContext.Subscriptions
                 .FirstOrDefaultAsync(s => s.Id == subscriptionId);
@@ -889,6 +918,14 @@ namespace Infrastructure.Content.Services
                 return Result<SubscriptionDTO>.Failure(new List<string> { "Subscription not found." });
 
             subscription.FlutterwavePaymentToken = flutterwaveToken;
+            if (!string.IsNullOrWhiteSpace(flutterwaveCustomerId))
+            {
+                subscription.FlutterwaveCustomerId = flutterwaveCustomerId;
+            }
+            if (!string.IsNullOrWhiteSpace(flutterwavePaymentMethodId))
+            {
+                subscription.FlutterwavePaymentMethodId = flutterwavePaymentMethodId;
+            }
             subscription.CardLastFour = cardLastFour;
             subscription.CardBrand = cardBrand;
             subscription.CardExpiry = cardExpiry;
@@ -912,8 +949,12 @@ namespace Infrastructure.Content.Services
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation(
-                "Payment method updated for subscription {SubscriptionId}. Card: {Brand} ****{Last4}",
-                subscriptionId, cardBrand, cardLastFour);
+                "Payment method updated for subscription {SubscriptionId}. Card: {Brand} ****{Last4}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}",
+                subscriptionId,
+                cardBrand,
+                cardLastFour,
+                subscription.FlutterwaveCustomerId ?? "<unchanged>",
+                subscription.FlutterwavePaymentMethodId ?? "<unchanged>");
 
             await _mediator.Send(new SendNotificationCommand(
                 subscription.ClientId,
@@ -1017,7 +1058,10 @@ namespace Infrastructure.Content.Services
                     s.AutoRenew &&
                     s.NextChargeDate.HasValue &&
                     s.NextChargeDate.Value <= now &&
-                    !string.IsNullOrEmpty(s.FlutterwavePaymentToken))
+                    (
+                        (!string.IsNullOrEmpty(s.FlutterwaveCustomerId) && !string.IsNullOrEmpty(s.FlutterwavePaymentMethodId)) ||
+                        !string.IsNullOrEmpty(s.FlutterwavePaymentToken)
+                    ))
                 .ToListAsync();
         }
 
@@ -1035,8 +1079,59 @@ namespace Infrastructure.Content.Services
             if (subscription == null)
                 return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Subscription not found." });
 
-            if (string.IsNullOrEmpty(subscription.FlutterwavePaymentToken))
-                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "No payment token available." });
+            var hasRecurringIdentifiers =
+                !string.IsNullOrWhiteSpace(subscription.FlutterwaveCustomerId) &&
+                !string.IsNullOrWhiteSpace(subscription.FlutterwavePaymentMethodId);
+            var hasToken = !string.IsNullOrWhiteSpace(subscription.FlutterwavePaymentToken);
+            var hasTokenAndEmail = hasToken && !string.IsNullOrWhiteSpace(subscription.Email);
+
+            if (hasToken && !hasTokenAndEmail)
+            {
+                _logger.LogWarning(
+                    "Subscription {SubscriptionId} has token but no email. Falling back to payment_method path if available.",
+                    subscriptionId);
+            }
+
+            if (!hasTokenAndEmail && !hasRecurringIdentifiers)
+            {
+                _logger.LogWarning(
+                    "Recurring charge cannot start for subscription {SubscriptionId}: missing both v3 token+email and recurring identifiers",
+                    subscriptionId);
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "No recurring payment credentials available." });
+            }
+
+            var cycleNumber = subscription.BillingCyclesCompleted + 1;
+            var attemptNumber = Math.Max(1, subscription.FailedChargeAttempts + 1);
+            var recurringAttemptKey = $"renewal:{subscription.Id}:{cycleNumber}:{attemptNumber}";
+
+            // Renewal idempotency guard:
+            // if this exact cycle+attempt key already exists, do not charge again.
+            var existingAttempt = subscription.PaymentHistory
+                .Where(p => p.RecurringAttemptKey == recurringAttemptKey)
+                .OrderByDescending(p => p.AttemptedAt)
+                .FirstOrDefault();
+
+            if (existingAttempt != null)
+            {
+                _logger.LogWarning(
+                    "Recurring idempotency hit for subscription {SubscriptionId}. AttemptKey={AttemptKey}, ExistingStatus={Status}, TxRef={TxRef}",
+                    subscriptionId,
+                    recurringAttemptKey,
+                    existingAttempt.Status,
+                    existingAttempt.TransactionReference);
+
+                if (string.Equals(existingAttempt.Status, "successful", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result<SubscriptionPaymentRecordDTO>.Success(MapPaymentRecordToDTO(existingAttempt));
+                }
+
+                if (string.Equals(existingAttempt.Status, "pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Renewal attempt is already pending authorization." });
+                }
+
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Renewal attempt already processed. Await next scheduled retry." });
+            }
 
             // ── DOUBLE-CHARGE GUARD ──
             // If a charge is already in progress (status set to "charging"), skip.
@@ -1053,16 +1148,19 @@ namespace Infrastructure.Content.Services
             // Mark as "charging" to prevent concurrent processing
             var previousStatus = subscription.Status;
             subscription.Status = SubscriptionStatus.Charging;
+            subscription.LastRecurringAttemptKey = recurringAttemptKey;
+            subscription.LastRecurringAttemptStatus = "pending";
+            subscription.LastRecurringAttemptAt = DateTime.UtcNow;
             subscription.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
 
             var txRef = $"CAREPRO-RECURRING-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
-            var cycleNumber = subscription.BillingCyclesCompleted + 1;
 
             var paymentRecord = new SubscriptionPaymentRecord
             {
                 Id = ObjectId.GenerateNewId().ToString(),
                 TransactionReference = txRef,
+                RecurringAttemptKey = recurringAttemptKey,
                 Amount = subscription.RecurringAmount,
                 Currency = subscription.Currency,
                 Status = "pending",
@@ -1073,13 +1171,38 @@ namespace Infrastructure.Content.Services
 
             try
             {
-                // Charge using Flutterwave tokenized payment
-                var chargeResult = await _flutterwaveService.ChargeWithToken(
-                    subscription.FlutterwavePaymentToken,
-                    subscription.RecurringAmount,
-                    subscription.Currency,
-                    subscription.Email,
-                    txRef);
+                FlutterwaveChargeResult? chargeResult;
+                if (hasTokenAndEmail)
+                {
+                    _logger.LogInformation(
+                        "Recurring charge path=v3_token primary for subscription {SubscriptionId}. TxRef={TxRef}",
+                        subscriptionId,
+                        txRef);
+
+                    chargeResult = await _flutterwaveService.ChargeWithToken(
+                        subscription.FlutterwavePaymentToken!,
+                        subscription.RecurringAmount,
+                        subscription.Currency,
+                        subscription.Email,
+                        txRef);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Recurring charge path=payment_method_id secondary fallback for subscription {SubscriptionId}. CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}, TxRef={TxRef}",
+                        subscriptionId,
+                        subscription.FlutterwaveCustomerId,
+                        subscription.FlutterwavePaymentMethodId,
+                        txRef);
+
+                    chargeResult = await _flutterwaveService.ChargeRecurringWithPaymentMethod(
+                        subscription.FlutterwaveCustomerId!,
+                        subscription.FlutterwavePaymentMethodId!,
+                        subscription.RecurringAmount,
+                        subscription.Currency,
+                        txRef,
+                        redirectUrlOverride);
+                }
 
                 if (chargeResult == null || !chargeResult.Success)
                 {
@@ -1088,15 +1211,24 @@ namespace Infrastructure.Content.Services
                         // 3DS/OTP required — not a permanent failure, awaiting user action
                         paymentRecord.Status = "pending";
                         paymentRecord.ErrorMessage = "Awaiting cardholder authentication";
+                        paymentRecord.FailureClass = null;
                         subscription.PaymentHistory.Add(paymentRecord);
                         subscription.Status = previousStatus;
+                        subscription.LastRecurringAttemptStatus = "pending";
+                        subscription.LastRecurringAttemptAt = DateTime.UtcNow;
                         subscription.UpdatedAt = DateTime.UtcNow;
                         await _dbContext.SaveChangesAsync();
 
-                        var authUrl = chargeResult.AuthUrl
-                            ?? redirectUrlOverride
-                            ?? $"{_configuration["FrontendUrl"] ?? "https://oncarepro.com"}/subscription/payment-confirmed";
+                        var authUrl = chargeResult.AuthUrl;
+                        if (string.IsNullOrWhiteSpace(authUrl))
+                        {
+                            _logger.LogWarning(
+                                "Recurring charge pending without provider auth URL for subscription {SubscriptionId}. TxRef={TxRef}",
+                                subscriptionId,
+                                txRef);
+                        }
                         paymentRecord.AuthorizationUrl = authUrl;
+                        await _dbContext.SaveChangesAsync();
                         var pendingLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
                             ? null
                             : subscription.OriginalOrderId;
@@ -1118,11 +1250,15 @@ namespace Infrastructure.Content.Services
                     }
 
                     var error = chargeResult?.ErrorMessage ?? "Charge failed";
+                    var failureClass = ClassifyFailure(error);
                     paymentRecord.Status = "failed";
                     paymentRecord.ErrorMessage = error;
+                    paymentRecord.FailureClass = failureClass;
                     paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus; // Restore previous status
+                    subscription.LastRecurringAttemptStatus = "failed";
+                    subscription.LastRecurringAttemptAt = DateTime.UtcNow;
                     await _dbContext.SaveChangesAsync();
                     await HandleFailedChargeAsync(subscriptionId, error);
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { error });
@@ -1132,7 +1268,7 @@ namespace Infrastructure.Content.Services
                 // Don't trust the charge response alone — verify the transaction is genuinely successful
                 var verification = await _flutterwaveService.VerifyTransactionAsync(chargeResult.TransactionId);
                 if (verification == null || !verification.Success ||
-                    verification.Status.ToLower() != "successful")
+                    (verification.Status.ToLower() != "successful" && verification.Status.ToLower() != "succeeded"))
                 {
                     _logger.LogCritical(
                         "SECURITY: Tokenized charge for subscription {SubscriptionId} returned success but server verification FAILED. " +
@@ -1141,10 +1277,14 @@ namespace Infrastructure.Content.Services
 
                     paymentRecord.Status = "verification_failed";
                     paymentRecord.ErrorMessage = "Charge reported success but verification failed";
+                    paymentRecord.FailureClass = "retryable";
                     paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus;
+                    subscription.LastRecurringAttemptStatus = "failed";
+                    subscription.LastRecurringAttemptAt = DateTime.UtcNow;
                     await _dbContext.SaveChangesAsync();
+                    await HandleFailedChargeAsync(subscriptionId, "Charge verification failed");
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment verification failed. Will retry." });
                 }
 
@@ -1158,10 +1298,14 @@ namespace Infrastructure.Content.Services
 
                     paymentRecord.Status = "amount_mismatch";
                     paymentRecord.ErrorMessage = $"Expected {subscription.RecurringAmount}, verified {verification.Amount}";
+                    paymentRecord.FailureClass = "non_retryable";
                     paymentRecord.AuthorizationUrl = null;
                     subscription.PaymentHistory.Add(paymentRecord);
                     subscription.Status = previousStatus;
+                    subscription.LastRecurringAttemptStatus = "failed";
+                    subscription.LastRecurringAttemptAt = DateTime.UtcNow;
                     await _dbContext.SaveChangesAsync();
+                    await HandleFailedChargeAsync(subscriptionId, "Payment amount mismatch detected");
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment amount mismatch detected." });
                 }
 
@@ -1191,7 +1335,10 @@ namespace Infrastructure.Content.Services
                 subscription.BillingCyclesCompleted = cycleNumber;
                 subscription.FailedChargeAttempts = 0;
                 subscription.LastChargeError = null;
+                subscription.LastChargeFailureClass = null;
                 subscription.Status = SubscriptionStatus.Active; // Restore from Charging → Active
+                subscription.LastRecurringAttemptStatus = "successful";
+                subscription.LastRecurringAttemptAt = now;
                 subscription.PaymentHistory.Add(paymentRecord);
                 subscription.UpdatedAt = now;
 
@@ -1264,8 +1411,11 @@ namespace Infrastructure.Content.Services
 
                 paymentRecord.Status = "failed";
                 paymentRecord.ErrorMessage = ex.Message;
+                paymentRecord.FailureClass = "retryable";
                 paymentRecord.AuthorizationUrl = null;
                 subscription.PaymentHistory.Add(paymentRecord);
+                subscription.LastRecurringAttemptStatus = "failed";
+                subscription.LastRecurringAttemptAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync();
                 await HandleFailedChargeAsync(subscriptionId, ex.Message);
                 return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment processing error. Will retry." });
@@ -1279,10 +1429,39 @@ namespace Infrastructure.Content.Services
 
             if (subscription == null) return;
 
+            var failureClass = ClassifyFailure(errorMessage);
             subscription.FailedChargeAttempts++;
             subscription.LastChargeError = errorMessage;
+            subscription.LastChargeFailureClass = failureClass;
             subscription.LastFailedChargeAt = DateTime.UtcNow;
             subscription.UpdatedAt = DateTime.UtcNow;
+
+            if (failureClass == "non_retryable")
+            {
+                subscription.Status = SubscriptionStatus.Suspended;
+                subscription.NextChargeDate = null;
+
+                _logger.LogWarning(
+                    "Subscription {SubscriptionId} SUSPENDED due to non-retryable payment failure. Error: {Error}",
+                    subscriptionId,
+                    errorMessage);
+
+                var nonRetryableLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
+                    ? null
+                    : subscription.OriginalOrderId;
+
+                await _mediator.Send(new SendNotificationCommand(
+                    subscription.ClientId,
+                    "system",
+                    NotificationTypes.SubscriptionSuspended,
+                    "Your subscription has been suspended because the payment method is no longer valid. Please update your payment method to continue service.",
+                    "Subscription Suspended",
+                    subscriptionId,
+                    nonRetryableLinkedOrderId));
+
+                await _dbContext.SaveChangesAsync();
+                return;
+            }
 
             if (subscription.FailedChargeAttempts >= subscription.MaxRetryAttempts)
             {
@@ -1312,15 +1491,17 @@ namespace Infrastructure.Content.Services
             }
             else
             {
-                // Schedule retry (exponential backoff: 1h, 4h, 16h)
+                // Schedule retry (exponential backoff + jitter to avoid synchronized retries)
                 var retryHours = Math.Pow(4, subscription.FailedChargeAttempts - 1);
-                subscription.NextChargeDate = DateTime.UtcNow.AddHours(retryHours);
+                var jitterMultiplier = 1 + ((Random.Shared.NextDouble() * 2 * RETRY_JITTER_PERCENT) - RETRY_JITTER_PERCENT);
+                var retryHoursWithJitter = Math.Max(0.25, retryHours * jitterMultiplier);
+                subscription.NextChargeDate = DateTime.UtcNow.AddHours(retryHoursWithJitter);
                 subscription.Status = SubscriptionStatus.PastDue;
 
                 _logger.LogWarning(
-                    "Subscription {SubscriptionId} charge failed (attempt {Attempt}/{Max}). Retry at {RetryTime}. Error: {Error}",
+                    "Subscription {SubscriptionId} charge failed (attempt {Attempt}/{Max}). Retry at {RetryTime}. BaseHours={BaseHours}, JitteredHours={JitteredHours}. Error: {Error}",
                     subscriptionId, subscription.FailedChargeAttempts, subscription.MaxRetryAttempts,
-                    subscription.NextChargeDate, errorMessage);
+                    subscription.NextChargeDate, retryHours, retryHoursWithJitter, errorMessage);
 
                 // Pass OriginalOrderId (when present) as OrderId so the frontend's
                 // `notification.orderId || relatedEntityId` fallback resolves to a real
@@ -1404,10 +1585,12 @@ namespace Infrastructure.Content.Services
                     Id = p.Id,
                     TransactionReference = p.TransactionReference,
                     FlutterwaveTransactionId = p.FlutterwaveTransactionId,
+                    RecurringAttemptKey = p.RecurringAttemptKey,
                     Amount = p.Amount,
                     Currency = p.Currency,
                     Status = p.Status,
                     ErrorMessage = p.ErrorMessage,
+                    FailureClass = p.FailureClass,
                     AuthorizationUrl = p.AuthorizationUrl,
                     InitiatedBy = p.InitiatedBy,
                     BillingCycleNumber = p.BillingCycleNumber,
@@ -1660,10 +1843,12 @@ namespace Infrastructure.Content.Services
                 Id = p.Id,
                 TransactionReference = p.TransactionReference,
                 FlutterwaveTransactionId = p.FlutterwaveTransactionId,
+                RecurringAttemptKey = p.RecurringAttemptKey,
                 Amount = p.Amount,
                 Currency = p.Currency,
                 Status = p.Status,
                 ErrorMessage = p.ErrorMessage,
+                FailureClass = p.FailureClass,
                 AuthorizationUrl = p.AuthorizationUrl,
                 InitiatedBy = p.InitiatedBy,
                 BillingCycleNumber = p.BillingCycleNumber,
@@ -1671,6 +1856,32 @@ namespace Infrastructure.Content.Services
                 CompletedAt = p.CompletedAt,
                 ClientOrderId = p.ClientOrderId
             };
+        }
+
+        private static string ClassifyFailure(string? errorMessage)
+        {
+            if (string.IsNullOrWhiteSpace(errorMessage))
+            {
+                return "retryable";
+            }
+
+            var normalized = errorMessage.ToLowerInvariant();
+
+            var nonRetryableMarkers = new[]
+            {
+                "wrong token or email",
+                "invalid token",
+                "token or email passed",
+                "no recurring payment credentials",
+                "payment method is no longer valid",
+                "payment amount mismatch",
+                "amount mismatch",
+                "invalid payment method"
+            };
+
+            return nonRetryableMarkers.Any(marker => normalized.Contains(marker))
+                ? "non_retryable"
+                : "retryable";
         }
 
         private string? ExtractPaymentLink(string flutterwaveResponse)

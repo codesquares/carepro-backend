@@ -636,6 +636,7 @@ namespace Infrastructure.Content.Services
             {
                 // Try to extract card token for recurring charges
                 string? paymentToken = null, cardLastFour = null, cardBrand = null, cardExpiry = null;
+                string? flutterwaveCustomerId = null, flutterwavePaymentMethodId = null;
 
                 var verification = await _flutterwaveService.VerifyAndExtractTokenAsync(flutterwaveTransactionId);
                 if (verification != null)
@@ -644,6 +645,15 @@ namespace Infrastructure.Content.Services
                     cardLastFour = verification.CardLastFour;
                     cardBrand = verification.CardBrand;
                     cardExpiry = verification.CardExpiry;
+                    flutterwaveCustomerId = verification.CustomerId;
+                    flutterwavePaymentMethodId = verification.PaymentMethodId;
+
+                    _logger.LogInformation(
+                        "Recurring setup verification for TxId={TransactionId}. HasToken={HasToken}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}",
+                        flutterwaveTransactionId,
+                        !string.IsNullOrWhiteSpace(paymentToken),
+                        flutterwaveCustomerId ?? "<null>",
+                        flutterwavePaymentMethodId ?? "<null>");
                 }
 
                 // Get caregiver ID from the gig
@@ -681,6 +691,8 @@ namespace Infrastructure.Content.Services
                         TotalAmount = fullRecurringTotal
                     },
                     Currency = payment.Currency,
+                    FlutterwaveCustomerId = flutterwaveCustomerId,
+                    FlutterwavePaymentMethodId = flutterwavePaymentMethodId,
                     FlutterwavePaymentToken = paymentToken,
                     CardLastFour = cardLastFour,
                     CardBrand = cardBrand,
