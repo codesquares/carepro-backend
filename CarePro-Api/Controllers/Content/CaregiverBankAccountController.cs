@@ -26,6 +26,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var currentUserId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(currentUserId))
+                    return Unauthorized(new { ErrorMessage = "Unable to identify user from token." });
+
+                if (!IsAdminOrSuperAdmin() && currentUserId != caregiverId)
+                    return Forbid();
+
                 var account = await _bankAccountService.GetBankAccountAsync(caregiverId);
                 if (account == null)
                     return NotFound(new { ErrorMessage = "No bank account found for this caregiver." });
@@ -90,7 +97,7 @@ namespace CarePro_Api.Controllers.Content
         /// Admin-only: Get full financial summary (wallet + bank account) for a caregiver.
         /// </summary>
         [HttpGet("{caregiverId}/financial-summary")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> GetFinancialSummary(string caregiverId)
         {
             try
@@ -107,5 +114,13 @@ namespace CarePro_Api.Controllers.Content
                 return BadRequest(new { ErrorMessage = ex.Message });
             }
         }
+
+        private string? GetCurrentUserId() =>
+            User.FindFirst("userId")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+
+        private bool IsAdminOrSuperAdmin() =>
+            User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
     }
 }

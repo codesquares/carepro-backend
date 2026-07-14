@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Authorization;
 using Application.Interfaces;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
+using Domain.Settings;
+using Microsoft.Extensions.Options;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
@@ -22,13 +24,20 @@ namespace CarePro_Api.Controllers.Content
         private readonly IContentSanitizer _contentSanitizer;
         private readonly IChatComplianceService _chatComplianceService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
+        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
 
-        public ChatController(ChatRepository chatRepository, IContentSanitizer contentSanitizer, IChatComplianceService chatComplianceService, IBookingCommitmentService bookingCommitmentService)
+        public ChatController(
+            ChatRepository chatRepository,
+            IContentSanitizer contentSanitizer,
+            IChatComplianceService chatComplianceService,
+            IBookingCommitmentService bookingCommitmentService,
+            IOptions<CommitmentFeeSettings> commitmentFeeSettings)
         {
             _chatRepository = chatRepository;
             _contentSanitizer = contentSanitizer;
             _chatComplianceService = chatComplianceService;
             _bookingCommitmentService = bookingCommitmentService;
+            _commitmentFeeSettings = commitmentFeeSettings;
         }
 
         /// <summary>
@@ -109,10 +118,13 @@ namespace CarePro_Api.Controllers.Content
                 if (!string.IsNullOrEmpty(senderRole) &&
                     senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
                 {
-                    var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, request.ReceiverId);
-                    if (!hasAccess)
+                    if (_commitmentFeeSettings.Value.Enabled)
                     {
-                        return BadRequest(new { error = "You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page." });
+                        var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, request.ReceiverId);
+                        if (!hasAccess)
+                        {
+                            return BadRequest(new { error = "You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page." });
+                        }
                     }
                 }
                 // ── END BOOKING COMMITMENT GATE ──────────────────────────────────

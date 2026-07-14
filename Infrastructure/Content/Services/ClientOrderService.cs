@@ -4,10 +4,12 @@ using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
+using Domain.Settings;
 using Infrastructure.Content.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using Org.BouncyCastle.Asn1.X509;
 using System;
@@ -34,6 +36,8 @@ namespace Infrastructure.Content.Services
         private readonly IBookingCommitmentService bookingCommitmentService;
         private readonly IEmailService emailService;
         private readonly IClientWalletService clientWalletService;
+        private readonly IAnalyticsService _analyticsService;
+        private readonly IOptions<CaregiverEarningsSettings> _caregiverEarningsSettings;
 
         public ClientOrderService(
             CareProDbContext careProDbContext,
@@ -48,7 +52,9 @@ namespace Infrastructure.Content.Services
             IEarningsLedgerService ledgerService,
             IBookingCommitmentService bookingCommitmentService,
             IEmailService emailService,
-            IClientWalletService clientWalletService)
+            IClientWalletService clientWalletService,
+            IAnalyticsService analyticsService,
+            IOptions<CaregiverEarningsSettings> caregiverEarningsSettings)
         {
             this.careProDbContext = careProDbContext;
             this.gigServices = gigServices;
@@ -63,6 +69,8 @@ namespace Infrastructure.Content.Services
             this.bookingCommitmentService = bookingCommitmentService;
             this.emailService = emailService;
             this.clientWalletService = clientWalletService;
+            _analyticsService = analyticsService;
+            _caregiverEarningsSettings = caregiverEarningsSettings;
         }
 
         public async Task<Result<ClientOrderDTO>> CreateClientOrderAsync(AddClientOrderRequest addClientOrderRequest)
@@ -109,7 +117,8 @@ namespace Infrastructure.Content.Services
                 return Result<ClientOrderDTO>.Failure(errors);
             }
 
-            // Convert DTO to domain object (we've already validated that client and gig are not null)           
+            // Convert DTO to domain object (we've already validated that client and gig are not null)
+            decimal caregiverShareRate = GetConfiguredCaregiverShareRate();
             var clientOrder = new ClientOrder
             {
                 ClientId = client!.Id ?? throw new InvalidOperationException("Client ID cannot be null"),
@@ -117,6 +126,7 @@ namespace Infrastructure.Content.Services
                 PaymentOption = addClientOrderRequest.PaymentOption ?? string.Empty,
                 Amount = addClientOrderRequest.Amount,
                 OrderFee = addClientOrderRequest.OrderFee,
+                CaregiverSharePercentageAtCreation = caregiverShareRate,
                 CommitmentFeeDeducted = addClientOrderRequest.CommitmentFeeDeducted > 0
                     ? addClientOrderRequest.CommitmentFeeDeducted
                     : null,
@@ -137,6 +147,14 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.ClientOrders.AddAsync(clientOrder);
             await careProDbContext.SaveChangesAsync();
+
+            await _analyticsService.TrackEventAsync(new TrackAnalyticsEventRequest
+            {
+                EventType = "order_created",
+                Page = "orders",
+                UserAgent = null,
+                Fbclid = null
+            }, null);
 
             // Link OrderTasks to the created ClientOrder
             try
@@ -183,20 +201,22 @@ namespace Infrastructure.Content.Services
             }
 
             // ── EVENT: Credit caregiver wallet on order creation ──
-            // Caregiver receives OrderFee minus 20% platform commission → PendingBalance.
+            // Caregiver receives OrderFee multiplied by the snapshotted caregiver share rate → PendingBalance.
             // Funds are released per-visit as each TaskSheet is approved by the client.
             try
             {
                 bool isRecurring = clientOrder.PaymentOption == "monthly";
                 int cycleNumber = clientOrder.BillingCycleNumber ?? 1;
                 string serviceType = isRecurring ? "monthly" : "one-time";
+                decimal orderShareRate = GetOrderCaregiverShareRate(clientOrder);
+                decimal platformSharePercent = Math.Round((1m - orderShareRate) * 100m, 2);
 
-                // Platform takes 20% commission from OrderFee
-                decimal caregiverAmount = Math.Round((clientOrder.OrderFee ?? 0m) * 0.80m, 2);
+                // Platform retains (1 - caregiverShareRate) from OrderFee
+                decimal caregiverAmount = Math.Round((clientOrder.OrderFee ?? 0m) * orderShareRate, 2);
 
                 string description = isRecurring
-                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber} (₦{caregiverAmount} after 20% platform fee)"
-                    : $"One-time service payment received for {gig!.Title} (₦{caregiverAmount} after 20% platform fee)";
+                    ? $"Monthly service payment received for {gig!.Title} - cycle {cycleNumber} (₦{caregiverAmount} after {platformSharePercent}% platform fee)"
+                    : $"One-time service payment received for {gig!.Title} (₦{caregiverAmount} after {platformSharePercent}% platform fee)";
 
                 await walletService.CreditOrderReceivedAsync(
                     clientOrder.CaregiverId, caregiverAmount, isRecurring, cycleNumber);
@@ -1162,7 +1182,7 @@ namespace Infrastructure.Content.Services
             bool isOneTime = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
             int maxVisits = isOneTime ? 1 : (order.FrequencyPerWeek ?? 1) * 4;
 
-            const decimal caregiverShareRate = 0.80m;
+            decimal caregiverShareRate = GetOrderCaregiverShareRate(order);
             decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * caregiverShareRate, 2);
 
             // Block full cancellation while there are active visit disputes on this order.
@@ -1457,6 +1477,25 @@ namespace Infrastructure.Content.Services
                 $"Order cancelled successfully. {completedVisitCount} visit(s) were completed. " +
                 (clientRefundAmount > 0 ? $"₦{clientRefundAmount} has been credited to your wallet. " : "") +
                 "Booking commitment fee has been invalidated. You can request a refund from your wallet.");
+        }
+
+        private decimal GetConfiguredCaregiverShareRate()
+        {
+            decimal configured = _caregiverEarningsSettings.Value.CaregiverSharePercentage;
+            decimal normalized = CaregiverEarningsPolicy.NormalizeConfiguredShareRate(configured);
+            if (normalized != configured)
+            {
+                logger.LogWarning(
+                    "Invalid CaregiverSharePercentage config value {Configured}; defaulting to 0.60.",
+                    configured);
+            }
+
+            return normalized;
+        }
+
+        private static decimal GetOrderCaregiverShareRate(ClientOrder order)
+        {
+            return CaregiverEarningsPolicy.ResolveOrderShareRate(order.CaregiverSharePercentageAtCreation);
         }
 
 

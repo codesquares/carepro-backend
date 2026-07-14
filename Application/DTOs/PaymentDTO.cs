@@ -11,12 +11,12 @@ namespace Application.DTOs
         public string GigId { get; set; } = string.Empty;
         
         /// <summary>
-        /// Service type: "one-time", "weekly", or "monthly"
+        /// Service type: "one-time" or "monthly"
         /// </summary>
         public string ServiceType { get; set; } = string.Empty;
         
         /// <summary>
-        /// Frequency per week (1-7). Only relevant for weekly/monthly services.
+        /// Frequency per week (1-7). Relevant for monthly services.
         /// Default is 1.
         /// </summary>
         public int FrequencyPerWeek { get; set; } = 1;
@@ -30,6 +30,11 @@ namespace Application.DTOs
         /// Where to redirect after payment completion
         /// </summary>
         public string RedirectUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional referral code to apply for recurring service purchases.
+        /// </summary>
+        public string? ReferralCode { get; set; }
     }
     
     /// <summary>
@@ -61,6 +66,11 @@ namespace Application.DTOs
         /// Amount deducted from a prior booking commitment fee (₦5,000 or 0)
         /// </summary>
         public decimal CommitmentFeeDeducted { get; set; } = 0m;
+
+        /// <summary>
+        /// Amount deducted via referral discount (₦10,000 or 0).
+        /// </summary>
+        public decimal ReferralDiscountApplied { get; set; } = 0m;
     }
     
     /// <summary>

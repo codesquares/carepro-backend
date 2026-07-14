@@ -44,4 +44,38 @@ namespace Application.DTOs
         public int PageNumber { get; set; } = 1;
         public int PageSize { get; set; } = 50;
     }
+
+    public class GigViewsOverviewResponse
+    {
+        public DateTime From { get; set; }
+        public DateTime To { get; set; }
+        public int TotalViews { get; set; }
+        public int UniqueViewers { get; set; }
+        public int UniqueAuthenticatedUsers { get; set; }
+        public int UniqueSessions { get; set; }
+    }
+
+    public class GigViewsTopItem
+    {
+        public string GigId { get; set; } = string.Empty;
+        public string? GigTitle { get; set; }
+        public int Views { get; set; }
+        public int UniqueViewers { get; set; }
+    }
+
+    public class GigViewsTimeseriesPoint
+    {
+        public DateTime BucketStart { get; set; }
+        public int Views { get; set; }
+        public int UniqueViewers { get; set; }
+    }
+
+    public class GigViewsTimeseriesResponse
+    {
+        public string GigId { get; set; } = string.Empty;
+        public string Bucket { get; set; } = "day";
+        public DateTime From { get; set; }
+        public DateTime To { get; set; }
+        public List<GigViewsTimeseriesPoint> Points { get; set; } = new();
+    }
 }

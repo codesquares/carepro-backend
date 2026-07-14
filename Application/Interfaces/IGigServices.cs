@@ -41,5 +41,7 @@ namespace Application.Interfaces
 
         Task<PaginatedResponse<DeletedGigDTO>> GetAllDeletedGigsPaginatedAsync(int page = 1, int pageSize = 20, string? caregiverId = null);
 
+        Task TrackGigViewAsync(string gigId, string? viewerUserId, string? viewerSessionId, string? source = null);
+
     }
 }

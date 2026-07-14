@@ -738,6 +738,40 @@ namespace Infrastructure.Content.Services
                 BillingCycleNumber = cycleNumber
             });
 
+            if (!orderResult.IsSuccess)
+            {
+                var orderErrors = string.Join(", ", orderResult.Errors);
+                _logger.LogCritical(
+                    "SECURITY: Recurring webhook charge captured but order creation FAILED for subscription {SubscriptionId}. TxRef={TxRef}, FlwTxId={FlwTxId}, Errors={Errors}",
+                    subscription.Id,
+                    txRef,
+                    flutterwaveTransactionId,
+                    orderErrors);
+
+                paymentRecord.Status = "failed";
+                paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
+                paymentRecord.CompletedAt = DateTime.UtcNow;
+                paymentRecord.ClientOrderId = null;
+                paymentRecord.ErrorMessage = $"Charge captured but order creation failed: {orderErrors}";
+                paymentRecord.FailureClass = "non_retryable";
+                paymentRecord.AuthorizationUrl = null;
+
+                subscription.Status = SubscriptionStatus.Suspended;
+                subscription.NextChargeDate = null;
+                subscription.LastChargeError = paymentRecord.ErrorMessage;
+                subscription.LastChargeFailureClass = "non_retryable";
+                subscription.LastFailedChargeAt = DateTime.UtcNow;
+                subscription.LastRecurringAttemptStatus = "failed";
+                subscription.LastRecurringAttemptAt = DateTime.UtcNow;
+                subscription.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string>
+                {
+                    "Payment was captured but order creation failed. Subscription has been suspended for manual resolution."
+                });
+            }
+
             paymentRecord.Status = "successful";
             paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
             paymentRecord.CompletedAt = DateTime.UtcNow;
@@ -841,10 +875,15 @@ namespace Infrastructure.Content.Services
             var failureReason = string.IsNullOrWhiteSpace(errorMessage)
                 ? "Recurring charge failed"
                 : errorMessage;
+            var failureClass = ClassifyFailure(failureReason);
 
             paymentRecord.Status = "failed";
             paymentRecord.ErrorMessage = failureReason;
-            paymentRecord.AuthorizationUrl = null;
+            paymentRecord.FailureClass = failureClass;
+            if (failureClass != "action_required")
+            {
+                paymentRecord.AuthorizationUrl = null;
+            }
             paymentRecord.CompletedAt = DateTime.UtcNow;
 
             subscription.UpdatedAt = DateTime.UtcNow;
@@ -1321,6 +1360,41 @@ namespace Infrastructure.Content.Services
                     BillingCycleNumber = cycleNumber
                 });
 
+                if (!orderResult.IsSuccess)
+                {
+                    var orderErrors = string.Join(", ", orderResult.Errors);
+                    _logger.LogCritical(
+                        "SECURITY: Recurring charge captured but order creation FAILED for subscription {SubscriptionId}. TxRef={TxRef}, FlwTxId={FlwTxId}, Errors={Errors}",
+                        subscriptionId,
+                        txRef,
+                        chargeResult.TransactionId,
+                        orderErrors);
+
+                    paymentRecord.Status = "failed";
+                    paymentRecord.FlutterwaveTransactionId = chargeResult.TransactionId;
+                    paymentRecord.CompletedAt = DateTime.UtcNow;
+                    paymentRecord.ClientOrderId = null;
+                    paymentRecord.ErrorMessage = $"Charge captured but order creation failed: {orderErrors}";
+                    paymentRecord.FailureClass = "non_retryable";
+                    paymentRecord.AuthorizationUrl = null;
+
+                    subscription.Status = SubscriptionStatus.Suspended;
+                    subscription.NextChargeDate = null;
+                    subscription.LastChargeError = paymentRecord.ErrorMessage;
+                    subscription.LastChargeFailureClass = "non_retryable";
+                    subscription.LastFailedChargeAt = DateTime.UtcNow;
+                    subscription.LastRecurringAttemptStatus = "failed";
+                    subscription.LastRecurringAttemptAt = DateTime.UtcNow;
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.UpdatedAt = DateTime.UtcNow;
+                    await _dbContext.SaveChangesAsync();
+
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string>
+                    {
+                        "Payment was captured but order creation failed. Subscription has been suspended for manual resolution."
+                    });
+                }
+
                 paymentRecord.Status = "successful";
                 paymentRecord.FlutterwaveTransactionId = chargeResult.TransactionId;
                 paymentRecord.CompletedAt = DateTime.UtcNow;
@@ -1435,6 +1509,47 @@ namespace Infrastructure.Content.Services
             subscription.LastChargeFailureClass = failureClass;
             subscription.LastFailedChargeAt = DateTime.UtcNow;
             subscription.UpdatedAt = DateTime.UtcNow;
+
+            if (failureClass == "action_required")
+            {
+                // Auth-required failures (for example, cardholder session timeout) won't resolve via blind retries.
+                // Pause auto-retries and prompt the client to actively complete a fresh authorization flow.
+                subscription.Status = SubscriptionStatus.PastDue;
+                subscription.NextChargeDate = null;
+
+                var latestAuthUrl = subscription.PaymentHistory
+                    .Where(p => p.TransactionReference.StartsWith("CAREPRO-RECURRING-") &&
+                                !string.IsNullOrWhiteSpace(p.AuthorizationUrl))
+                    .OrderByDescending(p => p.AttemptedAt)
+                    .Select(p => p.AuthorizationUrl)
+                    .FirstOrDefault();
+
+                var actionRequiredLinkedOrderId = string.IsNullOrWhiteSpace(subscription.OriginalOrderId)
+                    ? null
+                    : subscription.OriginalOrderId;
+
+                var actionMessage = string.IsNullOrWhiteSpace(latestAuthUrl)
+                    ? "Your subscription payment needs your card authorization. Automatic retries are paused. Please open your subscription and tap Renew to generate a fresh authorization prompt."
+                    : $"Your subscription payment needs your card authorization. Automatic retries are paused. Complete authorization here: {latestAuthUrl}";
+
+                _logger.LogWarning(
+                    "Subscription {SubscriptionId} requires cardholder action. Auto-retries paused. Error: {Error}. HasAuthUrl={HasAuthUrl}",
+                    subscriptionId,
+                    errorMessage,
+                    !string.IsNullOrWhiteSpace(latestAuthUrl));
+
+                await _mediator.Send(new SendNotificationCommand(
+                    subscription.ClientId,
+                    "system",
+                    NotificationTypes.PaymentActionRequired,
+                    actionMessage,
+                    "Payment Authorisation Required",
+                    subscriptionId,
+                    actionRequiredLinkedOrderId));
+
+                await _dbContext.SaveChangesAsync();
+                return;
+            }
 
             if (failureClass == "non_retryable")
             {
@@ -1879,6 +1994,20 @@ namespace Infrastructure.Content.Services
                 "invalid payment method"
             };
 
+            var actionRequiredMarkers = new[]
+            {
+                "awaiting cardholder authentication",
+                "cardholder browser session timed out",
+                "authentication required",
+                "3ds",
+                "vbv"
+            };
+
+            if (actionRequiredMarkers.Any(marker => normalized.Contains(marker)))
+            {
+                return "action_required";
+            }
+
             return nonRetryableMarkers.Any(marker => normalized.Contains(marker))
                 ? "non_retryable"
                 : "retryable";
@@ -1896,8 +2025,11 @@ namespace Infrastructure.Content.Services
                 }
                 return null;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex,
+                    "Failed to parse Flutterwave payment initiation response in SubscriptionService. Response: {Response}",
+                    flutterwaveResponse);
                 return null;
             }
         }

@@ -69,6 +69,19 @@ namespace CarePro_Api.Controllers.Content
                 filename);
         }
 
+            /// <summary>
+            /// Export referral redemptions in a date range as Excel.
+            /// </summary>
+            [HttpGet("export/referral-redemptions")]
+            public async Task<IActionResult> ExportReferralRedemptions([FromQuery] ExportQuery query)
+            {
+                var bytes = await _exportService.ExportReferralRedemptionsAsync(query);
+                var filename = $"referral_redemptions_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx";
+                return File(bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                filename);
+            }
+
         // ── Snapshot query (JSON) ──────────────────────────────────────────────
 
         /// <summary>

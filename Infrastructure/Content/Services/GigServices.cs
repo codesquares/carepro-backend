@@ -591,6 +591,56 @@ namespace Infrastructure.Content.Services
             return gigDTO;
         }
 
+        public async Task TrackGigViewAsync(string gigId, string? viewerUserId, string? viewerSessionId, string? source = null)
+        {
+            if (string.IsNullOrWhiteSpace(gigId))
+            {
+                return;
+            }
+
+            // Deduplicate views in a short rolling window to prevent refresh inflation.
+            var dedupeWindowStart = DateTime.UtcNow.AddMinutes(-30);
+            var normalizedUserId = string.IsNullOrWhiteSpace(viewerUserId) ? null : viewerUserId.Trim();
+            var normalizedSessionId = string.IsNullOrWhiteSpace(viewerSessionId) ? null : viewerSessionId.Trim();
+
+            if (normalizedUserId == null && normalizedSessionId == null)
+            {
+                return;
+            }
+
+            bool exists;
+            if (normalizedUserId != null)
+            {
+                exists = await careProDbContext.GigViews.AnyAsync(v =>
+                    v.GigId == gigId &&
+                    v.ViewerUserId == normalizedUserId &&
+                    v.ViewedAt >= dedupeWindowStart);
+            }
+            else
+            {
+                exists = await careProDbContext.GigViews.AnyAsync(v =>
+                    v.GigId == gigId &&
+                    v.ViewerSessionId == normalizedSessionId &&
+                    v.ViewedAt >= dedupeWindowStart);
+            }
+
+            if (exists)
+            {
+                return;
+            }
+
+            careProDbContext.GigViews.Add(new GigView
+            {
+                GigId = gigId,
+                ViewerUserId = normalizedUserId,
+                ViewerSessionId = normalizedSessionId,
+                Source = string.IsNullOrWhiteSpace(source) ? null : source.Trim(),
+                ViewedAt = DateTime.UtcNow,
+            });
+
+            await careProDbContext.SaveChangesAsync();
+        }
+
         public async Task<string> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest)
         {
             logger.LogInformation($"Attempting to update gig status. GigId: {gigId}, Requested Status: {updateGigStatusToPauseRequest?.Status}, CaregiverId: {updateGigStatusToPauseRequest?.CaregiverId}");

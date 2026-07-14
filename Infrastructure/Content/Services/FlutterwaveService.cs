@@ -208,6 +208,11 @@ public class FlutterwaveService
                 {
                     var processorResponse = data.TryGetProperty("processor_response", out var pr)
                         ? pr.GetString() : "Charge not successful";
+                    _logger.LogWarning(
+                        "Flutterwave tokenized charge returned non-successful status for TxRef={TxRef}. ChargeStatus={ChargeStatus}, ResponseBody={ResponseBody}",
+                        txRef,
+                        chargeStatus,
+                        response.Content);
                     return new FlutterwaveChargeResult
                     {
                         Success = false,
@@ -218,6 +223,11 @@ public class FlutterwaveService
             }
 
             var errorMsg = result.TryGetProperty("message", out var msg) ? msg.GetString() : "Unknown error";
+            _logger.LogWarning(
+                "Flutterwave tokenized charge request failed for TxRef={TxRef}. Message={Message}, ResponseBody={ResponseBody}",
+                txRef,
+                errorMsg,
+                response.Content);
             return new FlutterwaveChargeResult { Success = false, ErrorMessage = errorMsg };
         }
         catch (Exception ex)
@@ -281,6 +291,11 @@ public class FlutterwaveService
                 var message = root.TryGetProperty("message", out var msg)
                     ? msg.GetString()
                     : "Recurring charge request failed";
+                _logger.LogWarning(
+                    "Flutterwave recurring charge-by-payment-method request failed for TxRef={TxRef}. Message={Message}, ResponseBody={ResponseBody}",
+                    txRef,
+                    message,
+                    response.Content);
                 return new FlutterwaveChargeResult { Success = false, ErrorMessage = message };
             }
 
@@ -319,6 +334,12 @@ public class FlutterwaveService
             }
 
             var processorResponse = ResolveProcessorResponse(data) ?? "Charge not successful";
+            _logger.LogWarning(
+                "Flutterwave recurring charge-by-payment-method returned non-successful status for TxRef={TxRef}. ChargeStatus={ChargeStatus}, ProcessorResponse={ProcessorResponse}, ResponseBody={ResponseBody}",
+                txRef,
+                chargeStatus,
+                processorResponse,
+                response.Content);
             return new FlutterwaveChargeResult
             {
                 Success = false,
@@ -599,18 +620,8 @@ public class FlutterwaveService
 
     private static string? ResolveTokenizedAuthUrl(System.Text.Json.JsonElement data)
     {
-        // v3 tokenized charge: data.redirect_url is typically the user challenge URL.
-        if (data.TryGetProperty("redirect_url", out var redirectUrl) &&
-            redirectUrl.ValueKind == System.Text.Json.JsonValueKind.String)
-        {
-            var directUrl = redirectUrl.GetString();
-            if (!string.IsNullOrWhiteSpace(directUrl))
-            {
-                return directUrl;
-            }
-        }
-
-        // v3 tokenized charge can also return data.meta.authorization.redirect.
+        // v3 tokenized charge docs show challenge URLs under meta.authorization.redirect.
+        // Prioritize this over redirect_url because redirect_url can be the merchant return URL.
         if (data.TryGetProperty("meta", out var meta) &&
             meta.ValueKind == System.Text.Json.JsonValueKind.Object &&
             meta.TryGetProperty("authorization", out var authorization) &&
@@ -627,11 +638,26 @@ public class FlutterwaveService
             }
         }
 
-        // Legacy/alternate field.
+        // Legacy/alternate field used by some charge responses.
         if (data.TryGetProperty("auth_url", out var authUrl) &&
             authUrl.ValueKind == System.Text.Json.JsonValueKind.String)
         {
-            return authUrl.GetString();
+            var directAuthUrl = authUrl.GetString();
+            if (!string.IsNullOrWhiteSpace(directAuthUrl))
+            {
+                return directAuthUrl;
+            }
+        }
+
+        // Fallback only: this may be the merchant return URL instead of a challenge page.
+        if (data.TryGetProperty("redirect_url", out var redirectUrl) &&
+            redirectUrl.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var directUrl = redirectUrl.GetString();
+            if (!string.IsNullOrWhiteSpace(directUrl))
+            {
+                return directUrl;
+            }
         }
 
         return null;

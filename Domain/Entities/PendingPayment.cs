@@ -32,12 +32,12 @@ namespace Domain.Entities
         public string Email { get; set; } = string.Empty;
         
         /// <summary>
-        /// Service type: "one-time", "weekly", or "monthly"
+        /// Service type: "one-time" or "monthly"
         /// </summary>
         public string ServiceType { get; set; } = string.Empty;
         
         /// <summary>
-        /// Frequency per week (1-7), relevant for weekly/monthly services
+        /// Frequency per week (1-7), relevant for monthly services
         /// </summary>
         public int FrequencyPerWeek { get; set; } = 1;
         
@@ -120,6 +120,21 @@ namespace Domain.Entities
         /// The amount deducted from the order fee as a booking commitment credit (₦5,000 or 0)
         /// </summary>
         public decimal? CommitmentFeeDeducted { get; set; }
+
+        /// <summary>
+        /// Referral code used for this checkout (if any).
+        /// </summary>
+        public string? ReferralCodeId { get; set; }
+
+        /// <summary>
+        /// Referrer tied to the applied referral code.
+        /// </summary>
+        public string? ReferrerId { get; set; }
+
+        /// <summary>
+        /// Flat referral discount applied to order fee (₦10,000 or 0).
+        /// </summary>
+        public decimal? ReferralDiscountAmount { get; set; }
     }
     
     public enum PendingPaymentStatus

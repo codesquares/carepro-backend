@@ -18,11 +18,19 @@ namespace Domain.Entities
 
         /// <summary>
         /// The caregiver's OrderFee (base service cost before platform/gateway fees).
-        /// Used for wallet crediting — caregiver receives OrderFee minus 20% platform commission.
+        /// Used for wallet crediting based on the order's snapshotted caregiver share percentage.
         /// For orders where a commitment fee was charged, this reflects the full gig price
         /// (commitment fee added back) so the caregiver receives their correct earnings.
         /// </summary>
         public decimal? OrderFee { get; set; }
+
+        /// <summary>
+        /// Snapshot of caregiver share percentage at order creation.
+        /// Downstream per-visit releases use this value to avoid mixed-rate payouts
+        /// when global configuration changes after an order has started.
+        /// Null on legacy orders created before this field was introduced.
+        /// </summary>
+        public decimal? CaregiverSharePercentageAtCreation { get; set; }
 
         /// <summary>
         /// The commitment fee (₦5,000) that was deducted from the client's second payment.

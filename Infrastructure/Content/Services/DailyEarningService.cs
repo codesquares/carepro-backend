@@ -2,6 +2,7 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
+using Domain.Settings;
 using Infrastructure.Content.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,7 @@ namespace Infrastructure.Content.Services
     /// - ClientReviewStatus is "Pending" (not yet reviewed by client)
     /// - SubmittedAt is 7+ days ago
     /// 
-    /// For each eligible visit, releases (OrderFee × 0.80 / totalVisits) from
+    /// For each eligible visit, releases (OrderFee × order-specific caregiver share / totalVisits) from
     /// PendingBalance → WithdrawableBalance for the caregiver.
     /// 
     /// Also auto-completes orders when all visits for a billing cycle are either
@@ -125,7 +126,8 @@ namespace Infrastructure.Content.Services
                         ? 1
                         : (order.FrequencyPerWeek ?? 1) * 4;
 
-                    decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+                    decimal caregiverShareRate = GetOrderCaregiverShareRate(order);
+                    decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * caregiverShareRate, 2);
                     decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
 
                     if (perVisitAmount <= 0) continue;
@@ -217,7 +219,7 @@ namespace Infrastructure.Content.Services
                         {
                             var gig = await dbContext.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
                             var gigTitle = gig?.Title ?? "Care Service";
-                            decimal caregiverEarnings = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+                            decimal caregiverEarnings = Math.Round((order.OrderFee ?? 0m) * GetOrderCaregiverShareRate(order), 2);
 
                             await mediator.Send(new SendNotificationCommand(
                                 RecipientId: order.CaregiverId,
@@ -254,6 +256,11 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation(
                 "DailyEarningService: Per-visit auto-release complete. Released: {Released}, Skipped (already released): {Skipped}, Total eligible: {Total}",
                 released, skipped, eligibleVisits.Count);
+        }
+
+        private static decimal GetOrderCaregiverShareRate(ClientOrder order)
+        {
+            return CaregiverEarningsPolicy.ResolveOrderShareRate(order.CaregiverSharePercentageAtCreation);
         }
     }
 }

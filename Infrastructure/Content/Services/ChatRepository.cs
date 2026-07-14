@@ -19,18 +19,48 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext careProDbContext;
         private readonly IMediator mediator;
+        private readonly IAnalyticsService _analyticsService;
 
 
-        public ChatRepository(CareProDbContext careProDbContext, IMediator mediator)
+        public ChatRepository(CareProDbContext careProDbContext, IMediator mediator, IAnalyticsService analyticsService)
         {
             this.careProDbContext = careProDbContext;
             this.mediator = mediator;
+            _analyticsService = analyticsService;
         }
 
         public async Task SaveMessageAsync(ChatMessage chatMessage)
         {
+            // Capture pre-save state so we can emit a single "chat_started" event
+            // when the first client message opens a new client-caregiver conversation.
+            var conversationAlreadyExists = await careProDbContext.ChatMessages.AnyAsync(m =>
+                !m.IsDeleted &&
+                ((m.SenderId == chatMessage.SenderId && m.ReceiverId == chatMessage.ReceiverId)
+                 || (m.SenderId == chatMessage.ReceiverId && m.ReceiverId == chatMessage.SenderId)));
+
             await careProDbContext.ChatMessages.AddAsync(chatMessage);
             await careProDbContext.SaveChangesAsync();
+
+            if (!conversationAlreadyExists)
+            {
+                var senderUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(u =>
+                    u.Id.ToString() == chatMessage.SenderId || u.AppUserId.ToString() == chatMessage.SenderId);
+                var receiverUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(u =>
+                    u.Id.ToString() == chatMessage.ReceiverId || u.AppUserId.ToString() == chatMessage.ReceiverId);
+
+                if (senderUser != null && receiverUser != null
+                    && string.Equals(senderUser.Role, "Client", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(receiverUser.Role, "Caregiver", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _analyticsService.TrackEventAsync(new TrackAnalyticsEventRequest
+                    {
+                        EventType = "chat_started",
+                        Page = "chat",
+                        UserAgent = null,
+                        Fbclid = null
+                    }, null);
+                }
+            }
 
             // Create a notification for the recipient (throttled to 1 per sender/recipient pair every 5 minutes)
             var sender = await careProDbContext.AppUsers.FirstOrDefaultAsync(u =>
