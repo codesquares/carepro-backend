@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Domain", "..\Domain\Domain.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Infrastructure", "..\Infrastructure\Infrastructure.csproj", "{1BA92F66-3316-46FA-A4AD-FD92F6197C4B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommitmentGate.Tests", "..\Tests\CommitmentGate.Tests\CommitmentGate.Tests.csproj", "{C2648455-CA21-40D7-9661-B8C6475021DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{1BA92F66-3316-46FA-A4AD-FD92F6197C4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1BA92F66-3316-46FA-A4AD-FD92F6197C4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1BA92F66-3316-46FA-A4AD-FD92F6197C4B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C2648455-CA21-40D7-9661-B8C6475021DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C2648455-CA21-40D7-9661-B8C6475021DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C2648455-CA21-40D7-9661-B8C6475021DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C2648455-CA21-40D7-9661-B8C6475021DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

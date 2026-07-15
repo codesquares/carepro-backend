@@ -31,6 +31,9 @@ namespace CarePro_Api.Controllers.Content
                 if (withdrawal == null)
                     return NotFound("Withdrawal request not found");
 
+                if (!CanAccessCaregiverScope(withdrawal.CaregiverId))
+                    return Forbid();
+
                 return Ok(withdrawal);
             }
             catch (Exception ex)
@@ -40,6 +43,7 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("token/{token}")]
+        [Authorize(Policy = "FinancePolicy")]
         public async Task<IActionResult> GetWithdrawalRequestByToken(string token)
         {
             try
@@ -76,13 +80,7 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                // Check if the user is requesting their own data or is an admin
-                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? User.FindFirst("sub")?.Value
-                    ?? User.FindFirst("userId")?.Value;
-                string userRole = User.FindFirstValue(ClaimTypes.Role);
-
-                if (userId != caregiverId && userRole != "Admin" && userRole != "SuperAdmin")
+                if (!CanAccessCaregiverScope(caregiverId))
                     return Forbid();
 
                 var withdrawals = await _withdrawalRequestService.GetWithdrawalRequestsByCaregiverIdAsync(caregiverId);
@@ -100,7 +98,8 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-
+                if (!CanAccessCaregiverScope(caregiverId))
+                    return Forbid();
 
                 var withdrawals = await _withdrawalRequestService.GetCaregiverWithdrawalRequestHistoryAsync(caregiverId);
                 return Ok(withdrawals);
@@ -129,15 +128,16 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpPost]
-        // [Authorize(Roles = "Caregiver")]
+        [Authorize(Roles = "Caregiver")]
         public async Task<IActionResult> CreateWithdrawalRequest([FromBody] CreateWithdrawalRequestRequest request)
         {
             try
             {
-                // Verify that the user is creating a withdrawal for themselves
-                //string userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                //if (userId != request.CaregiverId)
-                //    return Forbid();
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { ErrorMessage = "Unable to identify caregiver from token." });
+
+                request.CaregiverId = userId;
 
                 var withdrawal = await _withdrawalRequestService.CreateWithdrawalRequestAsync(request);
                 //return CreatedAtAction(nameof(GetWithdrawalRequestById), new { id = withdrawal.Id }, withdrawal);
@@ -155,11 +155,13 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpGet("TotalAmountEarnedAndWithdrawn/{caregiverId}")]
-        // [Authorize(Roles = "Admin,SuperAdmin")]
         public async Task<IActionResult> GetTotalAmountEarnedAndWithdrawnByCaregiverIdAsync(string caregiverId)
         {
             try
             {
+                if (!CanAccessCaregiverScope(caregiverId))
+                    return Forbid();
+
                 var withdrawals = await _withdrawalRequestService.GetTotalAmountEarnedAndWithdrawnByCaregiverIdAsync(caregiverId);
                 return Ok(withdrawals);
             }
@@ -266,15 +268,13 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("has-pending/{caregiverId}")]
-        // [Authorize(Roles = "Caregiver")]
+        [Authorize(Roles = "Caregiver")]
         public async Task<IActionResult> HasPendingWithdrawalRequest(string caregiverId)
         {
             try
             {
                 // Verify that the user is checking their own status
-                string userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? User.FindFirst("sub")?.Value
-                    ?? User.FindFirst("userId")?.Value;
+                string userId = GetCurrentUserId();
                 if (userId != caregiverId)
                     return Forbid();
 
@@ -285,6 +285,22 @@ namespace CarePro_Api.Controllers.Content
             {
                 return BadRequest(new { ErrorMessage = ex.Message });
             }
+        }
+
+        private string? GetCurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private bool CanAccessCaregiverScope(string caregiverId)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                return false;
+            }
+
+            return userId == caregiverId || User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         }
     }
 }

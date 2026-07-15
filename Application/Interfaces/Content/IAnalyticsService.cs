@@ -6,5 +6,8 @@ namespace Application.Interfaces.Content
     {
         Task TrackEventAsync(TrackAnalyticsEventRequest request, string? ipAddress);
         Task<AnalyticsEventsResponse> GetEventsAsync(AnalyticsEventsQuery query);
+        Task<GigViewsOverviewResponse> GetGigViewsOverviewAsync(DateTime? from, DateTime? to);
+        Task<List<GigViewsTopItem>> GetTopGigViewsAsync(int limit, DateTime? from, DateTime? to);
+        Task<GigViewsTimeseriesResponse> GetGigViewsTimeseriesAsync(string gigId, string bucket, DateTime? from, DateTime? to);
     }
 }

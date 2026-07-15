@@ -2,10 +2,12 @@ using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Domain.Entities;
+using Domain.Settings;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 
 namespace Infrastructure.Content.Services
@@ -19,6 +21,7 @@ namespace Infrastructure.Content.Services
         private readonly ISubscriptionService _subscriptionService;
         private readonly ILogger<PendingPaymentService> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
 
         // Service charge rate (10%)
         private const decimal SERVICE_CHARGE_RATE = 0.10m;
@@ -28,6 +31,7 @@ namespace Infrastructure.Content.Services
         private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
         private readonly IBillingRecordService _billingRecordService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
+        private readonly IReferralService _referralService;
 
         public PendingPaymentService(
             CareProDbContext dbContext,
@@ -37,8 +41,10 @@ namespace Infrastructure.Content.Services
             ISubscriptionService subscriptionService,
             ILogger<PendingPaymentService> logger,
             IConfiguration configuration,
+            IOptions<CommitmentFeeSettings> commitmentFeeSettings,
             IBillingRecordService billingRecordService,
-            IBookingCommitmentService bookingCommitmentService)
+            IBookingCommitmentService bookingCommitmentService,
+            IReferralService referralService)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -47,8 +53,10 @@ namespace Infrastructure.Content.Services
             _subscriptionService = subscriptionService;
             _logger = logger;
             _configuration = configuration;
+            _commitmentFeeSettings = commitmentFeeSettings;
             _billingRecordService = billingRecordService;
             _bookingCommitmentService = bookingCommitmentService;
+            _referralService = referralService;
         }
 
         public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
@@ -153,6 +161,10 @@ namespace Infrastructure.Content.Services
                                        && p.GigId == request.GigId
                                        && p.Status == PendingPaymentStatus.Pending);
 
+            bool commitmentGateEnabled = _commitmentFeeSettings.Value.Enabled;
+            bool isCareRequestSpecialGig =
+                gig.IsSpecialGig == true && !string.IsNullOrEmpty(gig.CareRequestId);
+
             if (existingPendingPayment != null)
             {
                 var age = DateTime.UtcNow - existingPendingPayment.CreatedAt;
@@ -176,48 +188,70 @@ namespace Infrastructure.Content.Services
                 }
                 else if (age.TotalMinutes < 5 && !string.IsNullOrEmpty(existingPendingPayment.PaymentLink))
                 {
-                    // Verify the commitment is still valid before returning a cached link
-                    var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
-                    if (cachedCommitment == null)
-                    {
-                        // Commitment no longer valid — expire this pending payment and force re-initiation
-                        existingPendingPayment.Status = PendingPaymentStatus.Expired;
-                        existingPendingPayment.ErrorMessage = "Expired: booking commitment no longer valid.";
-                        await _dbContext.SaveChangesAsync();
+                    var pendingHasCommitmentDeduction = (existingPendingPayment.CommitmentFeeDeducted ?? 0m) > 0m;
+                    var pendingHasCommitmentLink = !string.IsNullOrEmpty(existingPendingPayment.BookingCommitmentId);
 
-                        _logger.LogWarning(
-                            "Expired cached pending payment — commitment invalid. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
-                            existingPendingPayment.TransactionReference, clientId, request.GigId);
-                        return Result<PendingPaymentResponse>.Failure(new List<string>
+                    var commitmentModeMismatch = !isCareRequestSpecialGig &&
+                        ((commitmentGateEnabled && !pendingHasCommitmentLink) ||
+                         (!commitmentGateEnabled && pendingHasCommitmentDeduction));
+
+                    if (commitmentModeMismatch)
+                    {
+                        existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                        existingPendingPayment.ErrorMessage = "Expired: commitment mode changed.";
+                        _logger.LogInformation(
+                            "Expired cached pending payment — commitment mode changed. TxRef: {TxRef}, GateEnabled: {GateEnabled}",
+                            existingPendingPayment.TransactionReference, commitmentGateEnabled);
+                    }
+                    else if (commitmentGateEnabled && !isCareRequestSpecialGig)
+                    {
+                        // Verify the commitment is still valid before returning a cached link
+                        var cachedCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
+                        if (cachedCommitment == null)
                         {
-                            "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
-                        });
+                            // Commitment no longer valid — expire this pending payment and force re-initiation
+                            existingPendingPayment.Status = PendingPaymentStatus.Expired;
+                            existingPendingPayment.ErrorMessage = "Expired: booking commitment no longer valid.";
+                            await _dbContext.SaveChangesAsync();
+
+                            _logger.LogWarning(
+                                "Expired cached pending payment — commitment invalid. TxRef: {TxRef}, ClientId: {ClientId}, GigId: {GigId}",
+                                existingPendingPayment.TransactionReference, clientId, request.GigId);
+                            return Result<PendingPaymentResponse>.Failure(new List<string>
+                            {
+                                "You must pay the booking commitment fee before purchasing this gig. Please unlock access from the gig page first."
+                            });
+                        }
                     }
 
-                    // Payment link is still fresh — return it instead of creating a new one
-                    _logger.LogInformation(
-                        "Returning existing pending payment link. TxRef: {TxRef}, Age: {AgeMinutes}m",
-                        existingPendingPayment.TransactionReference, (int)age.TotalMinutes);
-
-                    return Result<PendingPaymentResponse>.Success(new PendingPaymentResponse
+                    if (existingPendingPayment.Status == PendingPaymentStatus.Pending)
                     {
-                        Success = true,
-                        Message = "A payment for this gig is already in progress. Use the existing payment link.",
-                        TransactionReference = existingPendingPayment.TransactionReference,
-                        PaymentLink = existingPendingPayment.PaymentLink,
-                        Breakdown = new PaymentBreakdown
+                        // Payment link is still fresh — return it instead of creating a new one
+                        _logger.LogInformation(
+                            "Returning existing pending payment link. TxRef: {TxRef}, Age: {AgeMinutes}m",
+                            existingPendingPayment.TransactionReference, (int)age.TotalMinutes);
+
+                        return Result<PendingPaymentResponse>.Success(new PendingPaymentResponse
                         {
-                            BasePrice = existingPendingPayment.BasePrice,
-                            ServiceType = existingPendingPayment.ServiceType,
-                            FrequencyPerWeek = existingPendingPayment.FrequencyPerWeek,
-                            OrderFee = existingPendingPayment.OrderFee,
-                            ServiceCharge = existingPendingPayment.ServiceCharge,
-                            FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
-                            TotalAmount = existingPendingPayment.TotalAmount,
-                            Currency = existingPendingPayment.Currency,
-                            CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted ?? 0m
-                        }
-                    });
+                            Success = true,
+                            Message = "A payment for this gig is already in progress. Use the existing payment link.",
+                            TransactionReference = existingPendingPayment.TransactionReference,
+                            PaymentLink = existingPendingPayment.PaymentLink,
+                            Breakdown = new PaymentBreakdown
+                            {
+                                BasePrice = existingPendingPayment.BasePrice,
+                                ServiceType = existingPendingPayment.ServiceType,
+                                FrequencyPerWeek = existingPendingPayment.FrequencyPerWeek,
+                                OrderFee = existingPendingPayment.OrderFee,
+                                ServiceCharge = existingPendingPayment.ServiceCharge,
+                                FlutterwaveFees = existingPendingPayment.FlutterwaveFees,
+                                TotalAmount = existingPendingPayment.TotalAmount,
+                                Currency = existingPendingPayment.Currency,
+                                CommitmentFeeDeducted = existingPendingPayment.CommitmentFeeDeducted ?? 0m,
+                                ReferralDiscountApplied = existingPendingPayment.ReferralDiscountAmount ?? 0m
+                            }
+                        });
+                    }
                 }
                 else
                 {
@@ -243,11 +277,11 @@ namespace Infrastructure.Content.Services
             // no commitment fee was ever charged for this path, so no deduction is applied.
             decimal commitmentFeeDeducted = 0m;
             string? bookingCommitmentId = null;
+            decimal referralDiscountAmount = 0m;
+            string? referralCodeId = null;
+            string? referrerId = null;
 
-            bool isCareRequestSpecialGig =
-                gig.IsSpecialGig == true && !string.IsNullOrEmpty(gig.CareRequestId);
-
-            if (!isCareRequestSpecialGig)
+            if (!isCareRequestSpecialGig && commitmentGateEnabled)
             {
                 var applicableCommitment = await _bookingCommitmentService.GetApplicableCommitmentAsync(clientId, request.GigId);
                 if (applicableCommitment == null)
@@ -268,17 +302,62 @@ namespace Infrastructure.Content.Services
                     "Booking commitment {CommitmentId} found. Deducting ₦{Amount} from order fee for GigId: {GigId}",
                     bookingCommitmentId, commitmentFeeDeducted, request.GigId);
             }
-            else
+            else if (isCareRequestSpecialGig)
             {
                 _logger.LogInformation(
                     "CareRequest special gig {GigId} — commitment fee gate bypassed (no commitment applies for CareRequest hire path).",
                     request.GigId);
             }
+            else
+            {
+                _logger.LogInformation(
+                    "Commitment gate OFF — skipping commitment lookup and charging full order fee for GigId: {GigId}",
+                    request.GigId);
+            }
             // ── END BOOKING COMMITMENT FEE GATE + DEDUCTION ─────────────────
+
+            // ── REFERRAL DISCOUNT (RECURRING ONLY) ──────────────────────────
+            if (!string.IsNullOrWhiteSpace(request.ReferralCode))
+            {
+                var referralApplyResult = await _referralService.ValidateReferralForCheckoutAsync(
+                    clientId,
+                    request.ReferralCode,
+                    request.ServiceType?.ToLower() ?? string.Empty,
+                    orderFee);
+
+                if (!referralApplyResult.IsSuccess)
+                {
+                    return Result<PendingPaymentResponse>.Failure(referralApplyResult.Errors);
+                }
+
+                referralDiscountAmount = referralApplyResult.Value!.DiscountAmount;
+                referralCodeId = referralApplyResult.Value.ReferralCodeId;
+                referrerId = referralApplyResult.Value.ReferrerId;
+
+                orderFee = orderFee - referralDiscountAmount;
+            }
+            // ── END REFERRAL DISCOUNT ────────────────────────────────────────
+
+            // Defensive guard: never attempt to charge Flutterwave when payable is not positive.
+            if (orderFee <= 0)
+            {
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "This order cannot be processed because the payable amount after discount is zero or negative."
+                });
+            }
 
             decimal serviceCharge = Math.Round(orderFee * SERVICE_CHARGE_RATE, 2);
             decimal flutterwaveFees = CalculateFlutterwaveFees(orderFee + serviceCharge);
             decimal totalAmount = orderFee + serviceCharge + flutterwaveFees;
+
+            if (totalAmount <= 0)
+            {
+                return Result<PendingPaymentResponse>.Failure(new List<string>
+                {
+                    "This order cannot be processed because the payable amount after discount is zero or negative."
+                });
+            }
 
             // Generate unique transaction reference
             string transactionReference = $"CAREPRO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
@@ -303,7 +382,10 @@ namespace Infrastructure.Content.Services
                 Status = PendingPaymentStatus.Pending,
                 CreatedAt = DateTime.UtcNow,
                 BookingCommitmentId = bookingCommitmentId,
-                CommitmentFeeDeducted = commitmentFeeDeducted
+                CommitmentFeeDeducted = commitmentFeeDeducted,
+                ReferralCodeId = referralCodeId,
+                ReferrerId = referrerId,
+                ReferralDiscountAmount = referralDiscountAmount
             };
 
             // Call Flutterwave to initiate payment
@@ -352,7 +434,8 @@ namespace Infrastructure.Content.Services
                         FlutterwaveFees = flutterwaveFees,
                         TotalAmount = totalAmount,
                         Currency = "NGN",
-                        CommitmentFeeDeducted = commitmentFeeDeducted
+                            CommitmentFeeDeducted = commitmentFeeDeducted,
+                            ReferralDiscountApplied = referralDiscountAmount
                     }
                 });
             }
@@ -557,6 +640,28 @@ namespace Infrastructure.Content.Services
                     transactionReference, pendingPayment.ClientId, pendingPayment.GigId);
             }
 
+            // Finalize referral redemption after a successful order is created.
+            if (!string.IsNullOrEmpty(pendingPayment.ReferralCodeId)
+                && !string.IsNullOrEmpty(pendingPayment.ReferrerId)
+                && (pendingPayment.ReferralDiscountAmount ?? 0m) > 0m
+                && !string.IsNullOrEmpty(orderResult.Value?.Id))
+            {
+                var redemptionResult = await _referralService.CreateRedemptionAsync(
+                    pendingPayment.ReferralCodeId,
+                    pendingPayment.ReferrerId,
+                    pendingPayment.ClientId,
+                    orderResult.Value!.Id!,
+                    pendingPayment.ReferralDiscountAmount ?? 0m);
+
+                if (!redemptionResult.IsSuccess)
+                {
+                    _logger.LogError(
+                        "Failed to create referral redemption for TxRef {TxRef}. Errors: {Errors}",
+                        transactionReference,
+                        string.Join(", ", redemptionResult.Errors));
+                }
+            }
+
             return Result<PendingPayment>.Success(pendingPayment);
         }
 
@@ -617,7 +722,8 @@ namespace Infrastructure.Content.Services
                     FlutterwaveFees = pendingPayment.FlutterwaveFees,
                     TotalAmount = pendingPayment.TotalAmount,
                     Currency = pendingPayment.Currency,
-                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted ?? 0m
+                    CommitmentFeeDeducted = pendingPayment.CommitmentFeeDeducted ?? 0m,
+                    ReferralDiscountApplied = pendingPayment.ReferralDiscountAmount ?? 0m
                 },
                 ErrorMessage = pendingPayment.ErrorMessage
             });
@@ -636,6 +742,7 @@ namespace Infrastructure.Content.Services
             {
                 // Try to extract card token for recurring charges
                 string? paymentToken = null, cardLastFour = null, cardBrand = null, cardExpiry = null;
+                string? flutterwaveCustomerId = null, flutterwavePaymentMethodId = null;
 
                 var verification = await _flutterwaveService.VerifyAndExtractTokenAsync(flutterwaveTransactionId);
                 if (verification != null)
@@ -644,6 +751,15 @@ namespace Infrastructure.Content.Services
                     cardLastFour = verification.CardLastFour;
                     cardBrand = verification.CardBrand;
                     cardExpiry = verification.CardExpiry;
+                    flutterwaveCustomerId = verification.CustomerId;
+                    flutterwavePaymentMethodId = verification.PaymentMethodId;
+
+                    _logger.LogInformation(
+                        "Recurring setup verification for TxId={TransactionId}. HasToken={HasToken}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}",
+                        flutterwaveTransactionId,
+                        !string.IsNullOrWhiteSpace(paymentToken),
+                        flutterwaveCustomerId ?? "<null>",
+                        flutterwavePaymentMethodId ?? "<null>");
                 }
 
                 // Get caregiver ID from the gig
@@ -681,6 +797,8 @@ namespace Infrastructure.Content.Services
                         TotalAmount = fullRecurringTotal
                     },
                     Currency = payment.Currency,
+                    FlutterwaveCustomerId = flutterwaveCustomerId,
+                    FlutterwavePaymentMethodId = flutterwavePaymentMethodId,
                     FlutterwavePaymentToken = paymentToken,
                     CardLastFour = cardLastFour,
                     CardBrand = cardBrand,
@@ -738,8 +856,11 @@ namespace Infrastructure.Content.Services
                 }
                 return null;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex,
+                    "Failed to parse Flutterwave payment initiation response in PendingPaymentService. Response: {Response}",
+                    flutterwaveResponse);
                 return null;
             }
         }

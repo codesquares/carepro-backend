@@ -130,7 +130,7 @@ namespace Infrastructure.Content.Services
 
         /// <summary>
         /// Releases a per-visit share of pending funds when a TaskSheet is approved by the client.
-        /// Amount = (OrderFee × 0.80) / totalVisitsInCycle, already calculated by caller.
+        /// Amount = (OrderFee × order-specific caregiver share) / totalVisitsInCycle, already calculated by caller.
         /// </summary>
         public async Task CreditVisitApprovedAsync(string caregiverId, decimal perVisitAmount)
         {

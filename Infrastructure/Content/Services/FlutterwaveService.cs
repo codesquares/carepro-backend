@@ -189,7 +189,9 @@ public class FlutterwaveService
                 }
                 else if (chargeStatus.ToLower() == "pending")
                 {
-                    var authUrl = data.TryGetProperty("auth_url", out var au) ? au.GetString() : null;
+                    // v3 tokenization pending responses commonly return either
+                    // data.redirect_url or data.meta.authorization.redirect.
+                    var authUrl = ResolveTokenizedAuthUrl(data);
                     _logger.LogInformation(
                         "Tokenized charge requires 3DS for TxRef {TxRef}. AuthUrl present: {HasAuthUrl}",
                         txRef, authUrl != null);
@@ -206,6 +208,11 @@ public class FlutterwaveService
                 {
                     var processorResponse = data.TryGetProperty("processor_response", out var pr)
                         ? pr.GetString() : "Charge not successful";
+                    _logger.LogWarning(
+                        "Flutterwave tokenized charge returned non-successful status for TxRef={TxRef}. ChargeStatus={ChargeStatus}, ResponseBody={ResponseBody}",
+                        txRef,
+                        chargeStatus,
+                        response.Content);
                     return new FlutterwaveChargeResult
                     {
                         Success = false,
@@ -216,11 +223,137 @@ public class FlutterwaveService
             }
 
             var errorMsg = result.TryGetProperty("message", out var msg) ? msg.GetString() : "Unknown error";
+            _logger.LogWarning(
+                "Flutterwave tokenized charge request failed for TxRef={TxRef}. Message={Message}, ResponseBody={ResponseBody}",
+                txRef,
+                errorMsg,
+                response.Content);
             return new FlutterwaveChargeResult { Success = false, ErrorMessage = errorMsg };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error charging token for TxRef {TxRef}", txRef);
+            return new FlutterwaveChargeResult { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Charges a customer using Flutterwave tokenization contract:
+    /// customer_id + payment_method_id + recurring=true.
+    /// </summary>
+    public async Task<FlutterwaveChargeResult?> ChargeRecurringWithPaymentMethod(
+        string customerId,
+        string paymentMethodId,
+        decimal amount,
+        string currency,
+        string txRef,
+        string? redirectUrl = null)
+    {
+        try
+        {
+            var client = new RestClient(_baseUrl);
+            var request = new RestRequest("/v3/charges", Method.Post);
+            request.AddHeader("Authorization", $"Bearer {_secretKey}");
+            request.AddHeader("Content-Type", "application/json");
+
+            var body = new
+            {
+                tx_ref = txRef,
+                amount = amount,
+                currency = currency,
+                customer_id = customerId,
+                payment_method_id = paymentMethodId,
+                recurring = true,
+                redirect_url = redirectUrl ?? $"{_frontendUrl}/subscription/payment-confirmed"
+            };
+
+            request.AddJsonBody(body);
+
+            _logger.LogInformation(
+                "Initiating recurring charge via payment_method_id: TxRef={TxRef}, Amount={Amount} {Currency}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}",
+                txRef,
+                amount,
+                currency,
+                customerId,
+                paymentMethodId);
+
+            var response = await client.ExecuteAsync(request);
+            if (string.IsNullOrEmpty(response.Content))
+            {
+                _logger.LogError("Empty response from Flutterwave recurring charge-by-payment-method for TxRef={TxRef}", txRef);
+                return new FlutterwaveChargeResult { Success = false, ErrorMessage = "Empty response from payment provider" };
+            }
+
+            var root = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response.Content);
+            if (!root.TryGetProperty("status", out var rootStatus) || rootStatus.GetString() != "success" ||
+                !root.TryGetProperty("data", out var data))
+            {
+                var message = root.TryGetProperty("message", out var msg)
+                    ? msg.GetString()
+                    : "Recurring charge request failed";
+                _logger.LogWarning(
+                    "Flutterwave recurring charge-by-payment-method request failed for TxRef={TxRef}. Message={Message}, ResponseBody={ResponseBody}",
+                    txRef,
+                    message,
+                    response.Content);
+                return new FlutterwaveChargeResult { Success = false, ErrorMessage = message };
+            }
+
+            var chargeStatus = ResolveChargeStatus(data);
+            var statusLower = (chargeStatus ?? string.Empty).Trim().ToLowerInvariant();
+            var transactionId = ResolveTransactionId(data);
+            var resolvedAmount = ResolveAmount(data, amount);
+
+            if (statusLower is "successful" or "succeeded")
+            {
+                return new FlutterwaveChargeResult
+                {
+                    Success = true,
+                    Status = chargeStatus,
+                    TransactionId = transactionId,
+                    Amount = resolvedAmount
+                };
+            }
+
+            if (statusLower == "pending")
+            {
+                var authUrl = ResolveAuthUrl(data);
+                _logger.LogInformation(
+                    "Recurring charge pending authorization for TxRef={TxRef}. AuthUrlPresent={HasAuthUrl}",
+                    txRef,
+                    !string.IsNullOrWhiteSpace(authUrl));
+
+                return new FlutterwaveChargeResult
+                {
+                    Success = false,
+                    IsPending = true,
+                    Status = chargeStatus,
+                    AuthUrl = authUrl,
+                    ErrorMessage = "Transaction is pending authentication"
+                };
+            }
+
+            var processorResponse = ResolveProcessorResponse(data) ?? "Charge not successful";
+            _logger.LogWarning(
+                "Flutterwave recurring charge-by-payment-method returned non-successful status for TxRef={TxRef}. ChargeStatus={ChargeStatus}, ProcessorResponse={ProcessorResponse}, ResponseBody={ResponseBody}",
+                txRef,
+                chargeStatus,
+                processorResponse,
+                response.Content);
+            return new FlutterwaveChargeResult
+            {
+                Success = false,
+                Status = chargeStatus,
+                ErrorMessage = processorResponse
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Error initiating recurring charge via payment_method_id for TxRef={TxRef}, CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}",
+                txRef,
+                customerId,
+                paymentMethodId);
             return new FlutterwaveChargeResult { Success = false, ErrorMessage = ex.Message };
         }
     }
@@ -239,8 +372,10 @@ public class FlutterwaveService
         {
             var response = await VerifyPayment(transactionId);
             var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(response);
+            System.Text.Json.JsonElement data = default;
+            var hasData = json.TryGetProperty("data", out data);
 
-            if (json.TryGetProperty("data", out var data) &&
+            if (hasData &&
                 data.TryGetProperty("card", out var card))
             {
                 result.PaymentToken = card.TryGetProperty("token", out var token) ? token.GetString() : null;
@@ -248,6 +383,19 @@ public class FlutterwaveService
                 result.CardBrand = card.TryGetProperty("type", out var type) ? type.GetString() : null;
                 result.CardExpiry = card.TryGetProperty("expiry", out var expiry) ? expiry.GetString() : null;
             }
+
+            if (hasData)
+            {
+                result.CustomerId = ResolveCustomerId(data);
+                result.PaymentMethodId = ResolvePaymentMethodId(data);
+            }
+
+            _logger.LogInformation(
+                "VerifyAndExtractTokenAsync extracted recurring identity for TxId={TransactionId}. CustomerId={CustomerId}, PaymentMethodId={PaymentMethodId}, HasToken={HasToken}",
+                transactionId,
+                result.CustomerId ?? "<null>",
+                result.PaymentMethodId ?? "<null>",
+                !string.IsNullOrWhiteSpace(result.PaymentToken));
         }
         catch (Exception ex)
         {
@@ -332,14 +480,20 @@ public class FlutterwaveService
             if (result.TryGetProperty("status", out var status) && status.GetString() == "success" &&
                 result.TryGetProperty("data", out var data))
             {
+                var resolvedStatus = ResolveChargeStatus(data);
+                var resolvedTxRef = ResolveTxRef(data);
+                var resolvedTransactionId = ResolveTransactionId(data);
+
                 return new FlutterwaveVerificationResult
                 {
                     Success = true,
-                    Status = data.GetProperty("status").GetString() ?? string.Empty,
-                    TxRef = data.GetProperty("tx_ref").GetString() ?? string.Empty,
-                    Amount = data.GetProperty("amount").GetDecimal(),
-                    Currency = data.GetProperty("currency").GetString() ?? string.Empty,
-                    TransactionId = data.GetProperty("id").GetInt64().ToString()
+                    Status = resolvedStatus,
+                    TxRef = resolvedTxRef,
+                    Amount = ResolveAmount(data),
+                    Currency = data.TryGetProperty("currency", out var c) ? c.GetString() ?? string.Empty : string.Empty,
+                    TransactionId = resolvedTransactionId,
+                    CustomerId = ResolveCustomerId(data),
+                    PaymentMethodId = ResolvePaymentMethodId(data)
                 };
             }
             
@@ -383,11 +537,13 @@ public class FlutterwaveService
                 return new FlutterwaveVerificationResult
                 {
                     Success = true,
-                    Status = data.GetProperty("status").GetString() ?? string.Empty,
-                    TxRef = data.GetProperty("tx_ref").GetString() ?? string.Empty,
-                    Amount = data.GetProperty("amount").GetDecimal(),
-                    Currency = data.GetProperty("currency").GetString() ?? string.Empty,
-                    TransactionId = data.GetProperty("id").GetInt64().ToString()
+                    Status = ResolveChargeStatus(data),
+                    TxRef = ResolveTxRef(data),
+                    Amount = ResolveAmount(data),
+                    Currency = data.TryGetProperty("currency", out var c) ? c.GetString() ?? string.Empty : string.Empty,
+                    TransactionId = ResolveTransactionId(data),
+                    CustomerId = ResolveCustomerId(data),
+                    PaymentMethodId = ResolvePaymentMethodId(data)
                 };
             }
 
@@ -402,6 +558,231 @@ public class FlutterwaveService
             return null;
         }
     }
+
+    private static string ResolveChargeStatus(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("status", out var s))
+        {
+            return s.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveTxRef(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("tx_ref", out var txRef))
+        {
+            return txRef.GetString() ?? string.Empty;
+        }
+
+        if (data.TryGetProperty("reference", out var reference))
+        {
+            return reference.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveTransactionId(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("id", out var id))
+        {
+            return id.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => id.GetString() ?? string.Empty,
+                System.Text.Json.JsonValueKind.Number => id.GetInt64().ToString(),
+                _ => id.ToString()
+            };
+        }
+
+        return string.Empty;
+    }
+
+    private static decimal ResolveAmount(System.Text.Json.JsonElement data, decimal fallback = 0m)
+    {
+        if (data.TryGetProperty("amount", out var amount))
+        {
+            if (amount.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                return amount.GetDecimal();
+            }
+
+            if (amount.ValueKind == System.Text.Json.JsonValueKind.String &&
+                decimal.TryParse(amount.GetString(), out var parsedAmount))
+            {
+                return parsedAmount;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static string? ResolveTokenizedAuthUrl(System.Text.Json.JsonElement data)
+    {
+        // v3 tokenized charge docs show challenge URLs under meta.authorization.redirect.
+        // Prioritize this over redirect_url because redirect_url can be the merchant return URL.
+        if (data.TryGetProperty("meta", out var meta) &&
+            meta.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            meta.TryGetProperty("authorization", out var authorization) &&
+            authorization.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            if (authorization.TryGetProperty("redirect", out var redirect) &&
+                redirect.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var authRedirect = redirect.GetString();
+                if (!string.IsNullOrWhiteSpace(authRedirect))
+                {
+                    return authRedirect;
+                }
+            }
+        }
+
+        // Legacy/alternate field used by some charge responses.
+        if (data.TryGetProperty("auth_url", out var authUrl) &&
+            authUrl.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var directAuthUrl = authUrl.GetString();
+            if (!string.IsNullOrWhiteSpace(directAuthUrl))
+            {
+                return directAuthUrl;
+            }
+        }
+
+        // Fallback only: this may be the merchant return URL instead of a challenge page.
+        if (data.TryGetProperty("redirect_url", out var redirectUrl) &&
+            redirectUrl.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var directUrl = redirectUrl.GetString();
+            if (!string.IsNullOrWhiteSpace(directUrl))
+            {
+                return directUrl;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveCustomerId(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("customer", out var customer))
+        {
+            if (customer.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (customer.TryGetProperty("id", out var customerIdObj))
+                {
+                    return customerIdObj.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => customerIdObj.GetString(),
+                        System.Text.Json.JsonValueKind.Number => customerIdObj.GetInt64().ToString(),
+                        _ => customerIdObj.ToString()
+                    };
+                }
+            }
+            else if (customer.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return customer.GetString();
+            }
+        }
+
+        if (data.TryGetProperty("customer_id", out var customerId))
+        {
+            return customerId.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => customerId.GetString(),
+                System.Text.Json.JsonValueKind.Number => customerId.GetInt64().ToString(),
+                _ => customerId.ToString()
+            };
+        }
+
+        return null;
+    }
+
+    private static string? ResolvePaymentMethodId(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("payment_method", out var paymentMethod))
+        {
+            if (paymentMethod.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (paymentMethod.TryGetProperty("id", out var paymentMethodIdObj))
+                {
+                    return paymentMethodIdObj.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => paymentMethodIdObj.GetString(),
+                        System.Text.Json.JsonValueKind.Number => paymentMethodIdObj.GetInt64().ToString(),
+                        _ => paymentMethodIdObj.ToString()
+                    };
+                }
+            }
+            else if (paymentMethod.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return paymentMethod.GetString();
+            }
+        }
+
+        if (data.TryGetProperty("payment_method_id", out var paymentMethodId))
+        {
+            return paymentMethodId.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => paymentMethodId.GetString(),
+                System.Text.Json.JsonValueKind.Number => paymentMethodId.GetInt64().ToString(),
+                _ => paymentMethodId.ToString()
+            };
+        }
+
+        return null;
+    }
+
+    private static string? ResolveProcessorResponse(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("processor_response", out var processorResponse))
+        {
+            if (processorResponse.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return processorResponse.GetString();
+            }
+
+            if (processorResponse.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (processorResponse.TryGetProperty("type", out var t))
+                {
+                    return t.GetString();
+                }
+
+                return processorResponse.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveAuthUrl(System.Text.Json.JsonElement data)
+    {
+        if (data.TryGetProperty("auth_url", out var authUrl))
+        {
+            return authUrl.GetString();
+        }
+
+        if (data.TryGetProperty("next_action", out var nextAction) &&
+            nextAction.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            if (nextAction.TryGetProperty("redirect_url", out var redirectUrl))
+            {
+                if (redirectUrl.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                    redirectUrl.TryGetProperty("url", out var url))
+                {
+                    return url.GetString();
+                }
+
+                if (redirectUrl.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    return redirectUrl.GetString();
+                }
+            }
+        }
+
+        return null;
+    }
 }
 
 public class FlutterwaveVerificationResult
@@ -413,6 +794,10 @@ public class FlutterwaveVerificationResult
     public string Currency { get; set; } = string.Empty;
     public string TransactionId { get; set; } = string.Empty;
     public string? ErrorMessage { get; set; }
+
+    // Tokenization contract identifiers for recurring charges
+    public string? CustomerId { get; set; }
+    public string? PaymentMethodId { get; set; }
 
     // Tokenization fields for recurring payments
     public string? PaymentToken { get; set; }

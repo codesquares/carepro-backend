@@ -50,6 +50,35 @@ builder.Services.AddDbContext<CareProDbContext>(options =>
 /// Configure JWT
 
 builder.Services.Configure<JWT>(builder.Configuration.GetSection("JWT"));
+builder.Services.Configure<CommitmentFeeSettings>(builder.Configuration.GetSection("CommitmentFeeSettings"));
+builder.Services.Configure<CaregiverEarningsSettings>(builder.Configuration.GetSection("CaregiverEarningsSettings"));
+builder.Services.PostConfigure<CommitmentFeeSettings>(opts =>
+{
+    var enabledEnv = Environment.GetEnvironmentVariable("COMMITMENTFEESETTINGS__ENABLED");
+    if (!string.IsNullOrWhiteSpace(enabledEnv) && bool.TryParse(enabledEnv, out var enabled))
+    {
+        opts.Enabled = enabled;
+    }
+});
+
+builder.Services.PostConfigure<CaregiverEarningsSettings>(opts =>
+{
+    var shareEnv = Environment.GetEnvironmentVariable("CAREGIVEREARNINGSSETTINGS__CAREGIVERSHAREPERCENTAGE");
+    if (!string.IsNullOrWhiteSpace(shareEnv) && decimal.TryParse(shareEnv, out var share))
+    {
+        opts.CaregiverSharePercentage = share;
+    }
+});
+
+builder.Services.Configure<ReferralSettings>(builder.Configuration.GetSection("ReferralSettings"));
+builder.Services.PostConfigure<ReferralSettings>(opts =>
+{
+    var payoutEnv = Environment.GetEnvironmentVariable("REFERRALSETTINGS__PAYOUTAMOUNT");
+    if (!string.IsNullOrWhiteSpace(payoutEnv) && decimal.TryParse(payoutEnv, out var payoutAmount))
+    {
+        opts.PayoutAmount = payoutAmount;
+    }
+});
 
 //builder.Services.Configure<JWT>(builder.Configuration.GetSection("JwtSettings"));
 
@@ -131,6 +160,7 @@ builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseServi
 builder.Services.AddScoped<IGigPriceNegotiationService, GigPriceNegotiationService>();
 builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IReferralService, ReferralService>();
 
 // Web Push (PWA push notifications)
 builder.Services.Configure<WebPushSettings>(builder.Configuration.GetSection("WebPush"));
@@ -361,6 +391,12 @@ builder.Services.AddAuthorization(options =>
 
     // Finance: Finance department only (or SuperAdmin)
     options.AddPolicy("FinancePolicy", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("SuperAdmin") ||
+            (ctx.User.IsInRole("Admin") && ctx.User.HasClaim("department", "Finance"))));
+
+    // Referrals: Finance department admins and SuperAdmin
+    options.AddPolicy("ReferralManagementPolicy", policy =>
         policy.RequireAssertion(ctx =>
             ctx.User.IsInRole("SuperAdmin") ||
             (ctx.User.IsInRole("Admin") && ctx.User.HasClaim("department", "Finance"))));

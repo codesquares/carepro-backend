@@ -7,5 +7,6 @@ namespace Application.Interfaces.Content
         Task<byte[]> ExportCaregiversAsync(ExportQuery query);
         Task<byte[]> ExportClientsAsync(ExportQuery query);
         Task<byte[]> ExportCaregiverSnapshotsAsync(CaregiverSnapshotQuery query);
+        Task<byte[]> ExportReferralRedemptionsAsync(ExportQuery query);
     }
 }

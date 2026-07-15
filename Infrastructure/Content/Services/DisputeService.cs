@@ -3,6 +3,7 @@ using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
+using Domain.Settings;
 using Infrastructure.Content.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -448,8 +449,9 @@ namespace Infrastructure.Content.Services
                         ? 1
                         : (order.FrequencyPerWeek ?? 1) * 4;
 
-                    // Per-visit amount = (OrderFee × 0.80) / totalVisits
-                    decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+                    decimal caregiverShareRate = GetOrderCaregiverShareRate(order);
+                    // Per-visit amount = (OrderFee × caregiverShareRate) / totalVisits
+                    decimal caregiverTotal = Math.Round((order.OrderFee ?? 0m) * caregiverShareRate, 2);
                     decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
 
                     // Rounding remainder: adjust the last visit so total credits equal caregiverTotal exactly
@@ -519,7 +521,7 @@ namespace Infrastructure.Content.Services
                         {
                             var gig = await _dbContext.Gigs.FirstOrDefaultAsync(g => g.Id.ToString() == order.GigId);
                             var gigTitle = gig?.Title ?? "Care Service";
-                            decimal caregiverEarnings = Math.Round((order.OrderFee ?? 0m) * 0.80m, 2);
+                            decimal caregiverEarnings = Math.Round((order.OrderFee ?? 0m) * GetOrderCaregiverShareRate(order), 2);
 
                             await _mediator.Send(new SendNotificationCommand(
                                 RecipientId: order.CaregiverId,
@@ -561,7 +563,8 @@ namespace Infrastructure.Content.Services
                     int maxVisits = string.Equals(order.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase)
                         ? 1
                         : (order.FrequencyPerWeek ?? 1) * 4;
-                    decimal perVisitAmount = Math.Round((order.OrderFee ?? 0m) * 0.80m / maxVisits, 2);
+                    decimal caregiverShareRate = GetOrderCaregiverShareRate(order);
+                    decimal perVisitAmount = Math.Round((order.OrderFee ?? 0m) * caregiverShareRate / maxVisits, 2);
 
                     // Notify caregiver: funds released to wallet
                     await _mediator.Send(new SendNotificationCommand(
@@ -594,6 +597,10 @@ namespace Infrastructure.Content.Services
         }
 
         // ── Private helpers ──
+        private static decimal GetOrderCaregiverShareRate(ClientOrder order)
+        {
+            return CaregiverEarningsPolicy.ResolveOrderShareRate(order.CaregiverSharePercentageAtCreation);
+        }
 
         private async Task<Dispute> GetDisputeEntityAsync(string disputeId)
         {

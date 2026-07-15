@@ -80,6 +80,16 @@ namespace Domain.Entities
         public string? FlutterwavePaymentToken { get; set; }
 
         /// <summary>
+        /// Flutterwave customer identifier used for recurring tokenization charges.
+        /// </summary>
+        public string? FlutterwaveCustomerId { get; set; }
+
+        /// <summary>
+        /// Flutterwave payment method identifier used for recurring tokenization charges.
+        /// </summary>
+        public string? FlutterwavePaymentMethodId { get; set; }
+
+        /// <summary>
         /// Masked card info for display (e.g., "**** **** **** 4081")
         /// </summary>
         public string? CardLastFour { get; set; }
@@ -143,9 +153,34 @@ namespace Domain.Entities
         public string? LastChargeError { get; set; }
 
         /// <summary>
+        /// Failure class for the latest renewal failure.
+        /// Values: retryable, non_retryable.
+        /// </summary>
+        public string? LastChargeFailureClass { get; set; }
+
+        /// <summary>
         /// Date of last failed charge attempt
         /// </summary>
         public DateTime? LastFailedChargeAt { get; set; }
+
+        /// <summary>
+        /// Idempotency key for the latest recurring renewal attempt.
+        /// Optional for compatibility with existing records.
+        /// </summary>
+        public string? LastRecurringAttemptKey { get; set; }
+
+        /// <summary>
+        /// State of the latest recurring attempt.
+        /// Values: pending, successful, failed.
+        /// Optional for compatibility with existing records.
+        /// </summary>
+        public string? LastRecurringAttemptStatus { get; set; }
+
+        /// <summary>
+        /// Timestamp when the latest recurring attempt key was updated.
+        /// Optional for compatibility with existing records.
+        /// </summary>
+        public DateTime? LastRecurringAttemptAt { get; set; }
 
         // ── Auto-renewal ──
         /// <summary>
@@ -287,6 +322,15 @@ namespace Domain.Entities
         public string Currency { get; set; } = "NGN";
         public string Status { get; set; } = string.Empty; // "successful", "failed", "pending"
         public string? ErrorMessage { get; set; }
+        /// <summary>
+        /// Idempotency key for this recurring attempt.
+        /// Optional so legacy payment history records remain valid.
+        /// </summary>
+        public string? RecurringAttemptKey { get; set; }
+        /// <summary>
+        /// retryable | non_retryable
+        /// </summary>
+        public string? FailureClass { get; set; }
         /// <summary>
         /// Present when a payment attempt is pending cardholder authentication.
         /// </summary>

@@ -2,10 +2,12 @@
 using Application.Interfaces;
 using Application.Interfaces.Common;
 using Application.Interfaces.Content;
+using Domain.Settings;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
@@ -23,14 +25,22 @@ namespace Infrastructure.Content.Services
         private readonly IContentSanitizer _contentSanitizer;
         private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly IChatComplianceService _chatComplianceService;
+        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
 
-        public ChatHub(ChatRepository chatRepository, ILogger<ChatHub> logger, IContentSanitizer contentSanitizer, IBookingCommitmentService bookingCommitmentService, IChatComplianceService chatComplianceService)
+        public ChatHub(
+            ChatRepository chatRepository,
+            ILogger<ChatHub> logger,
+            IContentSanitizer contentSanitizer,
+            IBookingCommitmentService bookingCommitmentService,
+            IChatComplianceService chatComplianceService,
+            IOptions<CommitmentFeeSettings> commitmentFeeSettings)
         {
             _chatRepository = chatRepository;
             _logger = logger;
             _contentSanitizer = contentSanitizer;
             _bookingCommitmentService = bookingCommitmentService;
             _chatComplianceService = chatComplianceService;
+            _commitmentFeeSettings = commitmentFeeSettings;
         }
 
         /// <summary>
@@ -143,13 +153,16 @@ namespace Infrastructure.Content.Services
             if (!string.IsNullOrEmpty(senderRole) &&
                 senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
             {
-                var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, receiverId);
-                if (!hasAccess)
+                if (_commitmentFeeSettings.Value.Enabled)
                 {
-                    _logger.LogWarning(
-                        "Chat blocked: Client {ClientId} has no booking commitment with caregiver {CaregiverId}",
-                        currentUserId, receiverId);
-                    throw new HubException("You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page.");
+                    var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, receiverId);
+                    if (!hasAccess)
+                    {
+                        _logger.LogWarning(
+                            "Chat blocked: Client {ClientId} has no booking commitment with caregiver {CaregiverId}",
+                            currentUserId, receiverId);
+                        throw new HubException("You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page.");
+                    }
                 }
             }
             // ── END BOOKING COMMITMENT GATE ──────────────────────────────────

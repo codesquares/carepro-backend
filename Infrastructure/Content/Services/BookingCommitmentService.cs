@@ -4,10 +4,12 @@ using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
+using Domain.Settings;
 using Infrastructure.Content.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 
 namespace Infrastructure.Content.Services
@@ -21,6 +23,7 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly IReceiptPdfService _receiptPdfService;
         private readonly ILogger<BookingCommitmentService> _logger;
+        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
 
         /// <summary>
         /// Fixed booking commitment fee in NGN
@@ -40,7 +43,8 @@ namespace Infrastructure.Content.Services
             IMediator mediator,
             IEmailService emailService,
             IReceiptPdfService receiptPdfService,
-            ILogger<BookingCommitmentService> logger)
+            ILogger<BookingCommitmentService> logger,
+            IOptions<CommitmentFeeSettings> commitmentFeeSettings)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -49,6 +53,7 @@ namespace Infrastructure.Content.Services
             _emailService = emailService;
             _receiptPdfService = receiptPdfService;
             _logger = logger;
+            _commitmentFeeSettings = commitmentFeeSettings;
         }
 
         public async Task<Result<BookingCommitmentResponse>> InitiateCommitmentAsync(BookingCommitmentRequest request, string clientId)
@@ -432,6 +437,24 @@ namespace Infrastructure.Content.Services
 
         public async Task<CommitmentStatusResponse> GetCommitmentStatusAsync(string clientId, string gigId)
         {
+            if (!_commitmentFeeSettings.Value.Enabled)
+            {
+                string? caregiverId = null;
+                if (ObjectId.TryParse(gigId, out var gigObjectId))
+                {
+                    var gig = await _dbContext.Gigs.FindAsync(gigObjectId);
+                    caregiverId = gig?.CaregiverId;
+                }
+
+                return new CommitmentStatusResponse
+                {
+                    HasAccess = true,
+                    CommitmentNotRequired = true,
+                    GigId = gigId,
+                    CaregiverId = caregiverId
+                };
+            }
+
             // 1. Check if this is a CareRequest-originated special gig.
             //    These never require a commitment fee — return HasAccess=true + CommitmentNotRequired=true
             //    so the cart page knows to skip the commitment gate entirely.

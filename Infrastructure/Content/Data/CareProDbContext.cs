@@ -133,6 +133,27 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<BookingCommitment>().HasKey(bc => bc.Id);
             modelBuilder.Entity<BookingCommitment>().Property(bc => bc.Id).HasElementName("_id");
 
+            modelBuilder.Entity<Referrer>().ToCollection("Referrers");
+            modelBuilder.Entity<Referrer>().HasKey(r => r.Id);
+            modelBuilder.Entity<Referrer>().Property(r => r.Id).HasElementName("_id");
+            modelBuilder.Entity<Referrer>().HasIndex(r => r.Email).IsUnique();
+
+            modelBuilder.Entity<ReferrerBankAccount>().ToCollection("ReferrerBankAccounts");
+            modelBuilder.Entity<ReferrerBankAccount>().HasKey(r => r.Id);
+            modelBuilder.Entity<ReferrerBankAccount>().Property(r => r.Id).HasElementName("_id");
+            modelBuilder.Entity<ReferrerBankAccount>().HasIndex(r => r.ReferrerId).IsUnique();
+
+            modelBuilder.Entity<ReferralCode>().ToCollection("ReferralCodes");
+            modelBuilder.Entity<ReferralCode>().HasKey(rc => rc.Id);
+            modelBuilder.Entity<ReferralCode>().Property(rc => rc.Id).HasElementName("_id");
+            modelBuilder.Entity<ReferralCode>().HasIndex(rc => rc.Code).IsUnique();
+
+            modelBuilder.Entity<ReferralRedemption>().ToCollection("ReferralRedemptions");
+            modelBuilder.Entity<ReferralRedemption>().HasKey(rr => rr.Id);
+            modelBuilder.Entity<ReferralRedemption>().Property(rr => rr.Id).HasElementName("_id");
+            // One client can only ever redeem once.
+            modelBuilder.Entity<ReferralRedemption>().HasIndex(rr => rr.ClientId).IsUnique();
+
             modelBuilder.Entity<TaskSheet>().ToCollection("TaskSheets");
             modelBuilder.Entity<TaskSheet>().HasKey(ts => ts.Id);
             modelBuilder.Entity<TaskSheet>().Property(ts => ts.Id).HasElementName("_id");
@@ -207,6 +228,13 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PushSubscription>().Property(ps => ps.Id).HasElementName("_id");
             modelBuilder.Entity<PushSubscription>().HasIndex(ps => ps.Endpoint).IsUnique();
 
+            modelBuilder.Entity<GigView>().ToCollection("GigViews");
+            modelBuilder.Entity<GigView>().HasKey(gv => gv.Id);
+            modelBuilder.Entity<GigView>().Property(gv => gv.Id).HasElementName("_id");
+            modelBuilder.Entity<GigView>().HasIndex(gv => gv.GigId);
+            modelBuilder.Entity<GigView>().HasIndex(gv => new { gv.GigId, gv.ViewerUserId, gv.ViewedAt });
+            modelBuilder.Entity<GigView>().HasIndex(gv => new { gv.GigId, gv.ViewerSessionId, gv.ViewedAt });
+
             // ── GDPR Global Query Filters ──
             // Automatically exclude soft-deleted records from all LINQ queries.
             // Note: FindAsync() bypasses these filters by EF Core design.
@@ -263,6 +291,10 @@ namespace Infrastructure.Content.Data
         public DbSet<BillingRecord> BillingRecords { get; set; }
         public DbSet<CaregiverBankAccount> CaregiverBankAccounts { get; set; }
         public DbSet<BookingCommitment> BookingCommitments { get; set; }
+        public DbSet<Referrer> Referrers { get; set; }
+        public DbSet<ReferrerBankAccount> ReferrerBankAccounts { get; set; }
+        public DbSet<ReferralCode> ReferralCodes { get; set; }
+        public DbSet<ReferralRedemption> ReferralRedemptions { get; set; }
         public DbSet<TaskSheet> TaskSheets { get; set; }
         public DbSet<VisitCheckin> VisitCheckins { get; set; }
         public DbSet<ObservationReport> ObservationReports { get; set; }
@@ -286,5 +318,6 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverJourneySnapshot> CaregiverJourneySnapshots { get; set; }
         public DbSet<PushSubscription> PushSubscriptions { get; set; }
         public DbSet<GigPriceNegotiation> GigPriceNegotiations { get; set; }
+        public DbSet<GigView> GigViews { get; set; }
     }
 }

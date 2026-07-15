@@ -95,6 +95,10 @@ namespace Application.DTOs
         public SubscriptionPriceBreakdownDTO PriceBreakdown { get; set; } = new();
         public string Currency { get; set; } = "NGN";
 
+        // Flutterwave recurring identity (tokenization contract)
+        public string? FlutterwaveCustomerId { get; set; }
+        public string? FlutterwavePaymentMethodId { get; set; }
+
         // Flutterwave token from initial payment
         public string? FlutterwavePaymentToken { get; set; }
         public string? CardLastFour { get; set; }
@@ -257,10 +261,12 @@ namespace Application.DTOs
         public string Id { get; set; } = string.Empty;
         public string TransactionReference { get; set; } = string.Empty;
         public string? FlutterwaveTransactionId { get; set; }
+        public string? RecurringAttemptKey { get; set; }
         public decimal Amount { get; set; }
         public string Currency { get; set; } = "NGN";
         public string Status { get; set; } = string.Empty;
         public string? ErrorMessage { get; set; }
+        public string? FailureClass { get; set; }
         public string? AuthorizationUrl { get; set; }
         public string InitiatedBy { get; set; } = "system";
         public int BillingCycleNumber { get; set; }

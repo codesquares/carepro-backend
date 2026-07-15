@@ -158,7 +158,7 @@ namespace Infrastructure.Content.Services
             if (!hasSufficientBalance)
                 throw new InvalidOperationException("Insufficient withdrawable funds, kindly check your Withdrawable Amount and stay within the limit");
 
-            // Platform commission is already deducted at credit time (20% on OrderFee).
+            // Platform commission is already deducted at credit time based on the order's share snapshot.
             // No additional fee at withdrawal.
             decimal serviceCharge = 0m;
             decimal finalAmount = request.AmountRequested;
