@@ -204,6 +204,11 @@ jobs:
   test-analysis:
     name: Test Coverage Analysis
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27018:27017
     
     steps:
     - name: Checkout code
@@ -249,7 +254,7 @@ jobs:
           
           # Run tests if they exist
           echo "Running existing tests..."
-          dotnet test --verbosity normal --collect:"XPlat Code Coverage"
+          dotnet test CarePro-Api/CarePro-Api.sln --verbosity normal --collect:"XPlat Code Coverage"
         fi
 
     - name: Suggest test cases for Smart Contract feature
