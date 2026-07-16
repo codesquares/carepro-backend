@@ -41,7 +41,7 @@ namespace Domain.Entities
         public int? LoginCount { get; set; }
 
         // Internal test access flags used to mint QA claims on JWT tokens.
-        public bool QaAccess { get; set; }
-        public bool OnboardingResetAccess { get; set; }
+        public bool? QaAccess { get; set; }
+        public bool? OnboardingResetAccess { get; set; }
     }
 }

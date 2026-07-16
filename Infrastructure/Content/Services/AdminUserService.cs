@@ -228,8 +228,8 @@ namespace Infrastructure.Content.Services
                 AppUserId = appUser.AppUserId.ToString(),
                 Email = appUser.Email,
                 Role = appUser.Role,
-                QaAccess = appUser.QaAccess,
-                OnboardingResetAccess = appUser.OnboardingResetAccess,
+                QaAccess = appUser.QaAccess ?? false,
+                OnboardingResetAccess = appUser.OnboardingResetAccess ?? false,
                 Message = "Access flags updated. User must login again (or refresh token) to receive new claims."
             };
         }

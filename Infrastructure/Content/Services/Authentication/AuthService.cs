@@ -123,8 +123,8 @@ namespace Infrastructure.Content.Services.Authentication
                 HomeAddress = clientAppUser?.HomeAddress ?? careGiverAppUser?.HomeAddress ?? "Not Provided",
                 Role = appUser?.Role ?? "User",
                 Department = adminAppUser?.Department,
-                QaAccess = appUser.QaAccess,
-                OnboardingResetAccess = appUser.OnboardingResetAccess,
+                QaAccess = appUser.QaAccess ?? false,
+                OnboardingResetAccess = appUser.OnboardingResetAccess ?? false,
                 CreatedAt = appUser?.CreatedAt ?? DateTime.UtcNow,
             };
 
@@ -198,8 +198,8 @@ namespace Infrastructure.Content.Services.Authentication
                 HomeAddress = clientAppUser?.HomeAddress ?? careGiverAppUser?.HomeAddress ?? "Not Provided",
                 Role = appUser.Role,
                 Department = adminAppUser?.Department,
-                QaAccess = appUser.QaAccess,
-                OnboardingResetAccess = appUser.OnboardingResetAccess,
+                QaAccess = appUser.QaAccess ?? false,
+                OnboardingResetAccess = appUser.OnboardingResetAccess ?? false,
                 CreatedAt = appUser.CreatedAt,
             };
 
