@@ -31,6 +31,9 @@ namespace Application.DTOs
 
         public string? Message { get; set; }
 
+        public bool QaAccess { get; set; }
+        public bool OnboardingResetAccess { get; set; }
+
         public bool IsDeleted { get; set; }
 
         public DateTime CreatedAt { get; set; }

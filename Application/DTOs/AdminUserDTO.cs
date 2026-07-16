@@ -125,4 +125,22 @@ namespace Application.DTOs
         public int TotalAdmins { get; set; }
     }
 
+    public class GrantClientOnboardingResetAccessRequest
+    {
+        public string? Email { get; set; }
+        public string? AppUserId { get; set; }
+        public bool QaAccess { get; set; } = true;
+        public bool OnboardingResetAccess { get; set; } = true;
+    }
+
+    public class GrantClientOnboardingResetAccessResponse
+    {
+        public string AppUserId { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public bool QaAccess { get; set; }
+        public bool OnboardingResetAccess { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
 }

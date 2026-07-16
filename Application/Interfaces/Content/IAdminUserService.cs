@@ -17,5 +17,7 @@ namespace Application.Interfaces.Content
 
         Task<DashboardStatsResponse> GetDashboardStatsAsync();
 
+        Task<GrantClientOnboardingResetAccessResponse> GrantClientOnboardingResetAccessAsync(GrantClientOnboardingResetAccessRequest request);
+
     }
 }

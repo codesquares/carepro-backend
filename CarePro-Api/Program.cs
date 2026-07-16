@@ -80,6 +80,8 @@ builder.Services.PostConfigure<ReferralSettings>(opts =>
     }
 });
 
+builder.Services.Configure<ClientOnboardingSettings>(builder.Configuration.GetSection("ClientOnboardingSettings"));
+
 //builder.Services.Configure<JWT>(builder.Configuration.GetSection("JwtSettings"));
 
 
@@ -155,6 +157,7 @@ builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
+builder.Services.AddScoped<IClientOnboardingService, ClientOnboardingService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
 builder.Services.AddScoped<IGigPriceNegotiationService, GigPriceNegotiationService>();
@@ -715,3 +718,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+public partial class Program
+{
+}

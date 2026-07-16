@@ -192,5 +192,46 @@ namespace Infrastructure.Content.Services
                 TotalAdmins = totalAdmins,
             };
         }
+
+        public async Task<GrantClientOnboardingResetAccessResponse> GrantClientOnboardingResetAccessAsync(GrantClientOnboardingResetAccessRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Email) && string.IsNullOrWhiteSpace(request.AppUserId))
+            {
+                throw new InvalidOperationException("Provide either email or appUserId.");
+            }
+
+            var normalizedEmail = request.Email?.Trim().ToLowerInvariant();
+            var normalizedAppUserId = request.AppUserId?.Trim();
+
+            var appUser = await careProDbContext.AppUsers.FirstOrDefaultAsync(x =>
+                (!string.IsNullOrWhiteSpace(normalizedEmail) && x.Email.ToLower() == normalizedEmail)
+                || (!string.IsNullOrWhiteSpace(normalizedAppUserId) && x.AppUserId.ToString() == normalizedAppUserId));
+
+            if (appUser == null)
+            {
+                throw new KeyNotFoundException("Target app user not found.");
+            }
+
+            if (!string.Equals(appUser.Role, "Client", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Only Client accounts can be granted onboarding reset QA access.");
+            }
+
+            appUser.QaAccess = request.QaAccess;
+            appUser.OnboardingResetAccess = request.OnboardingResetAccess;
+
+            careProDbContext.AppUsers.Update(appUser);
+            await careProDbContext.SaveChangesAsync();
+
+            return new GrantClientOnboardingResetAccessResponse
+            {
+                AppUserId = appUser.AppUserId.ToString(),
+                Email = appUser.Email,
+                Role = appUser.Role,
+                QaAccess = appUser.QaAccess,
+                OnboardingResetAccess = appUser.OnboardingResetAccess,
+                Message = "Access flags updated. User must login again (or refresh token) to receive new claims."
+            };
+        }
     }
 }

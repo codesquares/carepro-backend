@@ -228,6 +228,19 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PushSubscription>().Property(ps => ps.Id).HasElementName("_id");
             modelBuilder.Entity<PushSubscription>().HasIndex(ps => ps.Endpoint).IsUnique();
 
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().ToCollection("ClientOnboardingWalkthroughs");
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().HasKey(w => w.Id);
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().Property(w => w.Id).HasElementName("_id");
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().HasIndex(w => new { w.ClientId, w.ContentVersion }).IsUnique();
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().OwnsMany(w => w.StepStates);
+            modelBuilder.Entity<ClientOnboardingWalkthrough>().OwnsMany(w => w.TransitionHistory);
+
+            modelBuilder.Entity<ClientOnboardingTipSeen>().ToCollection("ClientOnboardingTipsSeen");
+            modelBuilder.Entity<ClientOnboardingTipSeen>().HasKey(t => t.Id);
+            modelBuilder.Entity<ClientOnboardingTipSeen>().Property(t => t.Id).HasElementName("_id");
+            modelBuilder.Entity<ClientOnboardingTipSeen>().HasIndex(t => new { t.ClientId, t.TipKey }).IsUnique();
+            modelBuilder.Entity<ClientOnboardingTipSeen>().OwnsMany(t => t.ContextEntries);
+
             modelBuilder.Entity<GigView>().ToCollection("GigViews");
             modelBuilder.Entity<GigView>().HasKey(gv => gv.Id);
             modelBuilder.Entity<GigView>().Property(gv => gv.Id).HasElementName("_id");
@@ -317,6 +330,8 @@ namespace Infrastructure.Content.Data
         public DbSet<AnalyticsEvent> AnalyticsEvents { get; set; }
         public DbSet<CaregiverJourneySnapshot> CaregiverJourneySnapshots { get; set; }
         public DbSet<PushSubscription> PushSubscriptions { get; set; }
+        public DbSet<ClientOnboardingWalkthrough> ClientOnboardingWalkthroughs { get; set; }
+        public DbSet<ClientOnboardingTipSeen> ClientOnboardingTipsSeen { get; set; }
         public DbSet<GigPriceNegotiation> GigPriceNegotiations { get; set; }
         public DbSet<GigView> GigViews { get; set; }
     }

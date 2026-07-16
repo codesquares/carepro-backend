@@ -9,6 +9,7 @@ using System.Security.Authentication;
 using System.Security.Claims;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Hosting;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -25,6 +26,7 @@ namespace CarePro_Api.Controllers.Content
         private readonly ICertificationService certificationService;
         private readonly IDefaultAddressCleanupService defaultAddressCleanupService;
         private readonly ILogger<AdminsController> logger;
+        private readonly IHostEnvironment hostEnvironment;
 
         public AdminsController(
             IAdminUserService adminUserService, 
@@ -34,7 +36,8 @@ namespace CarePro_Api.Controllers.Content
             IEmailService emailService,
             ICertificationService certificationService,
             IDefaultAddressCleanupService defaultAddressCleanupService,
-            ILogger<AdminsController> logger)
+            ILogger<AdminsController> logger,
+            IHostEnvironment hostEnvironment)
         {
             this.adminUserService = adminUserService;
             this.clientOrderService = clientOrderService;
@@ -44,6 +47,60 @@ namespace CarePro_Api.Controllers.Content
             this.certificationService = certificationService;
             this.defaultAddressCleanupService = defaultAddressCleanupService;
             this.logger = logger;
+            this.hostEnvironment = hostEnvironment;
+        }
+
+        [HttpPost("Internal/GrantClientOnboardingResetAccess")]
+        [ApiExplorerSettings(IgnoreApi = true)]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> GrantClientOnboardingResetAccess([FromBody] GrantClientOnboardingResetAccessRequest request)
+        {
+            if (hostEnvironment.IsProduction())
+            {
+                return NotFound();
+            }
+
+            try
+            {
+                var response = await adminUserService.GrantClientOnboardingResetAccessAsync(request);
+                return Ok(response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("Internal/RevokeClientOnboardingResetAccess")]
+        [ApiExplorerSettings(IgnoreApi = true)]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> RevokeClientOnboardingResetAccess([FromBody] GrantClientOnboardingResetAccessRequest request)
+        {
+            if (hostEnvironment.IsProduction())
+            {
+                return NotFound();
+            }
+
+            try
+            {
+                request.QaAccess = false;
+                request.OnboardingResetAccess = false;
+
+                var response = await adminUserService.GrantClientOnboardingResetAccessAsync(request);
+                return Ok(response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         /// ENDPOINT TO CREATE  ADMIN USERS TO THE DATABASE        

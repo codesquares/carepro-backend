@@ -520,6 +520,8 @@ namespace Infrastructure.Content.Services.Authentication
                 PhoneNo = careGiverAppUser?.PhoneNo ?? clientAppUser?.PhoneNo ?? "Not Provided",
                 HomeAddress = clientAppUser?.HomeAddress ?? careGiverAppUser?.HomeAddress ?? "Not Provided",
                 Role = appUser.Role,
+                QaAccess = appUser.QaAccess,
+                OnboardingResetAccess = appUser.OnboardingResetAccess,
                 CreatedAt = appUser.CreatedAt,
             };
 

@@ -39,5 +39,9 @@ namespace Domain.Entities
         // Login tracking
         public DateTime? LastLoginAt { get; set; }
         public int? LoginCount { get; set; }
+
+        // Internal test access flags used to mint QA claims on JWT tokens.
+        public bool QaAccess { get; set; }
+        public bool OnboardingResetAccess { get; set; }
     }
 }
