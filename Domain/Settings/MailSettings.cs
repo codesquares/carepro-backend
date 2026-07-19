@@ -13,5 +13,8 @@ namespace Domain.Settings
         public string SmtpServer { get; set; }
         public int SmtpPort { get; set; }
         public string AppPassword { get; set; }
+
+        // SMTP login/username, when the provider issues one distinct from FromEmail (e.g. Brevo). Falls back to FromEmail if unset.
+        public string? SmtpUsername { get; set; }
     }
 }

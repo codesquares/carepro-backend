@@ -178,6 +178,7 @@ jobs:
       FLUTTERWAVE_ENCRYPTION_KEY: ${{ secrets.FLUTTERWAVE_ENCRYPTION_KEY }}
       FLUTTERWAVE_WEBHOOK_SECRET_HASH: ${{ secrets.FLUTTERWAVE_WEBHOOK_SECRET_HASH }}
       MAIL_APP_PASSWORD: ${{ secrets.MAIL_APP_PASSWORD }}
+      MAIL_SMTP_USERNAME: ${{ secrets.MAIL_SMTP_USERNAME }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -194,7 +195,7 @@ jobs:
         host: ${{ secrets.EC2_STAGING_HOST }}
         username: ${{ secrets.EC2_STAGING_USER }}
         key: ${{ secrets.EC2_STAGING_SSH_KEY }}
-        envs: MONGODB_CONN,JWT_KEY,JWTSETTINGS_SECRET,CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET,FLUTTERWAVE_PUBLIC_KEY,FLUTTERWAVE_SECRET_KEY,FLUTTERWAVE_ENCRYPTION_KEY,FLUTTERWAVE_WEBHOOK_SECRET_HASH,MAIL_APP_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,OPENAI_API_KEY,GOOGLE_MAPS_API_KEY,DOJAH_API_KEY,GHCR_TOKEN,GHCR_ACTOR,IMAGE_FULL
+        envs: MONGODB_CONN,JWT_KEY,JWTSETTINGS_SECRET,CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET,FLUTTERWAVE_PUBLIC_KEY,FLUTTERWAVE_SECRET_KEY,FLUTTERWAVE_ENCRYPTION_KEY,FLUTTERWAVE_WEBHOOK_SECRET_HASH,MAIL_APP_PASSWORD,MAIL_SMTP_USERNAME,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,OPENAI_API_KEY,GOOGLE_MAPS_API_KEY,DOJAH_API_KEY,GHCR_TOKEN,GHCR_ACTOR,IMAGE_FULL
         script: |
           set -e
           mkdir -p ~/carepro
@@ -219,11 +220,12 @@ jobs:
           Flutterwave__SecretKey=$FLUTTERWAVE_SECRET_KEY
           Flutterwave__EncryptionKey=$FLUTTERWAVE_ENCRYPTION_KEY
           Flutterwave__WebhookSecretHash=$FLUTTERWAVE_WEBHOOK_SECRET_HASH
-          MailSettings__FromEmail=codesquareltd@gmail.com
+          MailSettings__FromEmail=notifications@oncarepro.com
           MailSettings__FromName=CarePro Staging
-          MailSettings__SmtpServer=smtp.gmail.com
+          MailSettings__SmtpServer=smtp-relay.brevo.com
           MailSettings__SmtpPort=587
           MailSettings__Port=587
+          MailSettings__SmtpUsername=$MAIL_SMTP_USERNAME
           MailSettings__AppPassword=$MAIL_APP_PASSWORD
           MailSettings__EnableSsl=true
           Google__ClientId=$GOOGLE_CLIENT_ID

@@ -847,6 +847,7 @@ Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/prom
         {
             var to = message.To.ToString();
             var subject = message.Subject;
+            var smtpUsername = string.IsNullOrEmpty(emailSettings.SmtpUsername) ? emailSettings.FromEmail : emailSettings.SmtpUsername;
             _logger.LogInformation("SMTP: Preparing to send email to {To}, Subject: {Subject}", to, subject);
             _logger.LogInformation("SMTP: Server={Server}, Port={Port}, From={From}", emailSettings.SmtpServer, emailSettings.SmtpPort, emailSettings.FromEmail);
 
@@ -855,9 +856,9 @@ Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/prom
                 using var client = new SmtpClient();
                 _logger.LogInformation("SMTP: Connecting to {Server}:{Port} with StartTls...", emailSettings.SmtpServer, emailSettings.SmtpPort);
                 await client.ConnectAsync(emailSettings.SmtpServer, emailSettings.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-                _logger.LogInformation("SMTP: Connected successfully. Authenticating as {User}...", emailSettings.FromEmail);
+                _logger.LogInformation("SMTP: Connected successfully. Authenticating as {User}...", smtpUsername);
 
-                await client.AuthenticateAsync(emailSettings.FromEmail, emailSettings.AppPassword);
+                await client.AuthenticateAsync(smtpUsername, emailSettings.AppPassword);
                 _logger.LogInformation("SMTP: Authenticated successfully. Sending email to {To}...", to);
 
                 await client.SendAsync(message);

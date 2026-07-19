@@ -324,6 +324,7 @@ jobs:
           "ConnectionStrings__MongoDbConnection"
           "MailSettings__FromEmail"
           "MailSettings__SmtpServer"
+          "MailSettings__SmtpUsername"
           "MailSettings__AppPassword"
           "GoogleMaps__ApiKey"
           "LLMSettings__OpenAI__ApiKey"

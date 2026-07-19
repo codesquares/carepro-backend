@@ -90,10 +90,11 @@ MONGODB_CONNECTION              # Production MongoDB connection string
 # Authentication
 JWT_KEY                         # JWT signing key (min 32 characters)
 
-# Email Service
-MAIL_FROM_EMAIL                 # From email address
-MAIL_SMTP_SERVER               # SMTP server (smtp.gmail.com)
-MAIL_APP_PASSWORD              # App password for email
+# Email Service (Brevo SMTP relay)
+MAIL_FROM_EMAIL                 # From email address (notifications@oncarepro.com)
+MAIL_SMTP_SERVER               # SMTP server (smtp-relay.brevo.com)
+MAIL_SMTP_USERNAME             # Brevo SMTP login (from Brevo's SMTP & API settings page)
+MAIL_APP_PASSWORD              # Brevo SMTP key
 
 # Third-party APIs
 GOOGLE_MAPS_API_KEY            # Google Maps Geocoding API key
