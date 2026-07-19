@@ -158,7 +158,8 @@ namespace Infrastructure.Content.Services
                             caregiver.Email,
                             caregiver.FirstName,
                             subject,
-                            html);
+                            html,
+                            preferenceGated: true);
 
                         log.IsSent = true;
                         log.SentAt = DateTime.UtcNow;

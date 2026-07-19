@@ -1,10 +1,14 @@
 ﻿using Application.DTOs;
+using Application.Interfaces.Authentication;
 using Application.Interfaces.Content;
+using Domain.Entities;
+using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -15,12 +19,21 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IClientPreferenceService clientPreferenceService;
         private readonly IClientService clientService;
+        private readonly ITokenHandler tokenHandler;
+        private readonly CareProDbContext dbContext;
         private readonly ILogger<ClientPreferencesController> logger;
 
-        public ClientPreferencesController(IClientPreferenceService clientPreferenceService, IClientService clientService, ILogger<ClientPreferencesController> logger)
+        public ClientPreferencesController(
+            IClientPreferenceService clientPreferenceService,
+            IClientService clientService,
+            ITokenHandler tokenHandler,
+            CareProDbContext dbContext,
+            ILogger<ClientPreferencesController> logger)
         {
             this.clientPreferenceService = clientPreferenceService;
             this.clientService = clientService;
+            this.tokenHandler = tokenHandler;
+            this.dbContext = dbContext;
             this.logger = logger;
         }
 
@@ -63,6 +76,69 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
 
+        }
+
+        // GET: api/ClientPreferences/unsubscribe?token=...
+        [AllowAnonymous]
+        [HttpGet("unsubscribe")]
+        public async Task<IActionResult> Unsubscribe([FromQuery] string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return BadRequest("Missing unsubscribe token.");
+            }
+
+            var parsed = tokenHandler.ValidateEmailUnsubscribeToken(token);
+            if (!parsed.IsValid || string.IsNullOrWhiteSpace(parsed.UserId))
+            {
+                return BadRequest("Invalid or expired unsubscribe token.");
+            }
+
+            var preference = await dbContext.ClientPreferences
+                .FirstOrDefaultAsync(x => x.ClientId == parsed.UserId);
+
+            if (preference == null)
+            {
+                preference = new ClientPreference
+                {
+                    Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+                    ClientId = parsed.UserId,
+                    Data = new List<string>(),
+                    NotificationPreferences = new NotificationPreferences(),
+                    CreatedAt = DateTime.UtcNow
+                };
+                await dbContext.ClientPreferences.AddAsync(preference);
+            }
+            else if (preference.NotificationPreferences == null)
+            {
+                preference.NotificationPreferences = new NotificationPreferences();
+            }
+
+            preference.NotificationPreferences.MarketingEmails = false;
+            preference.NotificationPreferences.Promotions = false;
+            preference.UpdatedOn = DateTime.UtcNow;
+
+            dbContext.ClientPreferences.Update(preference);
+            await dbContext.SaveChangesAsync();
+
+            logger.LogInformation("Email unsubscribe applied for user {UserId} scope {Scope}", parsed.UserId, parsed.PreferenceScope);
+
+            var html = @"<html><body style='font-family:Arial,sans-serif;max-width:640px;margin:32px auto;'>
+<h2>You are unsubscribed</h2>
+<p>Your lifecycle and promotional email preferences have been updated.</p>
+<p>You will still receive required transactional emails for account, payment, and order operations.</p>
+</body></html>";
+
+            return Content(html, "text/html");
+        }
+
+        // POST: api/ClientPreferences/unsubscribe?token=...
+        // Supports mailbox-provider one-click unsubscribe POST flows.
+        [AllowAnonymous]
+        [HttpPost("unsubscribe")]
+        public Task<IActionResult> UnsubscribePost([FromQuery] string token)
+        {
+            return Unsubscribe(token);
         }
 
         [HttpGet]

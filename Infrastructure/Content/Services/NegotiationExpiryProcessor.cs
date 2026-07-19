@@ -189,7 +189,7 @@ namespace Infrastructure.Content.Services
                     <p>Your ₦5,000 commitment fee (if applicable) is still valid and will be deducted when you pay.</p>
                     <p>— The CarePro Team</p>";
 
-                await emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, html);
+                await emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, html, preferenceGated: true);
             }
             catch (Exception ex)
             {
@@ -220,7 +220,7 @@ namespace Infrastructure.Content.Services
                     <p>The client may choose to initiate a new negotiation or pay the original price.</p>
                     <p>— The CarePro Team</p>";
 
-                await emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, html);
+                await emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, html, preferenceGated: true);
             }
             catch (Exception ex)
             {

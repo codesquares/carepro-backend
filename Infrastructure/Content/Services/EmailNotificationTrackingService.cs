@@ -50,6 +50,49 @@ namespace Infrastructure.Content.Services
             NotificationTypes.ChatMessage
         };
 
+        // Lifecycle/engagement notifications that must honor email marketing preferences.
+        // Transactional/compliance notifications are intentionally excluded.
+        private readonly HashSet<string> _preferenceGatedTypes = new()
+        {
+            NotificationTypes.NewGig,
+            NotificationTypes.ChatMessage,
+            NotificationTypes.ContractReceived,
+            NotificationTypes.ContractPending,
+            NotificationTypes.ContractPendingApproval,
+            NotificationTypes.ContractPendingClientApproval,
+            NotificationTypes.ContractReviewRequested,
+            NotificationTypes.ContractResponse,
+            NotificationTypes.ContractReminder,
+            NotificationTypes.ContractClientReminder,
+            NotificationTypes.GigPublished,
+            NotificationTypes.DraftGenerated,
+            NotificationTypes.GigPaused,
+            NotificationTypes.GigDeleted,
+            NotificationTypes.CareRequestMatched,
+            NotificationTypes.CareRequestNewMatch,
+            NotificationTypes.CareRequestNewResponder,
+            NotificationTypes.CareRequestShortlisted,
+            NotificationTypes.CareRequestHired,
+            NotificationTypes.CareRequestReopened,
+            NotificationTypes.PriceNegotiationExpired
+        };
+
+        // Caregiver preference mapping for category-specific toggles.
+        private readonly HashSet<string> _caregiverNewGigTypes = new()
+        {
+            NotificationTypes.NewGig
+        };
+
+        private readonly HashSet<string> _caregiverCareRequestTypes = new()
+        {
+            NotificationTypes.CareRequestMatched,
+            NotificationTypes.CareRequestNewMatch,
+            NotificationTypes.CareRequestNewResponder,
+            NotificationTypes.CareRequestShortlisted,
+            NotificationTypes.CareRequestHired,
+            NotificationTypes.CareRequestReopened
+        };
+
         // Contract-related notification types for reminders
         private readonly HashSet<string> _contractTypes = new()
         {
@@ -344,8 +387,67 @@ namespace Infrastructure.Content.Services
                     return false;
                 }
 
-                // Default behavior: send emails to all users with valid email addresses
-                return true;
+                // Transactional/compliance notifications are always allowed.
+                if (!_preferenceGatedTypes.Contains(notificationType))
+                {
+                    return true;
+                }
+
+                if (string.Equals(user.Role, "Caregiver", StringComparison.OrdinalIgnoreCase))
+                {
+                    // For caregiver lifecycle/engagement mail, use caregiver preference store.
+                    // If no preference record exists yet, preserve legacy behavior (allow send).
+                    var caregiverPreference = await _dbContext.CaregiverPreferences
+                        .FirstOrDefaultAsync(cp => cp.CaregiverId == userId);
+
+                    if (caregiverPreference?.NotificationPreferences == null)
+                    {
+                        return true;
+                    }
+
+                    var caregiverPrefs = caregiverPreference.NotificationPreferences;
+                    if (!caregiverPrefs.EmailNotifications)
+                    {
+                        return false;
+                    }
+
+                    var hasGeneralConsent = caregiverPrefs.MarketingEmails || caregiverPrefs.Promotions;
+                    if (!hasGeneralConsent)
+                    {
+                        return false;
+                    }
+
+                    if (_caregiverNewGigTypes.Contains(notificationType))
+                    {
+                        return caregiverPrefs.NewGig;
+                    }
+
+                    if (_caregiverCareRequestTypes.Contains(notificationType))
+                    {
+                        return caregiverPrefs.CareRequestUpdates;
+                    }
+
+                    return true;
+                }
+
+                // For client lifecycle/engagement mail, honor client NotificationPreferences.
+                // If no preference record exists yet, preserve legacy behavior (allow send).
+                var clientPreference = await _dbContext.ClientPreferences
+                    .FirstOrDefaultAsync(cp => cp.ClientId == userId);
+
+                if (clientPreference?.NotificationPreferences == null)
+                {
+                    return true;
+                }
+
+                var preferences = clientPreference.NotificationPreferences;
+                if (!preferences.EmailNotifications)
+                {
+                    return false;
+                }
+
+                // Either flag indicates consent for lifecycle/engagement mail.
+                return preferences.MarketingEmails || preferences.Promotions;
             }
             catch (Exception ex)
             {

@@ -61,6 +61,9 @@ namespace Application.DTOs
         [StringLength(500, ErrorMessage = "Home address cannot exceed 500 characters")]
         public string? HomeAddress { get; set; }
 
+        // Explicit opt-in checkbox from signup UI. Defaults to false when omitted.
+        public bool MarketingConsent { get; set; } = false;
+
     }
 
     public class ClientResponse

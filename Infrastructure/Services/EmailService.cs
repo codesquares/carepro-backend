@@ -3,6 +3,7 @@ using Domain.Entities;
 using Domain.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,6 +23,7 @@ namespace Infrastructure.Services
 {
     public class EmailService : IEmailService
     {
+        private const string LifecyclePreferenceScope = "lifecycle_engagement";
         private readonly MailSettings emailSettings;
         private readonly CareProDbContext careProDbContext;
         private readonly ITokenHandler tokenHandler;
@@ -208,6 +210,7 @@ namespace Infrastructure.Services
             };
 
             message.Body = builder.ToMessageBody();
+            await ApplyUnsubscribeMetadataAsync(message, toEmail, LifecyclePreferenceScope);
             await SendEmailAsync(message);
         }
 
@@ -230,6 +233,7 @@ namespace Infrastructure.Services
             };
 
             message.Body = builder.ToMessageBody();
+            await ApplyUnsubscribeMetadataAsync(message, toEmail, LifecyclePreferenceScope);
             await SendEmailAsync(message);
         }
 
@@ -255,7 +259,7 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
-        public async Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content)
+        public async Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content, bool preferenceGated = false)
         {
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
@@ -273,6 +277,10 @@ namespace Infrastructure.Services
             };
 
             message.Body = builder.ToMessageBody();
+            if (preferenceGated)
+            {
+                await ApplyUnsubscribeMetadataAsync(message, toEmail, LifecyclePreferenceScope);
+            }
             await SendEmailAsync(message);
         }
 
@@ -562,6 +570,7 @@ namespace Infrastructure.Services
             };
 
             emailMessage.Body = builder.ToMessageBody();
+            await ApplyUnsubscribeMetadataAsync(emailMessage, toEmail, LifecyclePreferenceScope);
             await SendEmailAsync(emailMessage);
         }
 
@@ -653,6 +662,64 @@ namespace Infrastructure.Services
 
             message.Body = builder.ToMessageBody();
             await SendEmailAsync(message);
+        }
+
+        private async Task ApplyUnsubscribeMetadataAsync(MimeMessage message, string toEmail, string preferenceScope)
+        {
+            try
+            {
+                var appUser = await careProDbContext.AppUsers
+                    .FirstOrDefaultAsync(x => x.Email == toEmail);
+
+                if (appUser == null)
+                {
+                    _logger.LogWarning("Unsubscribe metadata skipped: no AppUser found for {Email}", toEmail);
+                    return;
+                }
+
+                var token = tokenHandler.GenerateEmailUnsubscribeToken(appUser.AppUserId.ToString(), toEmail, preferenceScope);
+                var encodedToken = Uri.EscapeDataString(token);
+                var baseUrl = (Environment.GetEnvironmentVariable("PUBLIC_API_BASE_URL") ?? "https://oncarepro.com").TrimEnd('/');
+                var unsubscribeUrl = $"{baseUrl}/api/ClientPreferences/unsubscribe?token={encodedToken}";
+
+                message.Headers.Replace("List-Unsubscribe", $"<{unsubscribeUrl}>");
+                message.Headers.Replace("List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
+
+                var htmlPart = FindHtmlTextPart(message.Body);
+                if (htmlPart != null)
+                {
+                    htmlPart.Text += $@"<hr style='margin-top:24px;border:none;border-top:1px solid #ddd;' />
+<p style='font-size:12px;color:#666;'>
+Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/promotional emails</a>.
+</p>";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to apply unsubscribe metadata for {Email}", toEmail);
+            }
+        }
+
+        private static TextPart? FindHtmlTextPart(MimeEntity entity)
+        {
+            if (entity is TextPart textPart && textPart.IsHtml)
+            {
+                return textPart;
+            }
+
+            if (entity is Multipart multipart)
+            {
+                foreach (var part in multipart)
+                {
+                    var match = FindHtmlTextPart(part);
+                    if (match != null)
+                    {
+                        return match;
+                    }
+                }
+            }
+
+            return null;
         }
 
         public async Task SendOrderConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string gigTitle, string orderId)

@@ -157,6 +157,7 @@ builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
+builder.Services.AddScoped<ICaregiverPreferenceService, CaregiverPreferenceService>();
 builder.Services.AddScoped<IClientOnboardingService, ClientOnboardingService>();
 builder.Services.AddScoped<ICareRequestService, CareRequestService>();
 builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();

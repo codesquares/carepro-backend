@@ -319,6 +319,26 @@ namespace Infrastructure.Content.Services.Authentication
             };
 
             await _context.AppUsers.AddAsync(appUser);
+
+            var clientPreference = new ClientPreference
+            {
+                Id = ObjectId.GenerateNewId(),
+                ClientId = clientId.ToString(),
+                Data = new List<string>(),
+                NotificationPreferences = new NotificationPreferences
+                {
+                    EmailNotifications = true,
+                    SmsNotifications = true,
+                    MarketingEmails = request.MarketingConsent,
+                    OrderUpdates = true,
+                    ServiceUpdates = true,
+                    Promotions = request.MarketingConsent
+                },
+                CreatedAt = DateTime.UtcNow,
+                UpdatedOn = DateTime.UtcNow
+            };
+
+            await _context.ClientPreferences.AddAsync(clientPreference);
             await _context.SaveChangesAsync();
 
             return appUser;
@@ -367,6 +387,26 @@ namespace Infrastructure.Content.Services.Authentication
             };
 
             await _context.AppUsers.AddAsync(appUser);
+
+            var caregiverPreference = new CaregiverPreference
+            {
+                Id = ObjectId.GenerateNewId(),
+                CaregiverId = caregiverId.ToString(),
+                Data = new List<string>(),
+                NotificationPreferences = new CaregiverNotificationPreferences
+                {
+                    EmailNotifications = true,
+                    SmsNotifications = true,
+                    MarketingEmails = request.MarketingConsent,
+                    Promotions = request.MarketingConsent,
+                    NewGig = request.MarketingConsent,
+                    CareRequestUpdates = request.MarketingConsent
+                },
+                CreatedAt = DateTime.UtcNow,
+                UpdatedOn = DateTime.UtcNow
+            };
+
+            await _context.CaregiverPreferences.AddAsync(caregiverPreference);
             await _context.SaveChangesAsync();
 
             return appUser;

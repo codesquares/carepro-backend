@@ -154,6 +154,85 @@ namespace Infrastructure.Content.Services.Authentication
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        public string GenerateEmailUnsubscribeToken(string userId, string email, string preferenceScope)
+        {
+            var secretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret not found");
+            var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
+            var audience = configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not found");
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim("userId", userId),
+                new Claim(ClaimTypes.Email, email),
+                new Claim("purpose", "email_unsubscribe"),
+                new Claim("preference_scope", preferenceScope),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer,
+                audience,
+                claims,
+                expires: DateTime.UtcNow.AddDays(30),
+                signingCredentials: creds);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        public (bool IsValid, string? UserId, string? Email, string? PreferenceScope, string? Error) ValidateEmailUnsubscribeToken(string token)
+        {
+            var secretKey = configuration["JwtSettings:Secret"];
+            var issuer = configuration["JwtSettings:Issuer"];
+            var audience = configuration["JwtSettings:Audience"];
+
+            if (string.IsNullOrWhiteSpace(secretKey) || string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience))
+            {
+                return (false, null, null, null, "Token validation configuration is missing.");
+            }
+
+            var handler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(secretKey);
+
+            try
+            {
+                var principal = handler.ValidateToken(token, new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidIssuer = issuer,
+                    ValidAudience = audience,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    ClockSkew = TimeSpan.Zero
+                }, out _);
+
+                var purpose = principal.FindFirst("purpose")?.Value;
+                if (!string.Equals(purpose, "email_unsubscribe", StringComparison.Ordinal))
+                {
+                    return (false, null, null, null, "Invalid token purpose.");
+                }
+
+                var userId = principal.FindFirst("userId")?.Value;
+                var email = principal.FindFirst(ClaimTypes.Email)?.Value;
+                var preferenceScope = principal.FindFirst("preference_scope")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(preferenceScope))
+                {
+                    return (false, null, null, null, "Token payload is incomplete.");
+                }
+
+                return (true, userId, email, preferenceScope, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, null, null, null, ex.Message);
+            }
+        }
+
         //public static string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30)
         //{
         //    var tokenHandler = new JwtSecurityTokenHandler();

@@ -193,6 +193,26 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
+            var caregiverPreference = new CaregiverPreference
+            {
+                Id = ObjectId.GenerateNewId(),
+                CaregiverId = caregiver.Id.ToString(),
+                Data = new List<string>(),
+                NotificationPreferences = new CaregiverNotificationPreferences
+                {
+                    EmailNotifications = true,
+                    SmsNotifications = true,
+                    MarketingEmails = addCaregiverRequest.MarketingConsent,
+                    Promotions = addCaregiverRequest.MarketingConsent,
+                    NewGig = addCaregiverRequest.MarketingConsent,
+                    CareRequestUpdates = addCaregiverRequest.MarketingConsent
+                },
+                CreatedAt = DateTime.UtcNow,
+                UpdatedOn = DateTime.UtcNow
+            };
+
+            await careProDbContext.CaregiverPreferences.AddAsync(caregiverPreference);
+
             try
             {
                 await careProDbContext.SaveChangesAsync();

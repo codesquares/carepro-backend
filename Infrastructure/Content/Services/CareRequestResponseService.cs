@@ -322,7 +322,7 @@ namespace Infrastructure.Content.Services
                         <p>Log in to review the pricing and confirm or negotiate before the booking is finalised.</p>
                         <p style='color:#666;font-size:13px;'>Note: the price shown is a per-visit rate. The client will choose the service type and visit frequency at checkout.</p>
                         <p>— The CarePro Team</p>";
-                    await _emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, html);
+                    await _emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, html, preferenceGated: true);
                 }
             }
             catch (Exception ex)
@@ -642,7 +642,8 @@ namespace Infrastructure.Content.Services
                 client.Email,
                 client.FirstName ?? "Client",
                 subject,
-                html);
+                html,
+                preferenceGated: true);
         }
 
         private static string BuildDistanceText(double? srcLat, double? srcLng, double? dstLat, double? dstLng)

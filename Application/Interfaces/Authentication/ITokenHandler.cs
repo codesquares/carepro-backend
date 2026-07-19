@@ -23,6 +23,17 @@ namespace Application.Interfaces.Authentication
         /// </summary>
         string GenerateCancellationToken(string userId);
 
+        /// <summary>
+        /// Generates a signed token for one-click email unsubscribe links.
+        /// Token carries recipient identity and purpose to avoid cross-use.
+        /// </summary>
+        string GenerateEmailUnsubscribeToken(string userId, string email, string preferenceScope);
+
+        /// <summary>
+        /// Validates and parses a signed one-click email unsubscribe token.
+        /// </summary>
+        (bool IsValid, string? UserId, string? Email, string? PreferenceScope, string? Error) ValidateEmailUnsubscribeToken(string token);
+
         //string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30);
         string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);
 

@@ -133,6 +133,26 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.AppUsers.AddAsync(careProAppUser);
 
+            var clientPreference = new ClientPreference
+            {
+                Id = ObjectId.GenerateNewId(),
+                ClientId = clientUser.Id.ToString(),
+                Data = new List<string>(),
+                NotificationPreferences = new NotificationPreferences
+                {
+                    EmailNotifications = true,
+                    SmsNotifications = true,
+                    MarketingEmails = addClientUserRequest.MarketingConsent,
+                    OrderUpdates = true,
+                    ServiceUpdates = true,
+                    Promotions = addClientUserRequest.MarketingConsent
+                },
+                CreatedAt = DateTime.UtcNow,
+                UpdatedOn = DateTime.UtcNow
+            };
+
+            await careProDbContext.ClientPreferences.AddAsync(clientPreference);
+
             try
             {
                 await careProDbContext.SaveChangesAsync();

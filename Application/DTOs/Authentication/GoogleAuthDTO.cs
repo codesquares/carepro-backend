@@ -23,6 +23,9 @@ namespace Application.DTOs.Authentication
         // Optional: Additional info not in Google profile
         public string? PhoneNo { get; set; }
         public string? HomeAddress { get; set; }
+
+        // Explicit opt-in checkbox from signup UI. Defaults to false when omitted.
+        public bool MarketingConsent { get; set; } = false;
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 ﻿using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using MongoDB.EntityFrameworkCore.Extensions;
 using System;
 using System.Collections.Generic;
@@ -11,9 +12,26 @@ namespace Infrastructure.Content.Data
 {
     public class CareProDbContext : DbContext
     {
-        public CareProDbContext(DbContextOptions<CareProDbContext> options) : base(options)
+        // Each test builds a CareProDbContext against a uniquely-named Mongo database for
+        // isolation, so distinct DbContextOptions accumulate across a test run. EF's internal
+        // service-provider cache never evicts entries, and by default throws once more than 20
+        // have been created. That throw surfaces wherever a DbContext next gets constructed,
+        // including mid-request (e.g. inside RateLimitingMiddleware), corrupting unrelated tests'
+        // results. The many-providers pattern here is intentional test isolation, not a leak, so
+        // the diagnostic is suppressed. This must be baked into `options` before `base(options)`
+        // runs: OnConfiguring mutations arrive too late because accessing `Database` below already
+        // forces eager resolution of the internal service provider from the constructor-supplied
+        // options, not from OnConfiguring's builder.
+        public CareProDbContext(DbContextOptions<CareProDbContext> options) : base(SuppressManyProvidersWarning(options))
         {
 
+        }
+
+        private static DbContextOptions<CareProDbContext> SuppressManyProvidersWarning(DbContextOptions<CareProDbContext> options)
+        {
+            return new DbContextOptionsBuilder<CareProDbContext>(options)
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning))
+                .Options;
         }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -63,6 +81,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ClientPreference>().ToCollection("ClientPreferences");
             modelBuilder.Entity<ClientPreference>().HasKey(cp => cp.Id);
             modelBuilder.Entity<ClientPreference>().Property(cp => cp.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverPreference>().ToCollection("CaregiverPreferences");
+            modelBuilder.Entity<CaregiverPreference>().HasKey(cp => cp.Id);
+            modelBuilder.Entity<CaregiverPreference>().Property(cp => cp.Id).HasElementName("_id");
+            modelBuilder.Entity<CaregiverPreference>().HasIndex(cp => cp.CaregiverId).IsUnique();
             modelBuilder.Entity<ClientRecommendation>().ToCollection("ClientRecommendations");
             modelBuilder.Entity<ClientRecommendation>().HasKey(cr => cr.Id);
             modelBuilder.Entity<ClientRecommendation>().Property(cr => cr.Id).HasElementName("_id");
@@ -279,6 +301,7 @@ namespace Infrastructure.Content.Data
         public DbSet<Verification> Verifications { get; set; }
         public DbSet<Assessment> Assessments { get; set; }
         public DbSet<ClientPreference> ClientPreferences { get; set; }
+        public DbSet<CaregiverPreference> CaregiverPreferences { get; set; }
         public DbSet<ClientRecommendation> ClientRecommendations { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<QuestionBank> QuestionBank { get; set; }
