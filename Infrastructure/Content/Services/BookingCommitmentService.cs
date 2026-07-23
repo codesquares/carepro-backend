@@ -22,6 +22,7 @@ namespace Infrastructure.Content.Services
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly IReceiptPdfService _receiptPdfService;
+        private readonly IMarketingSyncService _marketingSyncService;
         private readonly ILogger<BookingCommitmentService> _logger;
         private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
 
@@ -43,6 +44,7 @@ namespace Infrastructure.Content.Services
             IMediator mediator,
             IEmailService emailService,
             IReceiptPdfService receiptPdfService,
+            IMarketingSyncService marketingSyncService,
             ILogger<BookingCommitmentService> logger,
             IOptions<CommitmentFeeSettings> commitmentFeeSettings)
         {
@@ -52,6 +54,7 @@ namespace Infrastructure.Content.Services
             _mediator = mediator;
             _emailService = emailService;
             _receiptPdfService = receiptPdfService;
+            _marketingSyncService = marketingSyncService;
             _logger = logger;
             _commitmentFeeSettings = commitmentFeeSettings;
         }
@@ -86,7 +89,7 @@ namespace Infrastructure.Content.Services
             // ── EXISTING ORDER GUARD ─────────────────────────────────────────
             // Block commitment only if the client has a genuinely active order (In Progress, Disputed).
             // Cancelled, Terminated, and Completed orders are terminal — client can re-commit.
-            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
             var existingActiveOrder = await _dbContext.ClientOrders
                 .FirstOrDefaultAsync(o => o.ClientId == clientId
                                        && o.GigId == request.GigId
@@ -261,6 +264,8 @@ namespace Infrastructure.Content.Services
                     "Commitment payment initiated. TxRef: {TxRef}, GigId: {GigId}, Amount: {Amount}",
                     transactionReference, request.GigId, totalCharged);
 
+                await _marketingSyncService.EnqueueClientSyncAsync(clientId);
+
                 return Result<BookingCommitmentResponse>.Success(new BookingCommitmentResponse
                 {
                     Success = true,
@@ -337,6 +342,8 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogError(ex, "Failed to send commitment notifications for TxRef: {TxRef}. Commitment was successful.", transactionReference);
             }
+
+            await _marketingSyncService.EnqueueClientSyncAsync(commitment.ClientId);
 
             return Result<BookingCommitment>.Success(commitment);
         }
@@ -476,7 +483,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Terminal order statuses — an order in one of these states is done and cannot resume.
-            var terminalOrderStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            var terminalOrderStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
 
             // 2. Direct lookup (covers regular gigs and RegularGig-path special gigs where
             //    the client accepted — GigIdForPayment = OriginalGigId in that sub-case).

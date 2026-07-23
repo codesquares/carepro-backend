@@ -29,7 +29,7 @@ namespace Application.Interfaces
 
         Task<string> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest);
 
-        Task<string> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest);
+        Task<GigDTO> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest);
 
         Task<string> SoftDeleteGigAsync(string gigId, string caregiverId);
 

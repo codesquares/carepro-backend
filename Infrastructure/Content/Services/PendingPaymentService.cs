@@ -1,9 +1,11 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Domain.Settings;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -32,6 +34,8 @@ namespace Infrastructure.Content.Services
         private readonly IBillingRecordService _billingRecordService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly IReferralService _referralService;
+        private readonly ICaregiverReadinessService _readinessService;
+        private readonly IMediator _mediator;
 
         public PendingPaymentService(
             CareProDbContext dbContext,
@@ -44,7 +48,9 @@ namespace Infrastructure.Content.Services
             IOptions<CommitmentFeeSettings> commitmentFeeSettings,
             IBillingRecordService billingRecordService,
             IBookingCommitmentService bookingCommitmentService,
-            IReferralService referralService)
+            IReferralService referralService,
+            ICaregiverReadinessService readinessService,
+            IMediator mediator)
         {
             _dbContext = dbContext;
             _gigServices = gigServices;
@@ -57,6 +63,8 @@ namespace Infrastructure.Content.Services
             _billingRecordService = billingRecordService;
             _bookingCommitmentService = bookingCommitmentService;
             _referralService = referralService;
+            _readinessService = readinessService;
+            _mediator = mediator;
         }
 
         public async Task<Result<PendingPaymentResponse>> CreatePendingPaymentAsync(InitiatePaymentRequest request, string clientId)
@@ -117,7 +125,7 @@ namespace Infrastructure.Content.Services
             // ── DUPLICATE PAYMENT GUARD ──────────────────────────────────────
             // 1. Block if the client already has a genuinely active order for this gig.
             //    Cancelled, Terminated, and Completed orders are terminal — client can re-purchase.
-            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
             var existingActiveOrder = await _dbContext.ClientOrders
                 .FirstOrDefaultAsync(o => o.ClientId == clientId
                                        && o.GigId == request.GigId
@@ -536,6 +544,46 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation(
                 "Payment completed successfully. TxRef: {TxRef}, FlwTxId: {FlwTxId}, OrderId: {OrderId}",
                 transactionReference, flutterwaveTransactionId, orderResult.Value?.Id);
+
+            // Backstop: the caregiver may have become ineligible between negotiation-agree and
+            // this webhook firing. Unlike the negotiation-agree check, we do NOT block here —
+            // Flutterwave has already captured the client's money by this point, so refusing to
+            // create the order would strand a paid client with nothing. Instead: still create
+            // the order (already done above), but flag it loudly for admin follow-up and tell
+            // the client directly, mirroring the AMOUNT MISMATCH LogCritical pattern already
+            // used in this method for "needs a human" cases.
+            try
+            {
+                var gigForReadinessCheck = ObjectId.TryParse(pendingPayment.GigId, out var gigForReadinessOid)
+                    ? await _dbContext.Gigs.FindAsync(gigForReadinessOid)
+                    : null;
+                if (gigForReadinessCheck != null)
+                {
+                    var postPaymentReadiness = await _readinessService.GetReadinessAsync(gigForReadinessCheck.CaregiverId, gigForReadinessCheck.Category);
+                    if (!postPaymentReadiness.IsReady)
+                    {
+                        _logger.LogCritical(
+                            "PAID ORDER FOR INELIGIBLE CAREGIVER! TxRef: {TxRef}, OrderId: {OrderId}, CaregiverId: {CaregiverId}, Reasons: {Reasons}. Needs admin review (refund/reassignment).",
+                            transactionReference, orderResult.Value?.Id, gigForReadinessCheck.CaregiverId, string.Join(", ", postPaymentReadiness.IneligibilityReasons));
+
+                        await _mediator.Send(new SendNotificationCommand(
+                            RecipientId: pendingPayment.ClientId,
+                            SenderId: "system",
+                            Type: NotificationTypes.CaregiverBecameIneligible,
+                            Content: "There's an issue with the caregiver on your recent order. Our team has been notified and will reach out shortly.",
+                            Title: "Order Needs Attention",
+                            RelatedEntityId: orderResult.Value?.Id ?? transactionReference,
+                            // Populates the notification's OrderId field (distinct from RelatedEntityId)
+                            // so the frontend can tell this post-payment case apart from the
+                            // pre-payment CaregiverBecameIneligible notification, which has no order yet.
+                            OrderId: orderResult.Value?.Id));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to run post-payment readiness check for TxRef {TxRef}. Order was still created successfully.", transactionReference);
+            }
 
             // If this payment is for a care-request-originated gig, mark the request as filled.
             try

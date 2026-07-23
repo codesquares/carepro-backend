@@ -59,14 +59,14 @@ namespace Application.DTOs
         public string Title { get; set; }
         public string Category { get; set; }
         public List<string> SubCategory { get; set; }
-        public string Tags { get; set; }
-        public string PackageType { get; set; }
-        public string PackageName { get; set; }
-        public string PackageDetails { get; set; }
-        public string DeliveryTime { get; set; }
+        public string? Tags { get; set; }
+        public string? PackageType { get; set; }
+        public string? PackageName { get; set; }
+        public string? PackageDetails { get; set; }
+        public string? DeliveryTime { get; set; }
         public int Price { get; set; }
 
-        public IFormFile Image1 { get; set; }
+        public IFormFile? Image1 { get; set; }
 
 
         // public string? VideoURL { get; set; }
@@ -87,11 +87,11 @@ namespace Application.DTOs
     {
         public string Category { get; set; }
         public List<string> SubCategory { get; set; }
-        public string Tags { get; set; }
-        public string PackageType { get; set; }
-        public string PackageName { get; set; }
-        public string PackageDetails { get; set; }
-        public string DeliveryTime { get; set; }
+        public string? Tags { get; set; }
+        public string? PackageType { get; set; }
+        public string? PackageName { get; set; }
+        public string? PackageDetails { get; set; }
+        public string? DeliveryTime { get; set; }
         public int Price { get; set; }
         public string Status { get; set; }
 

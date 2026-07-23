@@ -406,13 +406,7 @@ namespace Infrastructure.Content.Services
                     }
 
                     var caregiverPrefs = caregiverPreference.NotificationPreferences;
-                    if (!caregiverPrefs.EmailNotifications)
-                    {
-                        return false;
-                    }
-
-                    var hasGeneralConsent = caregiverPrefs.MarketingEmails || caregiverPrefs.Promotions;
-                    if (!hasGeneralConsent)
+                    if (!HasGeneralMarketingConsent(caregiverPrefs))
                     {
                         return false;
                     }
@@ -441,19 +435,25 @@ namespace Infrastructure.Content.Services
                 }
 
                 var preferences = clientPreference.NotificationPreferences;
-                if (!preferences.EmailNotifications)
-                {
-                    return false;
-                }
-
-                // Either flag indicates consent for lifecycle/engagement mail.
-                return preferences.MarketingEmails || preferences.Promotions;
+                return HasGeneralMarketingConsent(preferences);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error checking email preferences for user {UserId}", userId);
                 return true; // Default to sending if we can't check preferences
             }
+        }
+
+        public bool HasGeneralMarketingConsent(CaregiverNotificationPreferences? preferences)
+        {
+            if (preferences == null) return false;
+            return preferences.EmailNotifications && (preferences.MarketingEmails || preferences.Promotions);
+        }
+
+        public bool HasGeneralMarketingConsent(NotificationPreferences? preferences)
+        {
+            if (preferences == null) return false;
+            return preferences.EmailNotifications && (preferences.MarketingEmails || preferences.Promotions);
         }
     }
 }

@@ -284,6 +284,30 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendReferralCodeEmailAsync(string toEmail, string firstName, string referralCode)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Your CarePro referral code is ready";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>Thanks for joining the CarePro referral program. Your referral code is ready:</p>
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; text-align: center;'>
+                        <span style='font-size: 20px; font-weight: bold; letter-spacing: 1px;'>{referralCode}</span>
+                    </div>
+                    <p>Share this code with people you refer. When someone uses it on a recurring service order, they get a discount, and you earn a payout once the order is confirmed.</p>
+                    <p>Thanks for partnering with us,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Payment-related notification methods
         public async Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId)
         {

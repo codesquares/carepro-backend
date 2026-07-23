@@ -6,6 +6,7 @@ using Infrastructure.Content.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -441,7 +442,7 @@ namespace CarePro_Api.Controllers.Content
         [HttpPut]
         [Route("UpdateGig/{gigId}")]
         // [Authorize(Roles = "Caregiver, Admin")]
-        public async Task<ActionResult<string>> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
+        public async Task<ActionResult<GigDTO>> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
         {
             try
             {
@@ -716,31 +717,28 @@ namespace CarePro_Api.Controllers.Content
                     $"{nameof(addGigRequest.Category)} is required");
             }
 
-            if (string.IsNullOrWhiteSpace(addGigRequest.DeliveryTime))
+            // A draft only needs a title and category — the rest is filled in before publishing.
+            // Matches the frontend's own client-side gate (GigsForm.jsx handleSaveAsDraft).
+            if (!string.Equals(addGigRequest.Status, "Draft", StringComparison.OrdinalIgnoreCase))
             {
-                ModelState.AddModelError(nameof(addGigRequest.DeliveryTime),
-                    $"{nameof(addGigRequest.DeliveryTime)} is required.");
+                if (string.IsNullOrWhiteSpace(addGigRequest.DeliveryTime))
+                {
+                    ModelState.AddModelError(nameof(addGigRequest.DeliveryTime),
+                        $"{nameof(addGigRequest.DeliveryTime)} is required.");
+                }
+
+                if (string.IsNullOrWhiteSpace(addGigRequest.PackageDetails))
+                {
+                    ModelState.AddModelError(nameof(addGigRequest.PackageDetails),
+                        $"{nameof(addGigRequest.PackageDetails)} is required.");
+                }
+
+                if (addGigRequest.Price <= 0)
+                {
+                    ModelState.AddModelError(nameof(addGigRequest.Price),
+                        $"{nameof(addGigRequest.Price)} cannot be 0.");
+                }
             }
-
-            if (string.IsNullOrWhiteSpace(addGigRequest.PackageDetails))
-            {
-                ModelState.AddModelError(nameof(addGigRequest.PackageDetails),
-                    $"{nameof(addGigRequest.PackageDetails)} is required.");
-            }
-
-            if (string.IsNullOrWhiteSpace(addGigRequest.PackageDetails))
-            {
-                ModelState.AddModelError(nameof(addGigRequest.PackageDetails),
-                    $"{nameof(addGigRequest.PackageDetails)} is required.");
-            }
-
-            if (addGigRequest.Price <= 0)
-            {
-                ModelState.AddModelError(nameof(addGigRequest.Price),
-                    $"{nameof(addGigRequest.Price)} cannot be 0.");
-            }
-
-
 
             if (ModelState.ErrorCount > 0)
             {

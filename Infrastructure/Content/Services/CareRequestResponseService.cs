@@ -23,6 +23,7 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly IGeocodingService _geocodingService;
         private readonly IGigPriceNegotiationService _negotiationService;
+        private readonly ICaregiverReadinessService _readinessService;
         private readonly ILogger<CareRequestResponseService> _logger;
 
         private static readonly string[] BrowsableStatuses = new[] { "pending", "matched", "unmatched", "active", "escalated" };
@@ -33,6 +34,7 @@ namespace Infrastructure.Content.Services
             IEmailService emailService,
             IGeocodingService geocodingService,
             IGigPriceNegotiationService negotiationService,
+            ICaregiverReadinessService readinessService,
             ILogger<CareRequestResponseService> logger)
         {
             _dbContext = dbContext;
@@ -40,6 +42,7 @@ namespace Infrastructure.Content.Services
             _emailService = emailService;
             _geocodingService = geocodingService;
             _negotiationService = negotiationService;
+            _readinessService = readinessService;
             _logger = logger;
         }
 
@@ -257,6 +260,16 @@ namespace Infrastructure.Content.Services
         public async Task<HireResult> HireResponderAsync(string careRequestId, string responseId, string clientId)
         {
             var (careRequest, response) = await ValidateClientResponseAccessAsync(careRequestId, responseId, clientId);
+
+            // Guard against hiring a caregiver who isn't actually ready to deliver
+            // (unverified, no active gig, or hasn't passed the category assessment) —
+            // without this, the client would only discover the problem after paying
+            // the booking-commitment fee.
+            var readiness = await _readinessService.GetReadinessAsync(response.CaregiverId, careRequest.ServiceCategory);
+            if (!readiness.IsReady)
+                throw new CaregiverNotReadyException(
+                    "This caregiver isn't available for this category right now.",
+                    readiness.IneligibilityReasons);
 
             if (response.Status == "hired")
                 throw new InvalidOperationException("This responder has already been hired.");
@@ -524,10 +537,6 @@ namespace Infrastructure.Content.Services
                 .ToListAsync();
             var avgRating = reviews.Count > 0 ? Math.Round(reviews.Average(r => r.Rating), 1) : 0;
 
-            // Check if caregiver has verified certifications
-            var hasVerifiedCert = await _dbContext.Certifications
-                .AnyAsync(c => c.CaregiverId == resp.CaregiverId && c.IsVerified);
-
             return new CaregiverResponseCardDTO
             {
                 ResponseId = resp.Id.ToString(),
@@ -542,7 +551,10 @@ namespace Infrastructure.Content.Services
                 RespondedAt = resp.RespondedAt,
                 Message = resp.Message,
                 ProposedRate = resp.ProposedRate,
-                IsVerified = hasVerifiedCert,
+                // "Verified" means identity-verified everywhere in the app (matches the
+                // hire-time readiness gate) — was previously certificate-verification,
+                // a different, undisclosed meaning. See CaregiverReadinessService.
+                IsVerified = caregiver.IsIdentityVerified == true,
                 AboutMe = caregiver.AboutMe,
                 SpecialGigId = resp.SpecialGigId
             };

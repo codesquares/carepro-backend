@@ -347,7 +347,8 @@ namespace Infrastructure.Content.Services
                     caregiverGigIds.Contains(o.GigId)
                     && o.ClientOrderStatus != null
                     && o.ClientOrderStatus != "Completed"
-                    && o.ClientOrderStatus != "Cancelled");
+                    && o.ClientOrderStatus != "Cancelled"
+                    && o.ClientOrderStatus != "Superseded");
 
                 if (hasActiveOrders)
                     blockers.Add("You have active orders in progress. Please complete or wait for all orders to close before deleting your account.");
@@ -380,7 +381,8 @@ namespace Infrastructure.Content.Services
                 o.ClientId == clientId
                 && o.ClientOrderStatus != null
                 && o.ClientOrderStatus != "Completed"
-                && o.ClientOrderStatus != "Cancelled");
+                && o.ClientOrderStatus != "Cancelled"
+                && o.ClientOrderStatus != "Superseded");
 
             if (hasActiveOrders)
                 blockers.Add("You have active orders in progress. Please complete or wait for all orders to close before deleting your account.");

@@ -38,6 +38,16 @@ namespace CarePro_Api.Controllers.Content
         {
             _logger.LogError(ex, "GigPriceNegotiationController error: {Message}", ex.Message);
 
+            // Reason codes (not_identity_verified, assessment_not_passed, ...) describe a
+            // caregiver's private vetting status — never put them on the wire, log server-side
+            // only. The caller's Message is already generic (see GigPriceNegotiationService).
+            if (ex is Domain.Entities.CaregiverNotReadyException notReady)
+            {
+                _logger.LogInformation("Negotiation blocked — caregiver not ready. Reasons: {Reasons}",
+                    string.Join(", ", notReady.Reasons));
+                return BadRequest(new { success = false, message = notReady.Message });
+            }
+
             return ex switch
             {
                 KeyNotFoundException => NotFound(new { success = false, message = ex.Message }),

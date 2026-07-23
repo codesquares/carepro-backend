@@ -1,6 +1,6 @@
 # Email Compliance Classification Policy
 
-Last updated: 2026-07-19
+Last updated: 2026-07-23
 Owner: Backend Platform Team
 Scope: CarePro backend email system
 
@@ -20,7 +20,7 @@ No new email type may ship without an explicit entry in this policy.
 - unsubscribe header behavior confirmation for preference-gated types
 3. Unknown/unlisted types are release blockers.
 
-## Classification Matrix (27 Catalogued Types)
+## Classification Matrix (28 Catalogued Types)
 
 | # | Catalogued Email Type | Current Sender Surface | Classification | Rationale |
 |---|---|---|---|---|
@@ -51,6 +51,14 @@ No new email type may ship without an explicit entry in this policy.
 | 25 | Account deletion cancelled | SendAccountDeletionCancelledEmailAsync | Always-Send | Compliance and legal data rights process |
 | 26 | Final deletion completion notice | Generic template in hard-delete flow | Always-Send | Compliance and legal data rights process |
 | 27 | Admin one-to-one / bulk outreach | SendCustomEmailToUserAsync | Preference-Gated | Outbound campaign/admin outreach category |
+| 28 | Gig draft saved | SendDraftGeneratedEmailAsync (NotificationTypes.DraftGenerated / "draft_generated") | Preference-Gated | Self-initiated workflow confirmation, not a live/active transaction or compliance record. Same family as GigPublished/GigPaused/GigDeleted; closest existing analogue is #5 (New gig opportunity). |
+
+## Gap Closure — 2026-07-23
+`DraftGenerated` (#28) predates this policy document (introduced 2026-05-26, ~8 weeks before this document's creation on 2026-07-19) but was never backfilled into the matrix. It was already correctly wired into `_preferenceGatedTypes` / `HasGeneralMarketingConsent` in code — this entry formalizes that existing classification, it does not change behavior. Verified directly against a live instance with real caregiver preference records:
+- Caregiver with `emailNotifications: false` → draft-save produced zero `EmailNotificationLogs` entries; processor logged "Skipping email ... due to preferences".
+- Caregiver with `emailNotifications: true, marketingEmails: true` → draft-save produced one `EmailNotificationLogs` entry (`Status: Sent`) and a real SMTP delivery.
+
+Note: the same audit surfaced 16 other preference-gated types (GigPublished, GigPaused, GigDeleted, the CareRequest* family, the Contract* family, PriceNegotiationExpired) that are also correctly gated in code but similarly absent from this matrix. Those are intentionally out of scope for this entry and tracked separately, not resolved here.
 
 ## Explicit Decision on Previously Questioned Types
 The following are classified as Always-Send (moved out of preference-gated set):

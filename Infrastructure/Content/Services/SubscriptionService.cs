@@ -726,6 +726,39 @@ namespace Infrastructure.Content.Services
 
             var cycleNumber = paymentRecord.BillingCycleNumber;
 
+            // Structural guard: refuse to add a third order on top of an already-broken
+            // subscription rather than compounding it. In healthy operation this is always
+            // false, because each prior renewal supersedes its predecessor before returning.
+            if (await _clientOrderService.HasConflictingActiveOrdersAsync(subscription.Id))
+            {
+                _logger.LogCritical(
+                    "SECURITY: Refusing to create renewal order for subscription {SubscriptionId} — multiple non-terminal orders already exist, which should be structurally impossible. Manual resolution required before this subscription can renew again. TxRef={TxRef}",
+                    subscription.Id, txRef);
+
+                paymentRecord.Status = "failed";
+                paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
+                paymentRecord.CompletedAt = DateTime.UtcNow;
+                paymentRecord.ClientOrderId = null;
+                paymentRecord.ErrorMessage = "Renewal blocked: subscription already has conflicting active orders and requires manual resolution.";
+                paymentRecord.FailureClass = "non_retryable";
+                paymentRecord.AuthorizationUrl = null;
+
+                subscription.Status = SubscriptionStatus.Suspended;
+                subscription.NextChargeDate = null;
+                subscription.LastChargeError = paymentRecord.ErrorMessage;
+                subscription.LastChargeFailureClass = "non_retryable";
+                subscription.LastFailedChargeAt = DateTime.UtcNow;
+                subscription.LastRecurringAttemptStatus = "failed";
+                subscription.LastRecurringAttemptAt = DateTime.UtcNow;
+                subscription.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync();
+
+                return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string>
+                {
+                    "Payment was captured but the subscription has conflicting active orders. Subscription has been suspended for manual resolution."
+                });
+            }
+
             // Create the ClientOrder for this billing cycle
             var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
             {
@@ -735,7 +768,8 @@ namespace Infrastructure.Content.Services
                 Amount = (int)Math.Round(subscription.RecurringAmount, 0),
                 OrderFee = subscription.PriceBreakdown.OrderFee,
                 TransactionId = flutterwaveTransactionId,
-                BillingCycleNumber = cycleNumber
+                BillingCycleNumber = cycleNumber,
+                SubscriptionId = subscription.Id
             });
 
             if (!orderResult.IsSuccess)
@@ -771,6 +805,9 @@ namespace Infrastructure.Content.Services
                     "Payment was captured but order creation failed. Subscription has been suspended for manual resolution."
                 });
             }
+
+            // Close out the previous cycle's order now that its replacement exists.
+            await _clientOrderService.SupersedeOrderForRenewalAsync(subscription.Id, cycleNumber);
 
             paymentRecord.Status = "successful";
             paymentRecord.FlutterwaveTransactionId = flutterwaveTransactionId;
@@ -1348,6 +1385,40 @@ namespace Infrastructure.Content.Services
                     return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string> { "Payment amount mismatch detected." });
                 }
 
+                // Structural guard: refuse to add a third order on top of an already-broken
+                // subscription rather than compounding it. In healthy operation this is always
+                // false, because each prior renewal supersedes its predecessor before returning.
+                if (await _clientOrderService.HasConflictingActiveOrdersAsync(subscription.Id))
+                {
+                    _logger.LogCritical(
+                        "SECURITY: Refusing to create renewal order for subscription {SubscriptionId} — multiple non-terminal orders already exist, which should be structurally impossible. Manual resolution required before this subscription can renew again. TxRef={TxRef}",
+                        subscriptionId, txRef);
+
+                    paymentRecord.Status = "failed";
+                    paymentRecord.FlutterwaveTransactionId = chargeResult.TransactionId;
+                    paymentRecord.CompletedAt = DateTime.UtcNow;
+                    paymentRecord.ClientOrderId = null;
+                    paymentRecord.ErrorMessage = "Renewal blocked: subscription already has conflicting active orders and requires manual resolution.";
+                    paymentRecord.FailureClass = "non_retryable";
+                    paymentRecord.AuthorizationUrl = null;
+
+                    subscription.Status = SubscriptionStatus.Suspended;
+                    subscription.NextChargeDate = null;
+                    subscription.LastChargeError = paymentRecord.ErrorMessage;
+                    subscription.LastChargeFailureClass = "non_retryable";
+                    subscription.LastFailedChargeAt = DateTime.UtcNow;
+                    subscription.LastRecurringAttemptStatus = "failed";
+                    subscription.LastRecurringAttemptAt = DateTime.UtcNow;
+                    subscription.PaymentHistory.Add(paymentRecord);
+                    subscription.UpdatedAt = DateTime.UtcNow;
+                    await _dbContext.SaveChangesAsync();
+
+                    return Result<SubscriptionPaymentRecordDTO>.Failure(new List<string>
+                    {
+                        "Payment was captured but the subscription has conflicting active orders. Subscription has been suspended for manual resolution."
+                    });
+                }
+
                 // Payment verified — create a new ClientOrder for this billing cycle
                 var orderResult = await _clientOrderService.CreateClientOrderAsync(new AddClientOrderRequest
                 {
@@ -1357,7 +1428,8 @@ namespace Infrastructure.Content.Services
                     Amount = (int)Math.Round(subscription.RecurringAmount, 0), // Rounded to int for ClientOrder
                     OrderFee = subscription.PriceBreakdown.OrderFee,
                     TransactionId = chargeResult.TransactionId,
-                    BillingCycleNumber = cycleNumber
+                    BillingCycleNumber = cycleNumber,
+                    SubscriptionId = subscription.Id
                 });
 
                 if (!orderResult.IsSuccess)
@@ -1394,6 +1466,9 @@ namespace Infrastructure.Content.Services
                         "Payment was captured but order creation failed. Subscription has been suspended for manual resolution."
                     });
                 }
+
+                // Close out the previous cycle's order now that its replacement exists.
+                await _clientOrderService.SupersedeOrderForRenewalAsync(subscription.Id, cycleNumber);
 
                 paymentRecord.Status = "successful";
                 paymentRecord.FlutterwaveTransactionId = chargeResult.TransactionId;

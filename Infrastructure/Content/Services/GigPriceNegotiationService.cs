@@ -21,16 +21,19 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _db;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
+        private readonly ICaregiverReadinessService _readinessService;
         private readonly ILogger<GigPriceNegotiationService> _logger;
 
         public GigPriceNegotiationService(
             CareProDbContext db,
             IMediator mediator,
             IEmailService emailService,
+            ICaregiverReadinessService readinessService,
             ILogger<GigPriceNegotiationService> logger)
         {
             _db = db;
             _mediator = mediator;
+            _readinessService = readinessService;
             _emailService = emailService;
             _logger = logger;
         }
@@ -250,6 +253,15 @@ namespace Infrastructure.Content.Services
             EnsureNotTerminal(negotiation);
             EnsureVersionMatch(negotiation, version);
 
+            // Backstop: the caregiver may have become ineligible (verification failed, gig
+            // removed, assessment lapsed) after being hired but before this agreement is
+            // finalized. No money has moved yet at this point, so it's safe to block here
+            // rather than let the client proceed to payment for a caregiver who can't deliver.
+            var readiness = await _readinessService.GetReadinessAsync(negotiation.CaregiverId, negotiation.GigCategorySnapshot);
+            if (!readiness.IsReady)
+                throw new CaregiverNotReadyException(
+                    "This caregiver is no longer available for this request.", readiness.IneligibilityReasons);
+
             // For RegularGig: client accepting means pay at original price → no special gig needed
             // For CareRequestHire: client accepts caregiver's rate → create special gig
             string gigIdForPayment;
@@ -370,6 +382,12 @@ namespace Infrastructure.Content.Services
 
             if (accept)
             {
+                // Same backstop as ClientAcceptAsync — no money has moved yet, safe to block.
+                var readiness = await _readinessService.GetReadinessAsync(negotiation.CaregiverId, negotiation.GigCategorySnapshot);
+                if (!readiness.IsReady)
+                    throw new CaregiverNotReadyException(
+                        "You are not currently eligible to accept this offer. Please check your verification, gig, and assessment status.", readiness.IneligibilityReasons);
+
                 // Caregiver accepts the client's proposed price
                 var agreedPrice = negotiation.LatestProposedPrice;
                 var gigIdForPayment = await CreateSpecialGigOnAgreementAsync(negotiation);

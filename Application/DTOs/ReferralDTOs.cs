@@ -5,7 +5,16 @@ namespace Application.DTOs
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? PhoneNo { get; set; }
+        public string Alias { get; set; } = string.Empty;
         public ReferrerBankAccountRequest? BankAccount { get; set; }
+    }
+
+    public class ApplyForReferrerRequest
+    {
+        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? PhoneNo { get; set; }
+        public string Alias { get; set; } = string.Empty;
     }
 
     public class ReferrerBankAccountRequest
@@ -27,6 +36,8 @@ namespace Application.DTOs
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? PhoneNo { get; set; }
+        public string Alias { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
 

@@ -199,6 +199,9 @@ namespace Application.DTOs
         public const string CareRequestReopened = "care_request_reopened";
         public const string CareRequestCreated = "care_request_created";
         public const string ShortlistRemoved = "care_request_shortlist_removed";
+        /// <summary>Sent to the client when a caregiver they've hired (negotiation still in flight,
+        /// not yet Agreed) loses hire-readiness — e.g. identity verification fails.</summary>
+        public const string CaregiverBecameIneligible = "caregiver_became_ineligible";
 
         // ── Visit Task Proposals ──
         public const string TaskProposedByClient = "task_proposed_by_client";

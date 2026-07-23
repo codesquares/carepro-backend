@@ -24,6 +24,11 @@ namespace Domain.Entities
 
         [BsonElement("updatedOn")]
         public DateTime? UpdatedOn { get; set; }
+
+        // Server-internal bookkeeping — last time this contact was synced to Brevo.
+        // Not part of the user-facing consent payload (CaregiverNotificationPreferences).
+        [BsonElement("brevoLastSyncedAt")]
+        public DateTime? BrevoLastSyncedAt { get; set; }
     }
 
     public class CaregiverNotificationPreferences

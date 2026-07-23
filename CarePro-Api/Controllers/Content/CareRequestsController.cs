@@ -600,6 +600,16 @@ namespace CarePro_Api.Controllers.Content
             {
                 return StatusCode(403, new { success = false, message = ex.Message });
             }
+            catch (Domain.Entities.CaregiverNotReadyException ex)
+            {
+                // Reason codes (not_identity_verified, assessment_not_passed, ...) describe a
+                // caregiver's private vetting status — never expose them to the client. Log
+                // server-side only; the client gets a generic, non-specific message.
+                _logger.LogInformation(
+                    "Hire blocked — caregiver not ready. ResponseId {ResponseId}, Reasons: {Reasons}",
+                    responseId, string.Join(", ", ex.Reasons));
+                return BadRequest(new { success = false, message = "This caregiver isn't available for this request right now. Please try another caregiver." });
+            }
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new { success = false, message = ex.Message });

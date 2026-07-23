@@ -120,6 +120,8 @@ namespace Application.DTOs
         public DateTime RespondedAt { get; set; }
         public string? Message { get; set; }
         public decimal? ProposedRate { get; set; }
+        /// <summary>Identity verification status (Caregiver.IsIdentityVerified) — the same
+        /// meaning as everywhere else "verified" is shown in the app.</summary>
         public bool IsVerified { get; set; }
         public string? AboutMe { get; set; }
         public string? SpecialGigId { get; set; }

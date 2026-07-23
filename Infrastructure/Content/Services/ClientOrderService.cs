@@ -143,6 +143,7 @@ namespace Infrastructure.Content.Services
                 FrequencyPerWeek = addClientOrderRequest.FrequencyPerWeek,
                 ServiceType = addClientOrderRequest.ServiceType,
                 BillingCycleNumber = addClientOrderRequest.BillingCycleNumber,
+                SubscriptionId = addClientOrderRequest.SubscriptionId,
             };
 
             await careProDbContext.ClientOrders.AddAsync(clientOrder);
@@ -1163,7 +1164,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Only allow cancellation of active orders
-            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated" };
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
             if (terminalStatuses.Contains(order.ClientOrderStatus, StringComparer.OrdinalIgnoreCase))
             {
                 return Result<string>.Failure(new List<string>
@@ -1477,6 +1478,171 @@ namespace Infrastructure.Content.Services
                 $"Order cancelled successfully. {completedVisitCount} visit(s) were completed. " +
                 (clientRefundAmount > 0 ? $"₦{clientRefundAmount} has been credited to your wallet. " : "") +
                 "Booking commitment fee has been invalidated. You can request a refund from your wallet.");
+        }
+
+        public async Task<bool> HasConflictingActiveOrdersAsync(string subscriptionId)
+        {
+            if (string.IsNullOrWhiteSpace(subscriptionId))
+                return false;
+
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
+
+            int nonTerminalCount = await careProDbContext.ClientOrders
+                .CountAsync(o => o.SubscriptionId == subscriptionId
+                    && o.ClientOrderStatus != null
+                    && !terminalStatuses.Contains(o.ClientOrderStatus));
+
+            return nonTerminalCount > 1;
+        }
+
+        public async Task SupersedeOrderForRenewalAsync(string subscriptionId, int newCycleNumber)
+        {
+            if (string.IsNullOrWhiteSpace(subscriptionId))
+                return;
+
+            var terminalStatuses = new[] { "Completed", "Cancelled", "Terminated", "Superseded" };
+
+            var previousOrder = await careProDbContext.ClientOrders
+                .Where(o => o.SubscriptionId == subscriptionId
+                    && o.BillingCycleNumber != null
+                    && o.BillingCycleNumber < newCycleNumber
+                    && o.ClientOrderStatus != null
+                    && !terminalStatuses.Contains(o.ClientOrderStatus))
+                .OrderByDescending(o => o.BillingCycleNumber)
+                .FirstOrDefaultAsync();
+
+            if (previousOrder == null)
+            {
+                logger.LogInformation(
+                    "No supersedable previous order found for subscription {SubscriptionId} at cycle {Cycle} — expected for a subscription's first renewal after order-subscription linking shipped, or its first-ever cycle.",
+                    subscriptionId, newCycleNumber);
+                return;
+            }
+
+            var canonicalOrderId = previousOrder.Id.ToString();
+            int previousBillingCycle = previousOrder.BillingCycleNumber ?? 1;
+
+            // ── 1. Release submitted-but-unapproved visits to the caregiver (same fairness as cancellation). ──
+            // No client refund / caregiver debit here — superseding by renewal isn't a refund event.
+            try
+            {
+                bool isOneTime = string.Equals(previousOrder.PaymentOption, "one-time", StringComparison.OrdinalIgnoreCase);
+                int maxVisits = isOneTime ? 1 : (previousOrder.FrequencyPerWeek ?? 1) * 4;
+                decimal caregiverShareRate = GetOrderCaregiverShareRate(previousOrder);
+                decimal caregiverTotal = Math.Round((previousOrder.OrderFee ?? 0m) * caregiverShareRate, 2);
+
+                var submittedPendingVisits = await careProDbContext.TaskSheets
+                    .Where(ts => ts.OrderId == canonicalOrderId
+                        && ts.BillingCycleNumber == previousBillingCycle
+                        && ts.Status == "submitted"
+                        && (string.IsNullOrEmpty(ts.ClientReviewStatus) || ts.ClientReviewStatus == "Pending"))
+                    .OrderBy(ts => ts.SheetNumber)
+                    .ToListAsync();
+
+                foreach (var visit in submittedPendingVisits)
+                {
+                    var taskSheetId = visit.Id.ToString();
+
+                    bool alreadyCreditedVisit = await careProDbContext.EarningsLedger
+                        .AnyAsync(e => e.TaskSheetId == taskSheetId && e.Type == LedgerEntryType.VisitApproved);
+                    if (alreadyCreditedVisit)
+                        continue;
+
+                    decimal perVisitAmount = Math.Round(caregiverTotal / maxVisits, 2);
+
+                    int alreadyCreditedCount = await careProDbContext.EarningsLedger
+                        .CountAsync(e => e.ClientOrderId == canonicalOrderId
+                            && e.Type == LedgerEntryType.VisitApproved
+                            && e.BillingCycleNumber == previousBillingCycle);
+
+                    if (alreadyCreditedCount == maxVisits - 1)
+                    {
+                        decimal alreadyCreditedTotal = perVisitAmount * alreadyCreditedCount;
+                        perVisitAmount = caregiverTotal - alreadyCreditedTotal;
+                    }
+
+                    if (perVisitAmount <= 0)
+                        continue;
+
+                    string serviceType = string.IsNullOrEmpty(previousOrder.SubscriptionId) ? "one-time" : "monthly";
+
+                    await ledgerService.RecordVisitApprovedAsync(
+                        previousOrder.CaregiverId,
+                        perVisitAmount,
+                        canonicalOrderId,
+                        taskSheetId,
+                        previousOrder.SubscriptionId,
+                        previousOrder.BillingCycleNumber,
+                        serviceType,
+                        $"Visit #{visit.SheetNumber} released on renewal — visit was submitted but still pending client review when the next billing cycle started.");
+
+                    await walletService.CreditVisitApprovedAsync(previousOrder.CaregiverId, perVisitAmount);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Error releasing submitted pending visits while superseding order {OrderId} for subscription {SubscriptionId}",
+                    canonicalOrderId, subscriptionId);
+            }
+
+            // ── 2. Cancel remaining pending task sheets on the previous order. ──
+            try
+            {
+                var pendingTaskSheets = await careProDbContext.TaskSheets
+                    .Where(ts => ts.OrderId == canonicalOrderId
+                        && ts.Status != "submitted"
+                        && ts.Status != "cancelled")
+                    .ToListAsync();
+
+                foreach (var ts in pendingTaskSheets)
+                {
+                    ts.Status = "cancelled";
+                    ts.UpdatedAt = DateTime.UtcNow;
+                }
+
+                if (pendingTaskSheets.Any())
+                {
+                    careProDbContext.TaskSheets.UpdateRange(pendingTaskSheets);
+                    await careProDbContext.SaveChangesAsync();
+                    logger.LogInformation(
+                        "Cancelled {Count} pending task sheet(s) while superseding order {OrderId} for subscription {SubscriptionId} renewal",
+                        pendingTaskSheets.Count, canonicalOrderId, subscriptionId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Error cancelling task sheets while superseding order {OrderId} for subscription {SubscriptionId}",
+                    canonicalOrderId, subscriptionId);
+            }
+
+            // ── 3. Mark the previous cycle's order Superseded. ──
+            previousOrder.ClientOrderStatus = "Superseded";
+            previousOrder.OrderUpdatedOn = DateTime.UtcNow;
+            careProDbContext.ClientOrders.Update(previousOrder);
+            await careProDbContext.SaveChangesAsync();
+
+            logger.LogInformation(
+                "Order {OrderId} (cycle {Cycle}) superseded by renewal for subscription {SubscriptionId}.",
+                canonicalOrderId, previousBillingCycle, subscriptionId);
+
+            // ── 4. Guard (safety net): confirm no other non-terminal order remains for this subscription. ──
+            // This is an unexpected data-integrity condition if it ever fires, not a normal renewal
+            // state — it must not block the renewal itself, since payment has already been captured.
+            var remainingActiveOrders = await careProDbContext.ClientOrders
+                .Where(o => o.SubscriptionId == subscriptionId
+                    && o.Id != previousOrder.Id
+                    && o.ClientOrderStatus != null
+                    && !terminalStatuses.Contains(o.ClientOrderStatus))
+                .ToListAsync();
+
+            if (remainingActiveOrders.Any())
+            {
+                logger.LogCritical(
+                    "Renewal supersession for subscription {SubscriptionId} found {Count} additional non-terminal order(s) beyond the one just superseded — possible duplicate-order data integrity issue. OrderIds: {OrderIds}",
+                    subscriptionId, remainingActiveOrders.Count, string.Join(",", remainingActiveOrders.Select(o => o.Id)));
+            }
         }
 
         private decimal GetConfiguredCaregiverShareRate()

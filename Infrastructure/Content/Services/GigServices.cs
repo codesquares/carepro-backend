@@ -147,10 +147,12 @@ namespace Infrastructure.Content.Services
                 PackageType = addGigRequest.PackageType,
                 PackageName = addGigRequest.PackageName,
 
-                PackageDetails = addGigRequest.PackageDetails
-                        .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                        .Select(x => x.Trim())
-                        .ToList(),
+                PackageDetails = string.IsNullOrWhiteSpace(addGigRequest.PackageDetails)
+                        ? new List<string>()
+                        : addGigRequest.PackageDetails
+                            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(x => x.Trim())
+                            .ToList(),
                 DeliveryTime = addGigRequest.DeliveryTime,
                 Price = addGigRequest.Price,
                 Image1 = imageURL,
@@ -816,7 +818,7 @@ namespace Infrastructure.Content.Services
         }
 
 
-        public async Task<string> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
+        public async Task<GigDTO> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest)
         {
             if (!ObjectId.TryParse(gigId, out var objectId))
             {
@@ -854,7 +856,8 @@ namespace Infrastructure.Content.Services
                 updateGigRequest.Category = matchedReq.ServiceCategory;
             }
 
-            // Server-side eligibility check for specialized categories on publish/active
+            // Server-side eligibility check for specialized categories
+            string? eligibilityWarning = null;
             if (updateGigRequest.Status == "Published" || updateGigRequest.Status == "Active")
             {
                 var eligibilityError = await eligibilityService.ValidateGigEligibilityAsync(
@@ -864,6 +867,18 @@ namespace Infrastructure.Content.Services
                 {
                     throw new UnauthorizedAccessException(
                         System.Text.Json.JsonSerializer.Serialize(eligibilityError));
+                }
+            }
+            else if (updateGigRequest.Status == "Draft" && matchedReq != null)
+            {
+                // For drafts in specialized categories, check eligibility and warn (don't block)
+                var draftEligibility = await eligibilityService.ValidateGigEligibilityAsync(
+                    existingGig.CaregiverId, updateGigRequest.Category);
+
+                if (draftEligibility != null)
+                {
+                    eligibilityWarning = draftEligibility.Message +
+                        " You will need to meet these requirements before publishing.";
                 }
             }
 
@@ -899,10 +914,12 @@ namespace Infrastructure.Content.Services
             existingGig.Tags = updateGigRequest.Tags;
             existingGig.PackageType = updateGigRequest.PackageType;
             existingGig.PackageName = updateGigRequest.PackageName;
-            existingGig.PackageDetails = updateGigRequest.PackageDetails
-                                        .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                                                .Select(x => x.Trim())
-                                                .ToList();
+            existingGig.PackageDetails = string.IsNullOrWhiteSpace(updateGigRequest.PackageDetails)
+                                        ? new List<string>()
+                                        : updateGigRequest.PackageDetails
+                                            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                                            .Select(x => x.Trim())
+                                            .ToList();
             existingGig.DeliveryTime = "Per Day";
             existingGig.Price = updateGigRequest.Price;
             existingGig.Status = updateGigRequest.Status;
@@ -920,7 +937,35 @@ namespace Infrastructure.Content.Services
             }
 
             LogAuditEvent($"Gig with (ID: {gigId}) successfully updated", updateGigRequest.CaregiverId);
-            return $"Gig with ID '{gigId}' updated successfully.";
+
+            var updatedGigDTO = new GigDTO()
+            {
+                Id = existingGig.Id.ToString(),
+                Title = existingGig.Title,
+                Category = existingGig.Category,
+                SubCategory = existingGig.SubCategory
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim())
+                    .ToList(),
+                Tags = existingGig.Tags,
+                PackageType = existingGig.PackageType,
+                PackageName = existingGig.PackageName,
+                PackageDetails = existingGig.PackageDetails,
+                DeliveryTime = existingGig.DeliveryTime,
+                Price = existingGig.Price,
+                Image1 = existingGig.Image1,
+
+                Status = existingGig.Status,
+                CaregiverId = existingGig.CaregiverId,
+                CreatedAt = existingGig.CreatedAt,
+                UpdatedOn = existingGig.UpdatedOn,
+                EligibilityWarning = eligibilityWarning,
+                IsSpecialGig = existingGig.IsSpecialGig,
+                CareRequestId = existingGig.CareRequestId,
+                ScopedClientId = existingGig.ScopedClientId,
+            };
+
+            return updatedGigDTO;
 
         }
 
@@ -991,7 +1036,8 @@ namespace Infrastructure.Content.Services
                 var hasActiveOrders = await careProDbContext.ClientOrders
                     .AnyAsync(o => o.GigId == gigId
                         && o.ClientOrderStatus != null
-                        && o.ClientOrderStatus != "Completed");
+                        && o.ClientOrderStatus != "Completed"
+                        && o.ClientOrderStatus != "Superseded");
                 if (hasActiveOrders)
                 {
                     throw new InvalidOperationException(
@@ -1151,7 +1197,8 @@ namespace Infrastructure.Content.Services
                     var hasActiveOrders = await careProDbContext.ClientOrders
                         .AnyAsync(o => o.GigId == gigId
                             && o.ClientOrderStatus != null
-                            && o.ClientOrderStatus != "Completed");
+                            && o.ClientOrderStatus != "Completed"
+                            && o.ClientOrderStatus != "Superseded");
 
                     if (hasActiveContracts || hasActiveSubscriptions || hasActiveOrders)
                     {

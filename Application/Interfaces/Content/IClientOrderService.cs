@@ -38,5 +38,25 @@ namespace Application.Interfaces.Content
         /// </summary>
         Task<Result<string>> CancelOrderAsync(string orderId, string clientUserId, string? reason = null);
 
+        /// <summary>
+        /// Closes out the immediately-prior billing cycle's order for a subscription once a
+        /// renewal's replacement order has been created: releases any submitted-but-unapproved
+        /// visits to the caregiver, cancels remaining pending task sheets, and marks the previous
+        /// order "Superseded". No-op (logs only) if no supersedable previous order is found —
+        /// this is expected for a subscription's first renewal after this feature ships, since
+        /// historical orders were never linked to their subscription.
+        /// </summary>
+        Task SupersedeOrderForRenewalAsync(string subscriptionId, int newCycleNumber);
+
+        /// <summary>
+        /// Preventive check, called BEFORE a renewal creates its new order: returns true if
+        /// more than one non-terminal order already exists for this subscription. In healthy
+        /// operation this is always false, because each prior renewal supersedes its
+        /// predecessor before returning. If it's ever true, renewal must refuse to add a third
+        /// order on top rather than compounding the anomaly — this is what makes accumulating
+        /// simultaneous active orders structurally impossible, not just logged after the fact.
+        /// </summary>
+        Task<bool> HasConflictingActiveOrdersAsync(string subscriptionId);
+
     }
 }

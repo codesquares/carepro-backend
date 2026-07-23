@@ -62,6 +62,9 @@ namespace Application.Interfaces.Email
         Task SendDraftGeneratedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId);
         Task SendGigPausedEmailAsync(string toEmail, string firstName, string gigTitle, string gigId);
         Task SendGigDeletedEmailAsync(string toEmail, string firstName, string gigTitle);
+
+        // Referral program emails
+        Task SendReferralCodeEmailAsync(string toEmail, string firstName, string referralCode);
     }
 
     // Supporting classes for email service

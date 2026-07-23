@@ -40,6 +40,10 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrWhiteSpace(request.Email))
                 errors.Add("Email is required.");
 
+            var aliasValid = TryNormalizeAlias(request.Alias, out var normalizedAlias, out var aliasError);
+            if (!aliasValid)
+                errors.Add(aliasError!);
+
             if (errors.Any())
                 return Result<Referrer>.Failure(errors);
 
@@ -54,6 +58,8 @@ namespace Infrastructure.Content.Services
                 FullName = request.FullName.Trim(),
                 Email = normalizedEmail,
                 PhoneNo = string.IsNullOrWhiteSpace(request.PhoneNo) ? null : request.PhoneNo.Trim(),
+                Alias = normalizedAlias,
+                Status = ReferrerStatus.Approved,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -79,6 +85,81 @@ namespace Infrastructure.Content.Services
             return Result<Referrer>.Success(referrer);
         }
 
+        public async Task<Result<Referrer>> ApplyForReferrerAsync(ApplyForReferrerRequest request)
+        {
+            var errors = new List<string>();
+            if (string.IsNullOrWhiteSpace(request.FullName))
+                errors.Add("FullName is required.");
+            if (string.IsNullOrWhiteSpace(request.Email))
+                errors.Add("Email is required.");
+
+            var aliasValid = TryNormalizeAlias(request.Alias, out var normalizedAlias, out var aliasError);
+            if (!aliasValid)
+                errors.Add(aliasError!);
+
+            if (errors.Any())
+                return Result<Referrer>.Failure(errors);
+
+            var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+            var existing = await _dbContext.Referrers.FirstOrDefaultAsync(r => r.Email.ToLower() == normalizedEmail);
+            if (existing != null)
+                return Result<Referrer>.Failure(new List<string> { "A referrer with this email already exists." });
+
+            var referrer = new Referrer
+            {
+                Id = ObjectId.GenerateNewId(),
+                FullName = request.FullName.Trim(),
+                Email = normalizedEmail,
+                PhoneNo = string.IsNullOrWhiteSpace(request.PhoneNo) ? null : request.PhoneNo.Trim(),
+                Alias = normalizedAlias,
+                Status = ReferrerStatus.PendingApproval,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.Referrers.Add(referrer);
+            await _dbContext.SaveChangesAsync();
+            return Result<Referrer>.Success(referrer);
+        }
+
+        public async Task<Result<Referrer>> ApproveReferrerAsync(string referrerId)
+        {
+            var (referrer, error) = await GetPendingReferrerOrNullAsync(referrerId);
+            if (referrer == null)
+                return Result<Referrer>.Failure(new List<string> { error! });
+
+            referrer.Status = ReferrerStatus.Approved;
+            _dbContext.Referrers.Update(referrer);
+            await _dbContext.SaveChangesAsync();
+            return Result<Referrer>.Success(referrer);
+        }
+
+        public async Task<Result<Referrer>> RejectReferrerAsync(string referrerId)
+        {
+            var (referrer, error) = await GetPendingReferrerOrNullAsync(referrerId);
+            if (referrer == null)
+                return Result<Referrer>.Failure(new List<string> { error! });
+
+            referrer.Status = ReferrerStatus.Rejected;
+            _dbContext.Referrers.Update(referrer);
+            await _dbContext.SaveChangesAsync();
+            return Result<Referrer>.Success(referrer);
+        }
+
+        private async Task<(Referrer? Referrer, string? Error)> GetPendingReferrerOrNullAsync(string referrerId)
+        {
+            if (!ObjectId.TryParse(referrerId, out var referrerObjectId))
+                return (null, "Invalid ReferrerId format.");
+
+            var referrer = await _dbContext.Referrers.FindAsync(referrerObjectId);
+            if (referrer == null)
+                return (null, "Referrer not found.");
+
+            if (referrer.Status != ReferrerStatus.PendingApproval)
+                return (null, "Referrer is not pending approval.");
+
+            return (referrer, null);
+        }
+
         public async Task<Result<ReferralCode>> CreateReferralCodeAsync(string referrerId)
         {
             if (!ObjectId.TryParse(referrerId, out var referrerObjectId))
@@ -88,10 +169,17 @@ namespace Infrastructure.Content.Services
             if (referrer == null)
                 return Result<ReferralCode>.Failure(new List<string> { "Referrer not found." });
 
+            if (referrer.Status != ReferrerStatus.Approved)
+                return Result<ReferralCode>.Failure(new List<string> { "Referrer must be approved before generating a referral code." });
+
+            var alias = referrer.Alias;
+            if (string.IsNullOrWhiteSpace(alias))
+                return Result<ReferralCode>.Failure(new List<string> { "Referrer does not have an alias set. An alias is required to generate a code." });
+
             string code;
             do
             {
-                code = GenerateReferralCode();
+                code = GenerateReferralCode(alias);
             }
             while (await _dbContext.ReferralCodes.AnyAsync(rc => rc.Code == code));
 
@@ -110,9 +198,44 @@ namespace Infrastructure.Content.Services
             return Result<ReferralCode>.Success(referralCode);
         }
 
-        public async Task<List<ReferrerListItem>> GetReferrersAsync()
+        public async Task<Result<bool>> SendReferralCodeEmailAsync(string referralCodeId)
         {
-            return await _dbContext.Referrers
+            if (!ObjectId.TryParse(referralCodeId, out var codeObjectId))
+                return Result<bool>.Failure(new List<string> { "Invalid referral code ID format." });
+
+            var code = await _dbContext.ReferralCodes.FindAsync(codeObjectId);
+            if (code == null)
+                return Result<bool>.Failure(new List<string> { "Referral code not found." });
+
+            var referrer = await _dbContext.Referrers.FirstOrDefaultAsync(r => r.Id.ToString() == code.ReferrerId);
+            if (referrer == null)
+                return Result<bool>.Failure(new List<string> { "Referrer not found for this referral code." });
+
+            if (string.IsNullOrWhiteSpace(referrer.Email))
+                return Result<bool>.Failure(new List<string> { "Referrer has no email on file." });
+
+            var firstName = referrer.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "there";
+
+            try
+            {
+                await _emailService.SendReferralCodeEmailAsync(referrer.Email, firstName, code.Code);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send referral code email for ReferralCodeId {ReferralCodeId}", code.Id);
+                return Result<bool>.Failure(new List<string> { "Failed to send referral code email." });
+            }
+
+            return Result<bool>.Success(true);
+        }
+
+        public async Task<List<ReferrerListItem>> GetReferrersAsync(string? status = null)
+        {
+            var query = _dbContext.Referrers.AsQueryable();
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(r => r.Status == status);
+
+            return await query
                 .OrderByDescending(r => r.CreatedAt)
                 .Select(r => new ReferrerListItem
                 {
@@ -120,6 +243,8 @@ namespace Infrastructure.Content.Services
                     FullName = r.FullName,
                     Email = r.Email,
                     PhoneNo = r.PhoneNo,
+                    Alias = r.Alias ?? string.Empty,
+                    Status = r.Status ?? string.Empty,
                     CreatedAt = r.CreatedAt
                 })
                 .ToListAsync();
@@ -347,10 +472,32 @@ namespace Infrastructure.Content.Services
             }).ToList();
         }
 
-        private static string GenerateReferralCode()
+        private static string GenerateReferralCode(string alias)
         {
-            var shortCode = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
-            return $"CAREPRO-REF-{DateTime.UtcNow:yyyyMMdd}-{shortCode}";
+            var suffix = Random.Shared.Next(0, 10000).ToString("D4");
+            return $"{alias.ToUpperInvariant()}{suffix}";
+        }
+
+        private static bool TryNormalizeAlias(string? alias, out string normalizedAlias, out string? error)
+        {
+            normalizedAlias = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(alias))
+            {
+                error = "Alias is required.";
+                return false;
+            }
+
+            var trimmed = alias.Trim();
+            if (trimmed.Length < 3 || trimmed.Length > 20 || !trimmed.All(char.IsLetterOrDigit))
+            {
+                error = "Alias must be 3-20 alphanumeric characters (letters and numbers only).";
+                return false;
+            }
+
+            normalizedAlias = trimmed.ToLowerInvariant();
+            error = null;
+            return true;
         }
 
         private static string NormalizePhone(string phone)

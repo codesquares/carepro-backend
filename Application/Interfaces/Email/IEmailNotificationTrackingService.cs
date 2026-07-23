@@ -61,5 +61,19 @@ namespace Application.Interfaces.Email
         /// Check user's email notification preferences
         /// </summary>
         Task<bool> ShouldSendEmailToUserAsync(string userId, string notificationType);
+
+        /// <summary>
+        /// Pure evaluation of "does this preference record indicate general marketing/promotional
+        /// consent" (EmailNotifications AND (MarketingEmails OR Promotions)) — the single source
+        /// of truth for that field-level logic, shared by <see cref="ShouldSendEmailToUserAsync"/>
+        /// and any other consumer (e.g. third-party marketing sync) that needs the same check.
+        /// Deliberately takes an already-loaded preference object rather than a userId — what a
+        /// caller does when the record itself is missing (opt-in by default here vs. opt-out
+        /// elsewhere) is a caller-level decision, not part of this shared evaluation.
+        /// </summary>
+        bool HasGeneralMarketingConsent(CaregiverNotificationPreferences? preferences);
+
+        /// <inheritdoc cref="HasGeneralMarketingConsent(CaregiverNotificationPreferences?)"/>
+        bool HasGeneralMarketingConsent(NotificationPreferences? preferences);
     }
 }

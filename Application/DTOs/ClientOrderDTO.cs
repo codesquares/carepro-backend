@@ -96,6 +96,12 @@ namespace Application.DTOs
         public int? FrequencyPerWeek { get; set; }
         public string? ServiceType { get; set; }
         public int? BillingCycleNumber { get; set; }
+
+        /// <summary>
+        /// For recurring orders: the subscription that generated this order, so renewal
+        /// cycles can be linked together and the previous cycle's order can be closed out.
+        /// </summary>
+        public string? SubscriptionId { get; set; }
     }
 
     public class UpdateClientOrderStatusRequest

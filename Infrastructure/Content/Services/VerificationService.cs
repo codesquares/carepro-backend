@@ -19,6 +19,7 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext careProDbContext;
         private readonly ICareGiverService careGiverService;
+        private readonly ICaregiverEligibilityChangeNotifier eligibilityChangeNotifier;
         private readonly ILogger<VerificationService> logger;
         private readonly IConfiguration configuration;
 
@@ -31,11 +32,13 @@ namespace Infrastructure.Content.Services
         public VerificationService(
             CareProDbContext careProDbContext,
             ICareGiverService careGiverService,
+            ICaregiverEligibilityChangeNotifier eligibilityChangeNotifier,
             ILogger<VerificationService> logger,
             IConfiguration configuration)
         {
             this.careProDbContext = careProDbContext;
             this.careGiverService = careGiverService;
+            this.eligibilityChangeNotifier = eligibilityChangeNotifier;
             this.logger = logger;
             this.configuration = configuration;
         }
@@ -377,6 +380,8 @@ namespace Infrastructure.Content.Services
                     return;
                 }
 
+                var wasVerified = caregiver.IsIdentityVerified == true;
+
                 caregiver.IsIdentityVerified = isVerified;
                 caregiver.IdentityVerificationStatus = verificationStatus;
                 if (isVerified)
@@ -386,6 +391,14 @@ namespace Infrastructure.Content.Services
 
                 await careProDbContext.SaveChangesAsync();
                 logger.LogInformation("Updated caregiver profile verification state for UserId: {UserId}, IsIdentityVerified: {IsVerified}", userId, isVerified);
+
+                // Verification just flipped to not-verified — if this caregiver has a client's
+                // hire in flight, the client needs to know before they pay for a caregiver who
+                // can no longer be scheduled.
+                if (wasVerified && !isVerified)
+                {
+                    await eligibilityChangeNotifier.NotifyIfActiveHireAffectedAsync(userId);
+                }
             }
             catch (Exception ex)
             {

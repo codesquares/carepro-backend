@@ -156,6 +156,8 @@ builder.Services.AddScoped<IUserDeletionService, UserDeletionService>();
 builder.Services.AddScoped<IQuestionBankService, QuestionBankService>();
 builder.Services.AddScoped<IAssessmentService, AssessmentService>();
 builder.Services.AddScoped<IEligibilityService, EligibilityService>();
+builder.Services.AddScoped<ICaregiverReadinessService, CaregiverReadinessService>();
+builder.Services.AddScoped<ICaregiverEligibilityChangeNotifier, CaregiverEligibilityChangeNotifier>();
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICaregiverPreferenceService, CaregiverPreferenceService>();
 builder.Services.AddScoped<IClientOnboardingService, ClientOnboardingService>();
@@ -180,6 +182,19 @@ builder.Services.AddSingleton(System.Threading.Channels.Channel.CreateUnbounded<
 builder.Services.AddScoped<IPushService, WebPushService>();
 builder.Services.AddHostedService<PushBackgroundConsumer>();
 builder.Services.AddHttpClient("WebPush");
+
+// Brevo marketing contact/list sync (segmentation for campaigns — separate from the
+// transactional SMTP relay configured via MailSettings)
+builder.Services.Configure<BrevoSettings>(builder.Configuration.GetSection("Brevo"));
+builder.Services.PostConfigure<BrevoSettings>(opts =>
+{
+    opts.ApiKey ??= Environment.GetEnvironmentVariable("Brevo__ApiKey");
+});
+builder.Services.AddSingleton(System.Threading.Channels.Channel.CreateUnbounded<Application.DTOs.BrevoSyncJob>());
+builder.Services.AddScoped<IBrevoService, BrevoService>();
+builder.Services.AddHttpClient<IBrevoService, BrevoService>();
+builder.Services.AddScoped<IMarketingSyncService, MarketingSyncService>();
+builder.Services.AddHostedService<BrevoSyncBackgroundConsumer>();
 
 // Care request matching engine
 builder.Services.AddScoped<ICareRequestMatchingService, CareRequestMatchingService>();
