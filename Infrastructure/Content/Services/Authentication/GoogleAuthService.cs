@@ -398,7 +398,6 @@ namespace Infrastructure.Content.Services.Authentication
                     EmailNotifications = true,
                     SmsNotifications = true,
                     MarketingEmails = request.MarketingConsent,
-                    Promotions = request.MarketingConsent,
                     NewGig = request.MarketingConsent,
                     CareRequestUpdates = request.MarketingConsent
                 },

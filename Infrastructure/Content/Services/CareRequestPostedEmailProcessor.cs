@@ -159,7 +159,7 @@ namespace Infrastructure.Content.Services
                             caregiver.FirstName,
                             subject,
                             html,
-                            preferenceGated: true);
+                            includeUnsubscribeHeader: true);
 
                         log.IsSent = true;
                         log.SentAt = DateTime.UtcNow;

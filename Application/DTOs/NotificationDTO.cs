@@ -183,7 +183,6 @@ namespace Application.DTOs
         public const string ChatViolationFlagged = "chat_violation_flagged";
 
         // ── Care Request Matching ──
-        public const string CareRequestMatched = "care_request_matched";
         public const string CareRequestNoMatch = "care_request_no_match";
         public const string CareRequestAdminMatchUpdate = "care_request_admin_match_update";
         public const string CareRequestAdminNoMatch = "care_request_admin_no_match";

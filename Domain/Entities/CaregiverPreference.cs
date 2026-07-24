@@ -39,11 +39,11 @@ namespace Domain.Entities
         [BsonElement("smsNotifications")]
         public bool SmsNotifications { get; set; } = true;
 
+        // Collapsed with the former "promotions" flag — the two had identical effect
+        // (see EmailNotificationTrackingService.HasGeneralMarketingConsent), so this is
+        // now the single marketing-consent toggle.
         [BsonElement("marketingEmails")]
         public bool MarketingEmails { get; set; } = false;
-
-        [BsonElement("promotions")]
-        public bool Promotions { get; set; } = false;
 
         // Maps to notification type: new_gig
         [BsonElement("newGig")]

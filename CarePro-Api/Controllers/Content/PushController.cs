@@ -27,7 +27,8 @@ namespace CarePro_Api.Controllers.Content
 
         private string? GetCurrentUserId() =>
             User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue("userId");
 
         // -----------------------------------------------------------------------
         // GET /api/push/vapid-public-key

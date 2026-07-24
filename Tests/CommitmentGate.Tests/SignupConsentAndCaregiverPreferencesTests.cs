@@ -140,13 +140,12 @@ public class SignupConsentAndCaregiverPreferencesTests
         Assert.NotNull(caregiverPreference);
         Assert.NotNull(caregiverPreference!.NotificationPreferences);
         Assert.False(caregiverPreference.NotificationPreferences!.MarketingEmails);
-        Assert.False(caregiverPreference.NotificationPreferences.Promotions);
         Assert.False(caregiverPreference.NotificationPreferences.NewGig);
         Assert.False(caregiverPreference.NotificationPreferences.CareRequestUpdates);
 
         Console.WriteLine("SIGNUP_CONSENT_EVIDENCE_BEGIN");
         Console.WriteLine($"clientMarketingEmails={clientPreference.NotificationPreferences.MarketingEmails} clientPromotions={clientPreference.NotificationPreferences.Promotions}");
-        Console.WriteLine($"caregiverMarketingEmails={caregiverPreference.NotificationPreferences.MarketingEmails} caregiverPromotions={caregiverPreference.NotificationPreferences.Promotions} caregiverNewGig={caregiverPreference.NotificationPreferences.NewGig} caregiverCareRequestUpdates={caregiverPreference.NotificationPreferences.CareRequestUpdates}");
+        Console.WriteLine($"caregiverMarketingEmails={caregiverPreference.NotificationPreferences.MarketingEmails} caregiverNewGig={caregiverPreference.NotificationPreferences.NewGig} caregiverCareRequestUpdates={caregiverPreference.NotificationPreferences.CareRequestUpdates}");
         Console.WriteLine("SIGNUP_CONSENT_EVIDENCE_END");
     }
 
@@ -201,7 +200,6 @@ public class SignupConsentAndCaregiverPreferencesTests
                 EmailNotifications = true,
                 SmsNotifications = true,
                 MarketingEmails = true,
-                Promotions = true,
                 NewGig = true,
                 CareRequestUpdates = false
             });
@@ -236,7 +234,6 @@ public class SignupConsentAndCaregiverPreferencesTests
                 EmailNotifications = true,
                 SmsNotifications = true,
                 MarketingEmails = true,
-                Promotions = true,
                 NewGig = false,
                 CareRequestUpdates = true
             });
@@ -248,6 +245,101 @@ public class SignupConsentAndCaregiverPreferencesTests
         Console.WriteLine($"newGigAllowedBeforeOptOut={newGigAllowed} careRequestBlocked={careRequestBlocked} transactionalStillAllowed={transactionalStillAllowed}");
         Console.WriteLine($"newGigBlockedAfterOptOut={newGigBlockedAfterOptOut}");
         Console.WriteLine("CAREGIVER_PREF_GATE_EVIDENCE_END");
+    }
+
+    /// <summary>
+    /// NewGig/CareRequestUpdates must NOT depend on marketing consent — a caregiver who
+    /// declines marketing but explicitly wants business-critical notifications (their actual
+    /// income opportunities) must still receive them. Before the fix, both were silently
+    /// gated behind HasGeneralMarketingConsent (EmailNotifications && MarketingEmails), so a
+    /// caregiver in exactly this configuration received neither.
+    /// </summary>
+    [Fact]
+    public async Task NewGigAndCareRequestUpdates_AreIndependentOfMarketingConsent()
+    {
+        using var db = CreateDb();
+
+        var caregiverId = ObjectId.GenerateNewId();
+        var caregiverIdText = caregiverId.ToString();
+
+        db.CareGivers.Add(new Caregiver
+        {
+            Id = caregiverId,
+            FirstName = "NoMarketing",
+            LastName = "Tester",
+            Email = "no-marketing-tester@example.com",
+            Password = "hashed",
+            Role = "Caregiver",
+            Status = true,
+            IsAvailable = true,
+            IsDeleted = false,
+            HomeAddress = "1 Preference Road",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        db.AppUsers.Add(new AppUser
+        {
+            Id = ObjectId.GenerateNewId(),
+            AppUserId = caregiverId,
+            Email = "no-marketing-tester@example.com",
+            FirstName = "NoMarketing",
+            LastName = "Tester",
+            Role = "Caregiver",
+            Password = "hashed",
+            IsDeleted = false,
+            CreatedAt = DateTime.UtcNow,
+            EmailConfirmed = true
+        });
+
+        await db.SaveChangesAsync();
+
+        var preferenceService = new CaregiverPreferenceService(db);
+        var controller = new CaregiverPreferencesController(
+            preferenceService,
+            Mock.Of<ILogger<CaregiverPreferencesController>>());
+
+        // Marketing explicitly OFF, but business-critical toggles explicitly ON.
+        await controller.UpdateNotificationPreferencesAsync(
+            caregiverIdText,
+            new UpdateCaregiverNotificationPreferencesRequest
+            {
+                EmailNotifications = true,
+                SmsNotifications = true,
+                MarketingEmails = false,
+                NewGig = true,
+                CareRequestUpdates = true
+            });
+
+        var trackingService = new EmailNotificationTrackingService(db, Mock.Of<ILogger<EmailNotificationTrackingService>>());
+
+        var newGigAllowed = await trackingService.ShouldSendEmailToUserAsync(caregiverIdText, NotificationTypes.NewGig);
+        var careRequestAllowed = await trackingService.ShouldSendEmailToUserAsync(caregiverIdText, NotificationTypes.CareRequestNewMatch);
+
+        Assert.True(newGigAllowed);
+        Assert.True(careRequestAllowed);
+
+        // EmailNotifications OFF must still block everything, including these two.
+        await controller.UpdateNotificationPreferencesAsync(
+            caregiverIdText,
+            new UpdateCaregiverNotificationPreferencesRequest
+            {
+                EmailNotifications = false,
+                SmsNotifications = true,
+                MarketingEmails = false,
+                NewGig = true,
+                CareRequestUpdates = true
+            });
+
+        var newGigBlockedByEmailOff = await trackingService.ShouldSendEmailToUserAsync(caregiverIdText, NotificationTypes.NewGig);
+        var careRequestBlockedByEmailOff = await trackingService.ShouldSendEmailToUserAsync(caregiverIdText, NotificationTypes.CareRequestNewMatch);
+
+        Assert.False(newGigBlockedByEmailOff);
+        Assert.False(careRequestBlockedByEmailOff);
+
+        Console.WriteLine("MARKETING_INDEPENDENCE_EVIDENCE_BEGIN");
+        Console.WriteLine($"newGigAllowed(marketingOff,emailOn)={newGigAllowed} careRequestAllowed(marketingOff,emailOn)={careRequestAllowed}");
+        Console.WriteLine($"newGigBlocked(emailOff)={!newGigBlockedByEmailOff} careRequestBlocked(emailOff)={!careRequestBlockedByEmailOff}");
+        Console.WriteLine("MARKETING_INDEPENDENCE_EVIDENCE_END");
     }
 
     private static CareProDbContext CreateDb()

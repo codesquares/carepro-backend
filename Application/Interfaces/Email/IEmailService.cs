@@ -17,7 +17,12 @@ namespace Application.Interfaces.Email
         Task SendNewGigNotificationEmailAsync(string toEmail, string firstName, string gigDetails);
         Task SendSystemNotificationEmailAsync(string toEmail, string firstName, string title, string content);
         Task SendWithdrawalStatusEmailAsync(string toEmail, string firstName, string status, string content);
-        Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content, bool preferenceGated = false);
+        // includeUnsubscribeHeader only adds the List-Unsubscribe headers — it does not gate the send.
+        // Pass gateUserId/gateNotificationType together to actually enforce ShouldSendEmailToUserAsync
+        // before sending; omit them (as most callers already correctly gated upstream do) to keep the
+        // existing header-only behavior.
+        Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content,
+            bool includeUnsubscribeHeader = false, string? gateUserId = null, string? gateNotificationType = null);
         
         // Payment-related notification methods
         Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId);

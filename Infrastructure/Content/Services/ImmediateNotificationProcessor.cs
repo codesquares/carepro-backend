@@ -262,25 +262,25 @@ namespace Infrastructure.Content.Services
                 case NotificationTypes.GigPublished:
                     await emailService.SendGenericNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
-                        "Your Gig Is Now Live - CarePro", notification.Content, preferenceGated: true);
+                        "Your Gig Is Now Live - CarePro", notification.Content, includeUnsubscribeHeader: true);
                     break;
 
                 case NotificationTypes.DraftGenerated:
                     await emailService.SendGenericNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
-                        "Gig Draft Saved - CarePro", notification.Content, preferenceGated: true);
+                        "Gig Draft Saved - CarePro", notification.Content, includeUnsubscribeHeader: true);
                     break;
 
                 case NotificationTypes.GigPaused:
                     await emailService.SendGenericNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
-                        "Your Gig Has Been Paused - CarePro", notification.Content, preferenceGated: true);
+                        "Your Gig Has Been Paused - CarePro", notification.Content, includeUnsubscribeHeader: true);
                     break;
 
                 case NotificationTypes.GigDeleted:
                     await emailService.SendGenericNotificationEmailAsync(
                         recipient.Email, recipient.FirstName ?? "User",
-                        "Your Gig Has Been Deleted - CarePro", notification.Content, preferenceGated: true);
+                        "Your Gig Has Been Deleted - CarePro", notification.Content, includeUnsubscribeHeader: true);
                     break;
 
                 default:

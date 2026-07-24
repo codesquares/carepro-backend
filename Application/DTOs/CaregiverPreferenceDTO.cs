@@ -18,7 +18,6 @@ namespace Application.DTOs
         public bool EmailNotifications { get; set; }
         public bool SmsNotifications { get; set; }
         public bool MarketingEmails { get; set; }
-        public bool Promotions { get; set; }
         public bool NewGig { get; set; }
         public bool CareRequestUpdates { get; set; }
     }
@@ -28,7 +27,6 @@ namespace Application.DTOs
         public bool EmailNotifications { get; set; }
         public bool SmsNotifications { get; set; }
         public bool MarketingEmails { get; set; }
-        public bool Promotions { get; set; }
         public bool NewGig { get; set; }
         public bool CareRequestUpdates { get; set; }
     }

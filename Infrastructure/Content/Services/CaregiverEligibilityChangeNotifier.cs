@@ -94,7 +94,7 @@ namespace Infrastructure.Content.Services
                                     <p>The caregiver you hired for <strong>{careRequest.Title}</strong> is no longer available for this request.</p>
                                     <p>Log in to browse other caregivers who match your request, or contact support if you have questions about a refund.</p>
                                     <p>— The CarePro Team</p>";
-                                await _emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, html, preferenceGated: true);
+                                await _emailService.SendGenericNotificationEmailAsync(client.Email, client.FirstName, subject, html, includeUnsubscribeHeader: true);
                             }
                         }
                     }

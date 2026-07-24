@@ -502,23 +502,35 @@ public class CaregiverReadinessAndSafeguardsTests
         using var db = CreateDb();
         var service = CreateTrackingService(db);
 
-        var prefs = new CaregiverNotificationPreferences { EmailNotifications = false, MarketingEmails = true, Promotions = true };
+        var prefs = new CaregiverNotificationPreferences { EmailNotifications = false, MarketingEmails = true };
         Assert.False(service.HasGeneralMarketingConsent(prefs));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void HasGeneralMarketingConsent_Caregiver_GatesOnMarketingEmailsOnly(bool marketing, bool expected)
+    {
+        using var db = CreateDb();
+        var service = CreateTrackingService(db);
+
+        // Caregiver preferences have a single marketing toggle (the former "promotions"
+        // flag was collapsed into MarketingEmails — they had identical effect).
+        var caregiverPrefs = new CaregiverNotificationPreferences { EmailNotifications = true, MarketingEmails = marketing };
+        Assert.Equal(expected, service.HasGeneralMarketingConsent(caregiverPrefs));
     }
 
     [Theory]
     [InlineData(true, false, true)]
     [InlineData(false, true, true)]
     [InlineData(false, false, false)]
-    public void HasGeneralMarketingConsent_EitherFlagGrantsConsent(bool marketing, bool promotions, bool expected)
+    public void HasGeneralMarketingConsent_Client_EitherFlagGrantsConsent(bool marketing, bool promotions, bool expected)
     {
         using var db = CreateDb();
         var service = CreateTrackingService(db);
 
-        var caregiverPrefs = new CaregiverNotificationPreferences { EmailNotifications = true, MarketingEmails = marketing, Promotions = promotions };
         var clientPrefs = new NotificationPreferences { EmailNotifications = true, MarketingEmails = marketing, Promotions = promotions };
 
-        Assert.Equal(expected, service.HasGeneralMarketingConsent(caregiverPrefs));
         Assert.Equal(expected, service.HasGeneralMarketingConsent(clientPrefs));
     }
 }

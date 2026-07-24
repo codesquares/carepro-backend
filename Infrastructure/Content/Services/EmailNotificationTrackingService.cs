@@ -68,7 +68,6 @@ namespace Infrastructure.Content.Services
             NotificationTypes.DraftGenerated,
             NotificationTypes.GigPaused,
             NotificationTypes.GigDeleted,
-            NotificationTypes.CareRequestMatched,
             NotificationTypes.CareRequestNewMatch,
             NotificationTypes.CareRequestNewResponder,
             NotificationTypes.CareRequestShortlisted,
@@ -85,7 +84,6 @@ namespace Infrastructure.Content.Services
 
         private readonly HashSet<string> _caregiverCareRequestTypes = new()
         {
-            NotificationTypes.CareRequestMatched,
             NotificationTypes.CareRequestNewMatch,
             NotificationTypes.CareRequestNewResponder,
             NotificationTypes.CareRequestShortlisted,
@@ -406,22 +404,21 @@ namespace Infrastructure.Content.Services
                     }
 
                     var caregiverPrefs = caregiverPreference.NotificationPreferences;
-                    if (!HasGeneralMarketingConsent(caregiverPrefs))
-                    {
-                        return false;
-                    }
 
+                    // Business-critical notifications (a caregiver's actual income opportunities)
+                    // gate on EmailNotifications alone — they must not depend on marketing consent.
                     if (_caregiverNewGigTypes.Contains(notificationType))
                     {
-                        return caregiverPrefs.NewGig;
+                        return caregiverPrefs.EmailNotifications && caregiverPrefs.NewGig;
                     }
 
                     if (_caregiverCareRequestTypes.Contains(notificationType))
                     {
-                        return caregiverPrefs.CareRequestUpdates;
+                        return caregiverPrefs.EmailNotifications && caregiverPrefs.CareRequestUpdates;
                     }
 
-                    return true;
+                    // Remaining caregiver lifecycle/engagement mail still requires general marketing consent.
+                    return HasGeneralMarketingConsent(caregiverPrefs);
                 }
 
                 // For client lifecycle/engagement mail, honor client NotificationPreferences.
@@ -447,7 +444,7 @@ namespace Infrastructure.Content.Services
         public bool HasGeneralMarketingConsent(CaregiverNotificationPreferences? preferences)
         {
             if (preferences == null) return false;
-            return preferences.EmailNotifications && (preferences.MarketingEmails || preferences.Promotions);
+            return preferences.EmailNotifications && preferences.MarketingEmails;
         }
 
         public bool HasGeneralMarketingConsent(NotificationPreferences? preferences)

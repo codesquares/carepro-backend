@@ -203,7 +203,6 @@ namespace Infrastructure.Content.Services
                     EmailNotifications = true,
                     SmsNotifications = true,
                     MarketingEmails = addCaregiverRequest.MarketingConsent,
-                    Promotions = addCaregiverRequest.MarketingConsent,
                     NewGig = addCaregiverRequest.MarketingConsent,
                     CareRequestUpdates = addCaregiverRequest.MarketingConsent
                 },

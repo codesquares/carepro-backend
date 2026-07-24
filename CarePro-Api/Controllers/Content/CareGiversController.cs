@@ -546,6 +546,7 @@ namespace CarePro_Api.Controllers.Content
 
 
         [HttpPost("change-password")]
+        [Authorize(Roles = "Caregiver")]
         public async Task<IActionResult> ChangePassword([FromBody] ResetPasswordRequest request)
         {
             if (!ModelState.IsValid)

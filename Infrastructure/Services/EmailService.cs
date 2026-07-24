@@ -28,13 +28,15 @@ namespace Infrastructure.Services
         private readonly CareProDbContext careProDbContext;
         private readonly ITokenHandler tokenHandler;
         private readonly ILogger<EmailService> _logger;
+        private readonly IEmailNotificationTrackingService _trackingService;
 
-        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler, ILogger<EmailService> logger)
+        public EmailService(IOptions<MailSettings> emailSettingsOptions, CareProDbContext careProDbContext, ITokenHandler tokenHandler, ILogger<EmailService> logger, IEmailNotificationTrackingService trackingService)
         {
             this.emailSettings = emailSettingsOptions.Value;
             this.careProDbContext = careProDbContext;
             this.tokenHandler = tokenHandler;
             this._logger = logger;
+            this._trackingService = trackingService;
         }
 
         public async Task SendNotificationEmailAsync(string toEmail, string firstName, int messageCount)
@@ -259,8 +261,21 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
-        public async Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content, bool preferenceGated = false)
+        public async Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content,
+            bool includeUnsubscribeHeader = false, string? gateUserId = null, string? gateNotificationType = null)
         {
+            if (gateUserId != null && gateNotificationType != null)
+            {
+                var shouldSend = await _trackingService.ShouldSendEmailToUserAsync(gateUserId, gateNotificationType);
+                if (!shouldSend)
+                {
+                    _logger.LogInformation(
+                        "Skipping generic notification email to {ToEmail}: user {UserId} preferences block type {NotificationType}",
+                        toEmail, gateUserId, gateNotificationType);
+                    return;
+                }
+            }
+
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
@@ -277,7 +292,7 @@ namespace Infrastructure.Services
             };
 
             message.Body = builder.ToMessageBody();
-            if (preferenceGated)
+            if (includeUnsubscribeHeader)
             {
                 await ApplyUnsubscribeMetadataAsync(message, toEmail, LifecyclePreferenceScope);
             }

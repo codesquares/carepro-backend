@@ -6,6 +6,7 @@ using Application.Interfaces.Authentication;
 using Domain.Entities;
 using Domain.Settings;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Services;
 using Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -53,7 +54,8 @@ public class EmailUnsubscribeHeaderTests
         });
 
         var logger = Mock.Of<ILogger<EmailService>>();
-        var service = new EmailService(options, db, tokenHandler, logger);
+        var trackingService = new EmailNotificationTrackingService(db, Mock.Of<ILogger<EmailNotificationTrackingService>>());
+        var service = new EmailService(options, db, tokenHandler, logger, trackingService);
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress("CarePro", "no-reply@example.com"));

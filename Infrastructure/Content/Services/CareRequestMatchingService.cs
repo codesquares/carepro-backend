@@ -706,7 +706,11 @@ namespace Infrastructure.Content.Services
                 <p>Log in to your dashboard to <strong>view the request details</strong> and respond if you're interested.</p>
                 <p>— The CarePro Team</p>";
 
-            await _emailService.SendGenericNotificationEmailAsync(caregiver.Email, caregiver.FirstName, subject, htmlContent, preferenceGated: true);
+            await _emailService.SendGenericNotificationEmailAsync(
+                caregiver.Email, caregiver.FirstName, subject, htmlContent,
+                includeUnsubscribeHeader: true,
+                gateUserId: match.CaregiverId,
+                gateNotificationType: NotificationTypes.CareRequestNewMatch);
         }
 
         private async Task NotifyAdminsAsync(string type, string content, string title, string relatedEntityId)

@@ -31,7 +31,6 @@ namespace Infrastructure.Content.Services
                     EmailNotifications = true,
                     SmsNotifications = true,
                     MarketingEmails = false,
-                    Promotions = false,
                     NewGig = false,
                     CareRequestUpdates = false
                 };
@@ -42,7 +41,6 @@ namespace Infrastructure.Content.Services
                 EmailNotifications = caregiverPreference.NotificationPreferences.EmailNotifications,
                 SmsNotifications = caregiverPreference.NotificationPreferences.SmsNotifications,
                 MarketingEmails = caregiverPreference.NotificationPreferences.MarketingEmails,
-                Promotions = caregiverPreference.NotificationPreferences.Promotions,
                 NewGig = caregiverPreference.NotificationPreferences.NewGig,
                 CareRequestUpdates = caregiverPreference.NotificationPreferences.CareRequestUpdates
             };
@@ -80,7 +78,6 @@ namespace Infrastructure.Content.Services
                         EmailNotifications = updateRequest.EmailNotifications,
                         SmsNotifications = updateRequest.SmsNotifications,
                         MarketingEmails = updateRequest.MarketingEmails,
-                        Promotions = updateRequest.Promotions,
                         NewGig = updateRequest.NewGig,
                         CareRequestUpdates = updateRequest.CareRequestUpdates
                     },
@@ -96,7 +93,6 @@ namespace Infrastructure.Content.Services
                 caregiverPreference.NotificationPreferences.EmailNotifications = updateRequest.EmailNotifications;
                 caregiverPreference.NotificationPreferences.SmsNotifications = updateRequest.SmsNotifications;
                 caregiverPreference.NotificationPreferences.MarketingEmails = updateRequest.MarketingEmails;
-                caregiverPreference.NotificationPreferences.Promotions = updateRequest.Promotions;
                 caregiverPreference.NotificationPreferences.NewGig = updateRequest.NewGig;
                 caregiverPreference.NotificationPreferences.CareRequestUpdates = updateRequest.CareRequestUpdates;
                 caregiverPreference.UpdatedOn = DateTime.UtcNow;
@@ -111,7 +107,6 @@ namespace Infrastructure.Content.Services
                 EmailNotifications = caregiverPreference.NotificationPreferences.EmailNotifications,
                 SmsNotifications = caregiverPreference.NotificationPreferences.SmsNotifications,
                 MarketingEmails = caregiverPreference.NotificationPreferences.MarketingEmails,
-                Promotions = caregiverPreference.NotificationPreferences.Promotions,
                 NewGig = caregiverPreference.NotificationPreferences.NewGig,
                 CareRequestUpdates = caregiverPreference.NotificationPreferences.CareRequestUpdates
             };
@@ -132,7 +127,6 @@ namespace Infrastructure.Content.Services
                     NotificationPreferences = new CaregiverNotificationPreferences
                     {
                         MarketingEmails = marketingConsent,
-                        Promotions = marketingConsent,
                         NewGig = marketingConsent,
                         CareRequestUpdates = marketingConsent
                     },
@@ -146,7 +140,6 @@ namespace Infrastructure.Content.Services
             {
                 caregiverPreference.NotificationPreferences ??= new CaregiverNotificationPreferences();
                 caregiverPreference.NotificationPreferences.MarketingEmails = marketingConsent;
-                caregiverPreference.NotificationPreferences.Promotions = marketingConsent;
                 caregiverPreference.NotificationPreferences.NewGig = marketingConsent;
                 caregiverPreference.NotificationPreferences.CareRequestUpdates = marketingConsent;
                 caregiverPreference.UpdatedOn = DateTime.UtcNow;
