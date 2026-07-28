@@ -116,7 +116,7 @@ public class EmailCompliancePreferenceTests
     {
         var settings = new Dictionary<string, string?>
         {
-            ["JwtSettings:Secret"] = "12345678901234567890123456789012",
+            ["JwtSettings:Secret"] = "12345678901234567890123456789012", // pragma: allowlist-secret
             ["JwtSettings:Issuer"] = "carepro-tests",
             ["JwtSettings:Audience"] = "carepro-tests-audience"
         };

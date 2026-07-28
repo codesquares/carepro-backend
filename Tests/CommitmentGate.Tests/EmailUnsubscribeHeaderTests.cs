@@ -50,7 +50,7 @@ public class EmailUnsubscribeHeaderTests
             FromEmail = "no-reply@example.com",
             SmtpServer = "localhost",
             SmtpPort = 1025,
-            AppPassword = "not-used-in-this-test"
+            AppPassword = "not-used-in-this-test" // pragma: allowlist-secret
         });
 
         var logger = Mock.Of<ILogger<EmailService>>();
@@ -111,7 +111,7 @@ public class EmailUnsubscribeHeaderTests
     {
         var settings = new Dictionary<string, string?>
         {
-            ["JwtSettings:Secret"] = "12345678901234567890123456789012",
+            ["JwtSettings:Secret"] = "12345678901234567890123456789012", // pragma: allowlist-secret
             ["JwtSettings:Issuer"] = "carepro-tests",
             ["JwtSettings:Audience"] = "carepro-tests-audience"
         };

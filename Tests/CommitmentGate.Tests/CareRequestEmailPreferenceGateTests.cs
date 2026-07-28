@@ -275,7 +275,7 @@ public class CareRequestEmailPreferenceGateTests
             FromEmail = "no-reply@example.com",
             SmtpServer = "127.0.0.1",
             SmtpPort = 1, // unbound loopback port: real connection attempts are refused instantly
-            AppPassword = "not-used-in-this-test"
+            AppPassword = "not-used-in-this-test" // pragma: allowlist-secret
         });
 
         var tokenHandler = CreateTokenHandler();
@@ -294,7 +294,7 @@ public class CareRequestEmailPreferenceGateTests
             FromEmail = "no-reply@example.com",
             SmtpServer = "127.0.0.1",
             SmtpPort = 1, // unbound loopback port: real connection attempts are refused instantly
-            AppPassword = "not-used-in-this-test"
+            AppPassword = "not-used-in-this-test" // pragma: allowlist-secret
         });
 
         var tokenHandler = CreateTokenHandler();
@@ -318,7 +318,7 @@ public class CareRequestEmailPreferenceGateTests
     {
         var settings = new Dictionary<string, string?>
         {
-            ["JwtSettings:Secret"] = "12345678901234567890123456789012",
+            ["JwtSettings:Secret"] = "12345678901234567890123456789012", // pragma: allowlist-secret
             ["JwtSettings:Issuer"] = "carepro-tests",
             ["JwtSettings:Audience"] = "carepro-tests-audience"
         };

@@ -95,7 +95,7 @@ public class SignupConsentAndCaregiverPreferencesTests
             FirstName = "Client",
             LastName = "Consent",
             Email = "client-consent@example.com",
-            Password = "Password123",
+            Password = "Password123", // pragma: allowlist-secret
             HomeAddress = "123 Main Street",
             MarketingConsent = true
         });
@@ -126,7 +126,7 @@ public class SignupConsentAndCaregiverPreferencesTests
             FirstName = "Care",
             LastName = "Giver",
             Email = "caregiver-consent@example.com",
-            Password = "Password123",
+            Password = "Password123", // pragma: allowlist-secret
             Role = "Caregiver",
             HomeAddress = "456 Care Street"
             // MarketingConsent intentionally omitted to verify default opt-out.
@@ -359,7 +359,7 @@ public class SignupConsentAndCaregiverPreferencesTests
         {
             ["ASPNETCORE_ENVIRONMENT"] = "Development",
             ["Development:AutoConfirmEmail"] = "true",
-            ["JwtSettings:Secret"] = "12345678901234567890123456789012",
+            ["JwtSettings:Secret"] = "12345678901234567890123456789012", // pragma: allowlist-secret
             ["JwtSettings:Issuer"] = "carepro-tests",
             ["JwtSettings:Audience"] = "carepro-tests-audience"
         };

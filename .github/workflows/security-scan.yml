@@ -143,14 +143,20 @@ jobs:
         )
         
         SECRETS_FOUND=false
-        
+
+        # Inline suppression marker: a line containing "pragma: allowlist-secret"
+        # (e.g. as a // comment) is excluded from the scans below.
+        ALLOWLIST_MARKER="pragma: allowlist-secret"
+
         for pattern in "${SECRET_PATTERNS[@]}"; do
-          if grep -r -E "$pattern" --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj --exclude="*.template.json" .; then
+          MATCHES=$(grep -r -E -e "$pattern" --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj --exclude="*.template.json" . | grep -v -F "$ALLOWLIST_MARKER" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "$MATCHES"
             echo "❌ Potential secret pattern found: $pattern"
             SECRETS_FOUND=true
           fi
         done
-        
+
         # Additional checks for common secret indicators
         if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj --exclude="*.template.json" \
           -E "(sk-|pk_|secret|token|password|apikey).*[\"'][a-zA-Z0-9]{20,}[\"']" . | \
@@ -162,7 +168,8 @@ jobs:
           grep -v "string.*=.*\"\"" | \
           grep -v "YOUR_.*_HERE" | \
           grep -v "YOUR_.*_KEY" | \
-          grep -v "YOUR_.*_SECRET"; then
+          grep -v "YOUR_.*_SECRET" | \
+          grep -v -F "$ALLOWLIST_MARKER"; then
           echo "❌ Potential hardcoded credentials found!"
           SECRETS_FOUND=true
         fi
