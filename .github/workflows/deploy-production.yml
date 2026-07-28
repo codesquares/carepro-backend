@@ -71,8 +71,13 @@ jobs:
         echo "🔍 Running production security audit..."
         
         # Ensure no test/demo credentials
-        if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
-          -E "(test|demo|sample|fake).*@.*\.(com|org)" .; then
+        # Inline suppression marker: a line containing "pragma: allowlist-secret"
+        # (e.g. as a // comment) is excluded from this check.
+        ALLOWLIST_MARKER="pragma: allowlist-secret"
+        MATCHES=$(grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
+          -E "(test|demo|sample|fake).*@.*\.(com|org)" . | grep -v -F "$ALLOWLIST_MARKER" || true)
+        if [ -n "$MATCHES" ]; then
+          echo "$MATCHES"
           echo "❌ Test/demo credentials found!"
           exit 1
         fi

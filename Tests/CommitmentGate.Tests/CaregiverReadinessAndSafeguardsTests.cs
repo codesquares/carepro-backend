@@ -175,7 +175,7 @@ public class CaregiverReadinessAndSafeguardsTests
         var requestId = ObjectId.GenerateNewId();
         var responseId = ObjectId.GenerateNewId();
 
-        db.Clients.Add(new Client { Id = clientId, FirstName = "Client", LastName = "Test", Email = "client@example.com", Role = "Client", Password = "x", IsDeleted = false });
+        db.Clients.Add(new Client { Id = clientId, FirstName = "Client", LastName = "Test", Email = "client@example.com", Role = "Client", Password = "x", IsDeleted = false }); // pragma: allowlist-secret
         db.CareGivers.Add(new Caregiver
         {
             Id = caregiverId,

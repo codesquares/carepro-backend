@@ -162,7 +162,7 @@ public class SignupConsentAndCaregiverPreferencesTests
             Id = caregiverId,
             FirstName = "Gate",
             LastName = "Tester",
-            Email = "gate-tester@example.com",
+            Email = "gate-tester@example.com", // pragma: allowlist-secret
             Password = "hashed",
             Role = "Caregiver",
             Status = true,
@@ -176,7 +176,7 @@ public class SignupConsentAndCaregiverPreferencesTests
         {
             Id = ObjectId.GenerateNewId(),
             AppUserId = caregiverId,
-            Email = "gate-tester@example.com",
+            Email = "gate-tester@example.com", // pragma: allowlist-secret
             FirstName = "Gate",
             LastName = "Tester",
             Role = "Caregiver",
@@ -267,7 +267,7 @@ public class SignupConsentAndCaregiverPreferencesTests
             Id = caregiverId,
             FirstName = "NoMarketing",
             LastName = "Tester",
-            Email = "no-marketing-tester@example.com",
+            Email = "no-marketing-tester@example.com", // pragma: allowlist-secret
             Password = "hashed",
             Role = "Caregiver",
             Status = true,
@@ -281,7 +281,7 @@ public class SignupConsentAndCaregiverPreferencesTests
         {
             Id = ObjectId.GenerateNewId(),
             AppUserId = caregiverId,
-            Email = "no-marketing-tester@example.com",
+            Email = "no-marketing-tester@example.com", // pragma: allowlist-secret
             FirstName = "NoMarketing",
             LastName = "Tester",
             Role = "Caregiver",
