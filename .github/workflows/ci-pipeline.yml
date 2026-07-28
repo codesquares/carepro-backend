@@ -39,22 +39,6 @@ jobs:
       working-directory: ./CarePro-Api
       run: dotnet restore
 
-    - name: Update vulnerable packages
-      working-directory: ./CarePro-Api
-      run: |
-        echo "🔧 Attempting to update vulnerable packages..."
-        
-        # Update Microsoft.Extensions.Caching.Memory to latest 8.x
-        echo "Updating Microsoft.Extensions.Caching.Memory..."
-        dotnet add package Microsoft.Extensions.Caching.Memory --version 8.0.1 || echo "Package update attempted"
-        
-        # Update System.Text.Json to latest 8.x
-        echo "Updating System.Text.Json..."
-        dotnet add package System.Text.Json --version 8.0.5 || echo "Package update attempted"
-        
-        # Note: Microsoft.Build is a transitive dependency, updating main packages should resolve it
-        echo "✅ Package updates attempted"
-
     - name: Check for vulnerable packages
       working-directory: ./CarePro-Api
       run: |
