@@ -209,7 +209,15 @@ jobs:
         image: mongo:6.0
         ports:
           - 27018:27017
-    
+    env:
+      # appsettings.json is gitignored and not present on the CI checkout, so
+      # CloudinarySettings is empty here. The Cloudinary SDK's Account constructor
+      # throws if CloudName is empty (ApiKey/ApiSecret are not validated at
+      # construction time). These are placeholders only, not real credentials.
+      CLOUDINARY_CLOUD_NAME: placeholder-cloud-name
+      CLOUDINARY_API_KEY: placeholder-api-key
+      CLOUDINARY_API_SECRET: placeholder-api-secret
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
