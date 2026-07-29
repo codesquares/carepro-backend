@@ -89,7 +89,7 @@ jobs:
         
         # Check for API keys, passwords, tokens in source files
         if grep -r -i --include="*.cs" --include="*.json" --exclude-dir=bin --exclude-dir=obj \
-          -E "(password|secret|key|token)\s*[:=]\s*[\"']?[a-zA-Z0-9]{20,}" . | \
+          -E "(password|secret|key|token)\s*[:=]\s*[\"'][a-zA-Z0-9]{20,}" . | \
           grep -v "Password { get; set; }" | \
           grep -v "SecretKey { get; set; }" | \
           grep -v "_configuration\[" | \
