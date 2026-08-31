@@ -101,6 +101,12 @@ namespace Application.DTOs
 
     }
 
+    public class RecommendGigToClientRequest
+    {
+        public string ClientId { get; set; } = string.Empty;
+        public string GigId { get; set; } = string.Empty;
+    }
+
     public class AdminBulkDeleteGigsRequest
     {
         public List<string>? GigIds { get; set; }

@@ -323,6 +323,59 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,
+            string caregiverFirstName, string gigTitle, string? gigPhotoUrl, int price,
+            string category, string? blurb, string gigLink)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"A caregiver match for you: {gigTitle} - CarePro";
+
+            var formattedPrice = price.ToString("N0");
+
+            // Email clients (Gmail in particular) frequently ignore max-width:100% on <img>
+            // with no intrinsic size hint, rendering it at native resolution. The width
+            // attribute (not just CSS) is the email-safe way to cap it — confirmed via a
+            // real send that CSS-only sizing rendered the photo oversized in Gmail.
+            var photoSection = string.IsNullOrWhiteSpace(gigPhotoUrl)
+                ? string.Empty
+                : $"<img src='{gigPhotoUrl}' alt='{gigTitle}' width='560' style='width: 100%; max-width: 560px; height: auto; border-radius: 8px; margin: 15px 0; display: block;' />";
+
+            var blurbSection = string.IsNullOrWhiteSpace(blurb)
+                ? string.Empty
+                : $"<p>{blurb}</p>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {clientFirstName},</h3>
+                        <p>Following up on your recent conversation with our team, here's a caregiver we think is a great fit for you:</p>
+                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;'>
+                            {photoSection}
+                            <h4 style='margin: 10px 0 5px;'>{gigTitle}</h4>
+                            <p style='margin: 5px 0;'><strong>Caregiver:</strong> {caregiverFirstName}</p>
+                            <p style='margin: 5px 0;'><strong>Service Type:</strong> {category}</p>
+                            <p style='margin: 5px 0;'><strong>Price:</strong> ₦{formattedPrice}</p>
+                            {blurbSection}
+                        </div>
+                        <div style='text-align: center; margin: 20px 0;'>
+                            <a href='{gigLink}'
+                               style='background-color: #667eea; color: white; padding: 12px 30px;
+                                      text-decoration: none; border-radius: 5px; display: inline-block;'>
+                                View {caregiverFirstName}'s Profile
+                            </a>
+                        </div>
+                        <p>You can view full details, message {caregiverFirstName}, or hire directly from the link above.</p>
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Payment-related notification methods
         public async Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId)
         {

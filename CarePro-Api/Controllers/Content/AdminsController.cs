@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Infrastructure.Content.Services;
@@ -9,6 +10,7 @@ using System.Security.Authentication;
 using System.Security.Claims;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 namespace CarePro_Api.Controllers.Content
@@ -25,17 +27,21 @@ namespace CarePro_Api.Controllers.Content
         private readonly IEmailService emailService;
         private readonly ICertificationService certificationService;
         private readonly IDefaultAddressCleanupService defaultAddressCleanupService;
+        private readonly IGigServices gigServices;
+        private readonly IConfiguration configuration;
         private readonly ILogger<AdminsController> logger;
         private readonly IHostEnvironment hostEnvironment;
 
         public AdminsController(
-            IAdminUserService adminUserService, 
-            IClientOrderService clientOrderService, 
+            IAdminUserService adminUserService,
+            IClientOrderService clientOrderService,
             ICareGiverService careGiverService,
             IClientService clientService,
             IEmailService emailService,
             ICertificationService certificationService,
             IDefaultAddressCleanupService defaultAddressCleanupService,
+            IGigServices gigServices,
+            IConfiguration configuration,
             ILogger<AdminsController> logger,
             IHostEnvironment hostEnvironment)
         {
@@ -46,6 +52,8 @@ namespace CarePro_Api.Controllers.Content
             this.emailService = emailService;
             this.certificationService = certificationService;
             this.defaultAddressCleanupService = defaultAddressCleanupService;
+            this.gigServices = gigServices;
+            this.configuration = configuration;
             this.logger = logger;
             this.hostEnvironment = hostEnvironment;
         }
@@ -373,6 +381,66 @@ namespace CarePro_Api.Controllers.Content
                 {
                     success = false,
                     message = "Failed to send email",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Sends a client a targeted recommendation for a specific gig, with live gig/caregiver
+        /// details and a direct link to the gig's public profile page. Used by support staff
+        /// after a WhatsApp-based care assessment to follow up with a specific match.
+        /// Always-Send — see EMAIL-COMPLIANCE-CLASSIFICATION-POLICY.md row #30.
+        /// </summary>
+        [HttpPost]
+        [Route("RecommendGig")]
+        [Authorize(Policy = "OperationsPolicy")]
+        public async Task<IActionResult> RecommendGigToClientAsync([FromBody] RecommendGigToClientRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.GigId) || string.IsNullOrWhiteSpace(request.ClientId))
+                {
+                    return BadRequest(new { success = false, message = "GigId and ClientId are required." });
+                }
+
+                var gig = await gigServices.GetGigAsync(request.GigId);
+                var caregiver = await careGiverService.GetCaregiverUserAsync(gig.CaregiverId);
+                var client = await clientService.GetClientUserAsync(request.ClientId);
+
+                var frontendUrl = (configuration["FrontendUrl"] ?? "https://oncarepro.com").TrimEnd('/');
+                var gigLink = $"{frontendUrl}/service/{request.GigId}";
+
+                await emailService.SendClientGigRecommendationEmailAsync(
+                    client.Email,
+                    client.FirstName,
+                    caregiver.FirstName,
+                    gig.Title,
+                    gig.Image1,
+                    gig.Price,
+                    gig.Category,
+                    caregiver.AboutMeIntro,
+                    gigLink);
+
+                logger.LogInformation("Admin recommended gig {GigId} to client {ClientId}", request.GigId, request.ClientId);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Recommendation sent to {client.Email}"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error sending gig recommendation email");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Failed to send recommendation email",
                     error = ex.Message
                 });
             }

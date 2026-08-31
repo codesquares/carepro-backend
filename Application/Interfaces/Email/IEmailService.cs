@@ -70,6 +70,12 @@ namespace Application.Interfaces.Email
 
         // Referral program emails
         Task SendReferralCodeEmailAsync(string toEmail, string firstName, string referralCode);
+
+        // Admin-triggered client gig recommendation (Always-Send — direct response to a
+        // client-initiated request, see EMAIL-COMPLIANCE-CLASSIFICATION-POLICY.md row #30)
+        Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,
+            string caregiverFirstName, string gigTitle, string? gigPhotoUrl, int price,
+            string category, string? blurb, string gigLink);
     }
 
     // Supporting classes for email service
