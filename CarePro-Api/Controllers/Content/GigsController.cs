@@ -317,7 +317,6 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("{gigId}")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetGigAsync(string gigId)
         {
             try

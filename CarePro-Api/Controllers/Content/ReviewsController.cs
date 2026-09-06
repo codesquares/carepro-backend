@@ -42,7 +42,6 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Reviews
         [HttpGet]
-        [AllowAnonymous]
         public async Task<IActionResult> GetAllGigReviewAsync(string gigId)
         {
             try
@@ -61,7 +60,6 @@ namespace CarePro_Api.Controllers.Content
         // GET: api/Reviews
         [HttpGet]
         [Route("{reviewId}")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetGigReviewAsync(string reviewId)
         {
             try
@@ -97,7 +95,6 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Reviews/caregiver/{caregiverId}
         [HttpGet("caregiver/{caregiverId}")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetCaregiverReviews(string caregiverId)
         {
             try
