@@ -42,11 +42,11 @@ namespace CarePro_Api.Controllers.Content
 
         // GET: api/Reviews
         [HttpGet]
-        public async Task<IActionResult> GetAllGigReviewAsync(string gigId)
+        public async Task<IActionResult> GetReviewsByAssignmentAsync(string assignmentId)
         {
             try
             {
-                var reviews = await reviewService.GetAllGigReviewAsync(gigId);
+                var reviews = await reviewService.GetReviewsByAssignmentAsync(assignmentId);
                 return Ok(reviews);
             }
             catch (Exception ex)
@@ -60,11 +60,11 @@ namespace CarePro_Api.Controllers.Content
         // GET: api/Reviews
         [HttpGet]
         [Route("{reviewId}")]
-        public async Task<IActionResult> GetGigReviewAsync(string reviewId)
+        public async Task<IActionResult> GetReviewAsync(string reviewId)
         {
             try
             {
-                var review = await reviewService.GetGigReviewAsync(reviewId);
+                var review = await reviewService.GetReviewAsync(reviewId);
                 return Ok(review);
             }
             catch (Exception ex)
@@ -79,11 +79,11 @@ namespace CarePro_Api.Controllers.Content
         // GET: api/Reviews/count
         [HttpGet("count")]
         [AllowAnonymous]
-        public async Task<IActionResult> GetReviewCount(string gigId)
+        public async Task<IActionResult> GetReviewCount(string assignmentId)
         {
             try
             {
-                var count = await reviewService.GetReviewCountAsync(gigId);
+                var count = await reviewService.GetReviewCountAsync(assignmentId);
                 return Ok(new { count });
             }
             catch (Exception ex)

@@ -29,8 +29,6 @@ namespace Infrastructure.Content.Services
         private readonly IClientService clientService;
         private readonly ILogger<GigServices> logger;
         private readonly IMediator mediator;
-        private readonly IOrderTasksService orderTasksService;
-        private readonly IContractService contractService;
         private readonly ICaregiverWalletService walletService;
         private readonly IEarningsLedgerService ledgerService;
         private readonly IBookingCommitmentService bookingCommitmentService;
@@ -46,8 +44,6 @@ namespace Infrastructure.Content.Services
             IClientService clientService,
             ILogger<GigServices> logger,
             IMediator mediator,
-            IOrderTasksService orderTasksService,
-            IContractService contractService,
             ICaregiverWalletService walletService,
             IEarningsLedgerService ledgerService,
             IBookingCommitmentService bookingCommitmentService,
@@ -62,8 +58,6 @@ namespace Infrastructure.Content.Services
             this.clientService = clientService;
             this.logger = logger;
             this.mediator = mediator;
-            this.orderTasksService = orderTasksService;
-            this.contractService = contractService;
             this.walletService = walletService;
             this.ledgerService = ledgerService;
             this.bookingCommitmentService = bookingCommitmentService;
@@ -157,34 +151,6 @@ namespace Infrastructure.Content.Services
                 Fbclid = null
             }, null);
 
-            // Link OrderTasks to the created ClientOrder
-            try
-            {
-                if (!string.IsNullOrEmpty(addClientOrderRequest.OrderTasksId))
-                {
-                    var orderTasksLinked = await orderTasksService.LinkToClientOrderAsync(
-                        addClientOrderRequest.OrderTasksId,
-                        clientOrder.Id.ToString());
-
-                    if (orderTasksLinked)
-                    {
-                        await orderTasksService.MarkAsPaidAsync(
-                            addClientOrderRequest.OrderTasksId,
-                            clientOrder.Id.ToString());
-
-                        // Contract generation is now manual via frontend button
-                        logger.LogInformation("OrderTasks {OrderTasksId} linked to ClientOrder {ClientOrderId}. Contract generation can be triggered manually.",
-                            addClientOrderRequest.OrderTasksId, clientOrder.Id.ToString());
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error linking OrderTasks or generating contract for ClientOrder {ClientOrderId}",
-                    clientOrder.Id.ToString());
-                // Don't fail the order creation, but log the error
-            }
-
             // Create notification for the caregiver
             var caregiver = await careGiverService.GetCaregiverUserAsync(clientOrder.CaregiverId);
             if (caregiver != null)
@@ -247,31 +213,6 @@ namespace Infrastructure.Content.Services
             };
 
             return Result<ClientOrderDTO>.Success(clientOrderDTO);
-        }
-
-        /// <summary>
-        /// Triggers contract generation using OrderTasks data for richer contract content
-        /// </summary>
-        private async Task TriggerContractGenerationAsync(string orderTasksId, string transactionId)
-        {
-            try
-            {
-                // Prepare contract data from OrderTasks
-                var contractData = await orderTasksService.PrepareContractDataAsync(orderTasksId, transactionId);
-
-                // Generate the contract using the existing GenerateContractAsync method
-                await contractService.GenerateContractAsync(contractData);
-
-                // Mark OrderTasks as contract generated
-                await orderTasksService.MarkAsContractGeneratedAsync(orderTasksId);
-
-                logger.LogInformation("Contract generated successfully for OrderTasks {OrderTasksId}", orderTasksId);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to generate contract for OrderTasks {OrderTasksId}", orderTasksId);
-                throw; // Re-throw to be handled by caller
-            }
         }
 
 

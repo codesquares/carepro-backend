@@ -335,7 +335,7 @@ namespace Infrastructure.Content.Services
         {
             var blockers = new List<string>();
 
-            // Block if any active (non-terminal) orders exist across all their gigs
+            // Block if any active (non-terminal) legacy orders exist across all their gigs.
             var caregiverGigIds = await _db.Gigs
                 .Where(g => g.CaregiverId == caregiverId && g.IsDeleted != true)
                 .Select(g => g.Id.ToString())
@@ -352,6 +352,30 @@ namespace Infrastructure.Content.Services
 
                 if (hasActiveOrders)
                     blockers.Add("You have active orders in progress. Please complete or wait for all orders to close before deleting your account.");
+            }
+
+            // Block if the caregiver has an active internal assignment (Phase 4 flow).
+            // Gig is onboarding-only now, so the ClientOrders/GigId check above no longer
+            // sees real work — genuine active care work lives on Assignment/PackageRequest.
+            var hasActiveAssignment = await _db.Assignments.AnyAsync(a =>
+                a.CaregiverId == caregiverId
+                && (a.Status == AssignmentStatuses.PendingAcceptance
+                    || a.Status == AssignmentStatuses.Accepted));
+
+            if (hasActiveAssignment)
+            {
+                blockers.Add("You have an active care assignment. Please decline it or wait for the engagement to close before deleting your account.");
+            }
+            else
+            {
+                // Also catch a confirmed PackageRequest whose Assignment row is missing/orphaned.
+                var hasConfirmedPackageRequest = await _db.PackageRequests.AnyAsync(pr =>
+                    pr.ConfirmedCaregiverId == caregiverId
+                    && pr.Status == PackageRequestStatuses.Confirmed
+                    && pr.DeletedAt == null);
+
+                if (hasConfirmedPackageRequest)
+                    blockers.Add("You have an active care assignment. Please decline it or wait for the engagement to close before deleting your account.");
             }
 
             // Block if pending withdrawal requests exist

@@ -45,6 +45,15 @@ namespace Domain.Entities
         public bool HasQualifications { get; set; }
         public bool HasEducation { get; set; }
 
+        // ── Vetting (Phase 2) — visibility only; CaregiverReadinessService is the enforcement point ──
+        public int GuarantorCount { get; set; }
+        public int ConfirmedGuarantorCount { get; set; }
+        public bool HasTwoConfirmedGuarantors { get; set; }
+        public bool AddressHistoryComplete { get; set; }
+        public bool CaregiverTypeSet { get; set; }
+        /// <summary>"AuxiliaryNurse" | "CHEW" | "RegisteredNurse" | null.</summary>
+        public string? CaregiverType { get; set; }
+
         // ── Gigs ──
         public int GigsDraftCount { get; set; }
         public int GigsPublishedCount { get; set; }

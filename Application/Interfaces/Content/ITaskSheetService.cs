@@ -7,6 +7,21 @@ namespace Application.Interfaces.Content
     {
         Task<TaskSheetListResponse> GetTaskSheetsByOrderAsync(string orderId, int? billingCycleNumber, string caregiverId, bool isAdmin);
         Task<TaskSheetDTO> CreateTaskSheetAsync(string orderId, string caregiverId);
+
+        /// <summary>
+        /// Creates a task sheet for a package assignment (Phase 9.5) — the alternative
+        /// to CreateTaskSheetAsync for caregivers with no ClientOrder, authorized instead
+        /// by an Accepted Assignment and its Generated Contract.
+        /// </summary>
+        Task<TaskSheetDTO> CreateTaskSheetForAssignmentAsync(string assignmentId, string caregiverId);
+
+        /// <summary>
+        /// Sums VisitDurationMinutes across a caregiver's submitted task sheets for a
+        /// calendar month (Phase 9.6) — feeds Payroll creation (Phase 9.7) for Hourly
+        /// packages. Pass assignmentId to scope to one package assignment; omit to sum
+        /// across all of the caregiver's task sheets that month.
+        /// </summary>
+        Task<CaregiverMonthlyHoursDTO> GetMonthlyHoursForCaregiverAsync(string caregiverId, int year, int month, string? assignmentId = null);
         Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId);
         Task<TaskSheetDTO> SubmitTaskSheetAsync(string taskSheetId, SubmitTaskSheetRequest request, string caregiverId);
 

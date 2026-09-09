@@ -192,6 +192,8 @@ namespace Infrastructure.Content.Services
                 "Certs Uploaded", "Certs Verified",
                 "Has Profile Picture", "Has About Me",
                 "Has Work Experience", "Has Qualifications", "Has Education",
+                "Guarantors Total", "Guarantors Confirmed", "Has 2 Confirmed Guarantors",
+                "Address History Complete", "Caregiver Type Set", "Caregiver Type",
                 "Gigs Draft", "Gigs Published", "Gigs Deleted",
                 "Snapshot Last Updated"
             };
@@ -229,10 +231,16 @@ namespace Infrastructure.Content.Services
                 ws.Cell(r, 21).Value = s.HasWorkExperience ? "Yes" : "No";
                 ws.Cell(r, 22).Value = s.HasQualifications ? "Yes" : "No";
                 ws.Cell(r, 23).Value = s.HasEducation ? "Yes" : "No";
-                ws.Cell(r, 24).Value = s.GigsDraftCount;
-                ws.Cell(r, 25).Value = s.GigsPublishedCount;
-                ws.Cell(r, 26).Value = s.GigsDeletedCount;
-                ws.Cell(r, 27).Value = s.LastRebuildAt.ToString("yyyy-MM-dd HH:mm");
+                ws.Cell(r, 24).Value = s.GuarantorCount;
+                ws.Cell(r, 25).Value = s.ConfirmedGuarantorCount;
+                ws.Cell(r, 26).Value = s.HasTwoConfirmedGuarantors ? "Yes" : "No";
+                ws.Cell(r, 27).Value = s.AddressHistoryComplete ? "Yes" : "No";
+                ws.Cell(r, 28).Value = s.CaregiverTypeSet ? "Yes" : "No";
+                ws.Cell(r, 29).Value = s.CaregiverType ?? "";
+                ws.Cell(r, 30).Value = s.GigsDraftCount;
+                ws.Cell(r, 31).Value = s.GigsPublishedCount;
+                ws.Cell(r, 32).Value = s.GigsDeletedCount;
+                ws.Cell(r, 33).Value = s.LastRebuildAt.ToString("yyyy-MM-dd HH:mm");
             }
 
             ws.Columns().AdjustToContents();

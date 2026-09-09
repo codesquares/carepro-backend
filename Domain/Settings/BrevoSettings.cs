@@ -14,7 +14,6 @@ namespace Domain.Settings
         public int? CaregiversUnverifiedListId { get; set; }
         public int? CaregiversNoGigListId { get; set; }
         public int? CaregiversAssessmentPendingListId { get; set; }
-        public int? ClientsAbandonedCareRequestListId { get; set; }
         public int? ClientsPendingCommitmentPaymentListId { get; set; }
 
         public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);

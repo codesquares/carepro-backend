@@ -245,12 +245,22 @@ namespace Infrastructure.Content.Services
             if (qualifications.Any()) dbContext.CaregiverQualifications.RemoveRange(qualifications);
             if (workExperiences.Any()) dbContext.CaregiverWorkExperiences.RemoveRange(workExperiences);
 
+            // Phase 2 vetting sub-documents — contain third-party PII (guarantors,
+            // address history), so hard-delete rather than anonymise.
+            var guarantors = await dbContext.Guarantors.Where(g => g.CaregiverId == caregiverId).ToListAsync();
+            var addressHistory = await dbContext.CaregiverAddressHistories.Where(a => a.CaregiverId == caregiverId).ToListAsync();
+            var socialHandles = await dbContext.CaregiverSocialMediaHandles.Where(s => s.CaregiverId == caregiverId).ToListAsync();
+            if (guarantors.Any()) dbContext.Guarantors.RemoveRange(guarantors);
+            if (addressHistory.Any()) dbContext.CaregiverAddressHistories.RemoveRange(addressHistory);
+            if (socialHandles.Any()) dbContext.CaregiverSocialMediaHandles.RemoveRange(socialHandles);
+
             // ── 8. Anonymize: Caregiver profile PII ──
             caregiver.FirstName = RedactedName;
             caregiver.MiddleName = null;
             caregiver.LastName = RedactedName;
             caregiver.Email = RedactedEmail;
             caregiver.PhoneNo = null;
+            caregiver.Specialty = null;
             caregiver.Password = RedactedMarker;
             caregiver.ProfileImage = null;
             caregiver.HomeAddress = null;

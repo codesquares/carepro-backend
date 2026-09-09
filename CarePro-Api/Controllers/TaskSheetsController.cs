@@ -105,6 +105,50 @@ namespace CarePro_Api.Controllers
         }
 
         /// <summary>
+        /// Create a new task sheet for a package assignment (Phase 9.5) — the alternative
+        /// to CreateTaskSheet for caregivers with no ClientOrder.
+        /// </summary>
+        [HttpPost("for-assignment/{assignmentId}")]
+        public async Task<IActionResult> CreateTaskSheetForAssignment(string assignmentId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (string.IsNullOrEmpty(userId))
+                    return Unauthorized(new { error = "Caregiver authorization required." });
+
+                var result = await _taskSheetService.CreateTaskSheetForAssignmentAsync(assignmentId, userId);
+
+                _logger.LogInformation("TaskSheet created for Assignment: {AssignmentId} by Caregiver: {CaregiverId}",
+                    assignmentId, userId);
+
+                return StatusCode(201, result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning("Invalid request for CreateTaskSheetForAssignment: {Message}", ex.Message);
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating task sheet for assignment {AssignmentId}", assignmentId);
+                return StatusCode(500, new { error = "An error occurred while creating the task sheet." });
+            }
+        }
+
+        /// <summary>
         /// Update a task sheet — toggle task completion, add new custom tasks.
         /// </summary>
         [HttpPut("{taskSheetId}")]

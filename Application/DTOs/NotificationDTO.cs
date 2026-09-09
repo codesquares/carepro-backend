@@ -198,6 +198,20 @@ namespace Application.DTOs
         public const string CareRequestReopened = "care_request_reopened";
         public const string CareRequestCreated = "care_request_created";
         public const string ShortlistRemoved = "care_request_shortlist_removed";
+
+        // ── Phase 4: Internal Package Assignment ──
+        /// <summary>To the caregiver: staff/system assigned you to a package request — accept or decline.</summary>
+        public const string PackageAssignmentOffered = "package_assignment_offered";
+        /// <summary>To the client: your assigned caregiver accepted and is now confirmed.</summary>
+        public const string PackageAssignmentConfirmed = "package_assignment_confirmed";
+        /// <summary>To ops staff: an assigned caregiver declined — no auto-reassignment, needs action.</summary>
+        public const string PackageAssignmentDeclined = "package_assignment_declined";
+        /// <summary>To the caregiver: staff withdrew the assignment.</summary>
+        public const string PackageAssignmentCancelled = "package_assignment_cancelled";
+
+        // ── Phase 6: Auto-generated package contract ──
+        /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
+        public const string PackageContractGenerated = "package_contract_generated";
         /// <summary>Sent to the client when a caregiver they've hired (negotiation still in flight,
         /// not yet Agreed) loses hire-readiness — e.g. identity verification fails.</summary>
         public const string CaregiverBecameIneligible = "caregiver_became_ineligible";

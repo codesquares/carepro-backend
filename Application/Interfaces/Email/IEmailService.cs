@@ -71,6 +71,9 @@ namespace Application.Interfaces.Email
         // Referral program emails
         Task SendReferralCodeEmailAsync(string toEmail, string firstName, string referralCode);
 
+        // Phase 2 vetting: guarantor self-serve confirmation link (recipient is NOT a platform user)
+        Task SendGuarantorConfirmationEmailAsync(string toEmail, string guarantorName, string caregiverName, string confirmationLink);
+
         // Admin-triggered client gig recommendation (Always-Send — direct response to a
         // client-initiated request, see EMAIL-COMPLIANCE-CLASSIFICATION-POLICY.md row #30)
         Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,

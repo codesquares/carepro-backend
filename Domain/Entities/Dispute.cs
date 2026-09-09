@@ -77,6 +77,12 @@ namespace Domain.Entities
 
         public DateTime? ResolvedAt { get; set; }
 
+        // ── Phase 7.2: actual refund execution (FullRefund / PartialRefund) ──
+        /// <summary>The amount actually refunded to the client's wallet. Null when no refund action was taken.</summary>
+        public decimal? RefundAmount { get; set; }
+        /// <summary>When the wallet credit was executed. Null = not executed (idempotency guard).</summary>
+        public DateTime? RefundExecutedAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

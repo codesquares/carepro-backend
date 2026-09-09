@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -69,11 +70,26 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            // ── Phase 2 vetting gates ──
+            var caregiverTypeSet = caregiver.CaregiverType != null;
+
+            var confirmedGuarantorCount = await _dbContext.Guarantors
+                .CountAsync(g => g.CaregiverId == caregiverId && g.Status == GuarantorStatuses.Confirmed);
+            var hasTwoConfirmedGuarantors = confirmedGuarantorCount >= IGuarantorService.RequiredGuarantorCount;
+
+            var addressHistory = await _dbContext.CaregiverAddressHistories
+                .Where(a => a.CaregiverId == caregiverId)
+                .ToListAsync();
+            var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(addressHistory, DateTime.UtcNow);
+
             var reasons = new List<string>();
             if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
             if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
             if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
             if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
+            if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
+            if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+            if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
             return new CaregiverReadinessResult
             {
@@ -81,7 +97,10 @@ namespace Infrastructure.Content.Services
                 IneligibilityReasons = reasons,
                 IsIdentityVerified = isIdentityVerified,
                 HasActiveGig = hasActiveGig,
-                AssessmentPassed = assessmentPassed
+                AssessmentPassed = assessmentPassed,
+                HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors,
+                AddressHistoryComplete = addressHistoryComplete,
+                CaregiverTypeSet = caregiverTypeSet
             };
         }
 
@@ -124,6 +143,21 @@ namespace Infrastructure.Content.Services
                 .Select(g => g.CaregiverId)
                 .ToHashSet();
 
+            // ── Phase 2 vetting gates, batched for the whole id set ──
+            var confirmedGuarantorCounts = (await _dbContext.Guarantors
+                    .Where(g => ids.Contains(g.CaregiverId) && g.Status == GuarantorStatuses.Confirmed)
+                    .ToListAsync())
+                .GroupBy(g => g.CaregiverId)
+                .ToDictionary(grp => grp.Key, grp => grp.Count());
+
+            var addressHistoryByCaregiver = (await _dbContext.CaregiverAddressHistories
+                    .Where(a => ids.Contains(a.CaregiverId))
+                    .ToListAsync())
+                .GroupBy(a => a.CaregiverId)
+                .ToDictionary(grp => grp.Key, grp => grp.ToList());
+
+            var vettingNow = DateTime.UtcNow;
+
             foreach (var id in ids)
             {
                 var caregiver = caregivers.FirstOrDefault(c => c.Id.ToString() == id);
@@ -152,11 +186,22 @@ namespace Infrastructure.Content.Services
                     }
                 }
 
+                var caregiverTypeSet = caregiver.CaregiverType != null;
+                var hasTwoConfirmedGuarantors =
+                    (confirmedGuarantorCounts.TryGetValue(id, out var gc) ? gc : 0)
+                    >= IGuarantorService.RequiredGuarantorCount;
+                var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(
+                    addressHistoryByCaregiver.TryGetValue(id, out var addrs) ? addrs : new List<CaregiverAddressHistory>(),
+                    vettingNow);
+
                 var reasons = new List<string>();
                 if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
                 if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
                 if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
                 if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
+                if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
+                if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+                if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
                 result[id] = new CaregiverReadinessResult
                 {
@@ -164,7 +209,10 @@ namespace Infrastructure.Content.Services
                     IneligibilityReasons = reasons,
                     IsIdentityVerified = isIdentityVerified,
                     HasActiveGig = hasActiveGig,
-                    AssessmentPassed = assessmentPassed
+                    AssessmentPassed = assessmentPassed,
+                    HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors,
+                    AddressHistoryComplete = addressHistoryComplete,
+                    CaregiverTypeSet = caregiverTypeSet
                 };
             }
 

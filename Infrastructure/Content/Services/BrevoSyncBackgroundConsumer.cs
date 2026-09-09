@@ -153,19 +153,11 @@ namespace Infrastructure.Content.Services
             if (preference?.NotificationPreferences == null) return;
             if (!trackingService.HasGeneralMarketingConsent(preference.NotificationPreferences)) return;
 
-            var latestRequest = await dbContext.CareRequests
-                .Where(r => r.ClientId == clientId && r.DeletedAt == null)
-                .OrderByDescending(r => r.CreatedAt)
-                .FirstOrDefaultAsync(ct);
-
             var hasPendingCommitment = await dbContext.BookingCommitments
                 .AnyAsync(c => c.ClientId == clientId && c.Status == BookingCommitmentStatus.Pending, ct);
 
-            var lastStatus = latestRequest?.Status?.ToLowerInvariant() ?? "none";
-
             var attributes = new Dictionary<string, object>
             {
-                ["LAST_CARE_REQUEST_STATUS"] = lastStatus,
                 ["HAS_PENDING_COMMITMENT_PAYMENT"] = hasPendingCommitment,
                 ["FIRSTNAME"] = client.FirstName ?? string.Empty,
                 ["LASTNAME"] = client.LastName ?? string.Empty,
@@ -181,8 +173,6 @@ namespace Infrastructure.Content.Services
                 else removeFromLists.Add(listId.Value);
             }
 
-            var isAbandoned = lastStatus is "unmatched" or "escalated";
-            Toggle(_settings.ClientsAbandonedCareRequestListId, isAbandoned);
             Toggle(_settings.ClientsPendingCommitmentPaymentListId, hasPendingCommitment);
 
             await brevoService.UpsertContactAsync(client.Email, attributes, addToLists, removeFromLists);

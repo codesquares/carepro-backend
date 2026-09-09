@@ -92,7 +92,6 @@ namespace Application.DTOs
 
         public string? TransactionId { get; set; }
         public string? TransactionReference { get; set; }
-        public string? OrderTasksId { get; set; } // Link to OrderTasks for enhanced contract generation
         public int? FrequencyPerWeek { get; set; }
         public string? ServiceType { get; set; }
         public int? BillingCycleNumber { get; set; }

@@ -170,12 +170,6 @@ namespace Infrastructure.Content.Services
 
             await careProDbContext.SaveChangesAsync();
 
-            // If gig is published/active, requeue unmatched care requests in the same category
-            if (gig.Status == "Published" || gig.Status == "Active")
-            {
-                await RequeueUnmatchedCareRequestsAsync(gig.Category);
-            }
-
             // Notify caregiver of gig lifecycle event
             var gigNotifType = (gig.Status == "Published" || gig.Status == "Active")
                 ? NotificationTypes.GigPublished
@@ -725,13 +719,6 @@ namespace Infrastructure.Content.Services
                 careProDbContext.Gigs.Update(existingGig);
                 await careProDbContext.SaveChangesAsync();
 
-                // If gig became active/published, requeue unmatched care requests in the same category
-                if ((normalizedStatus == "Published" || normalizedStatus == "Active")
-                    && oldStatus != normalizedStatus)
-                {
-                    await RequeueUnmatchedCareRequestsAsync(existingGig.Category);
-                }
-
                 // Notify caregiver of status change (only when status actually changed)
                 if (oldStatus != normalizedStatus)
                 {
@@ -930,12 +917,6 @@ namespace Infrastructure.Content.Services
             careProDbContext.Gigs.Update(existingGig);
             await careProDbContext.SaveChangesAsync();
 
-            // If gig became active/published, requeue unmatched care requests in the same category
-            if (existingGig.Status == "Published" || existingGig.Status == "Active")
-            {
-                await RequeueUnmatchedCareRequestsAsync(existingGig.Category);
-            }
-
             LogAuditEvent($"Gig with (ID: {gigId}) successfully updated", updateGigRequest.CaregiverId);
 
             var updatedGigDTO = new GigDTO()
@@ -1044,19 +1025,6 @@ namespace Infrastructure.Content.Services
                         $"Cannot delete gig '{gigId}' because it has active orders. Please complete or resolve all orders first.");
                 }
 
-                // ── Cascade: Cancel draft/pending OrderTasks ──
-                var pendingOrderTasks = await careProDbContext.OrderTasks
-                    .Where(ot => ot.GigId == gigId
-                        && ot.Status != OrderTasksStatus.Completed
-                        && ot.Status != OrderTasksStatus.Cancelled
-                        && ot.Status != OrderTasksStatus.Expired)
-                    .ToListAsync();
-                foreach (var ot in pendingOrderTasks)
-                {
-                    ot.Status = OrderTasksStatus.Cancelled;
-                    careProDbContext.OrderTasks.Update(ot);
-                }
-
                 // ── Cascade: Expire pending PendingPayments ──
                 var pendingPayments = await careProDbContext.PendingPayments
                     .Where(pp => pp.GigId == gigId && pp.Status == PendingPaymentStatus.Pending)
@@ -1085,10 +1053,10 @@ namespace Infrastructure.Content.Services
                 await careProDbContext.SaveChangesAsync();
 
                 logger.LogInformation(
-                    "Gig {GigId} soft-deleted by caregiver {CaregiverId}. Cascaded: {OrderTasksCancelled} order tasks cancelled, {PaymentsExpired} pending payments expired, {CommitmentsExpired} booking commitments expired",
-                    gigId, caregiverId, pendingOrderTasks.Count, pendingPayments.Count, pendingCommitments.Count);
+                    "Gig {GigId} soft-deleted by caregiver {CaregiverId}. Cascaded: {PaymentsExpired} pending payments expired, {CommitmentsExpired} booking commitments expired",
+                    gigId, caregiverId, pendingPayments.Count, pendingCommitments.Count);
 
-                LogAuditEvent($"Gig soft deleted (ID: {gigId}). Cascaded: {pendingOrderTasks.Count} order tasks cancelled, {pendingPayments.Count} payments expired, {pendingCommitments.Count} commitments expired", caregiverId);
+                LogAuditEvent($"Gig soft deleted (ID: {gigId}). Cascaded: {pendingPayments.Count} payments expired, {pendingCommitments.Count} commitments expired", caregiverId);
 
                 await mediator.Send(new SendNotificationCommand(
                     caregiverId,
@@ -1209,19 +1177,6 @@ namespace Infrastructure.Content.Services
                             : "active orders";
                         result.SkippedReasons.Add($"Skipped {gigId}: has {reason}");
                         continue;
-                    }
-
-                    // Cascade: Cancel pending OrderTasks
-                    var pendingOrderTasks = await careProDbContext.OrderTasks
-                        .Where(ot => ot.GigId == gigId
-                            && ot.Status != OrderTasksStatus.Completed
-                            && ot.Status != OrderTasksStatus.Cancelled
-                            && ot.Status != OrderTasksStatus.Expired)
-                        .ToListAsync();
-                    foreach (var ot in pendingOrderTasks)
-                    {
-                        ot.Status = OrderTasksStatus.Cancelled;
-                        careProDbContext.OrderTasks.Update(ot);
                     }
 
                     // Cascade: Expire pending PendingPayments
@@ -1468,32 +1423,6 @@ namespace Infrastructure.Content.Services
             logger.LogInformation($"Audit Event: {message}. User ID: {caregiverId}. Timestamp: {DateTime.UtcNow}");
         }
 
-        /// <summary>
-        /// Reset unmatched care requests in the same category back to pending
-        /// so the background processor will re-evaluate them on its next cycle.
-        /// </summary>
-        private async Task RequeueUnmatchedCareRequestsAsync(string gigCategory)
-        {
-            var unmatchedRequests = await careProDbContext.CareRequests
-                .Where(cr => cr.Status == "unmatched"
-                    && cr.ServiceCategory == gigCategory)
-                .ToListAsync();
-
-            if (unmatchedRequests.Count == 0) return;
-
-            foreach (var cr in unmatchedRequests)
-            {
-                cr.Status = "pending";
-                cr.UpdatedAt = DateTime.UtcNow;
-            }
-
-            careProDbContext.CareRequests.UpdateRange(unmatchedRequests);
-            await careProDbContext.SaveChangesAsync();
-
-            logger.LogInformation(
-                "Requeued {Count} unmatched care requests in category '{Category}' for re-matching",
-                unmatchedRequests.Count, gigCategory);
-        }
 
     }
 }

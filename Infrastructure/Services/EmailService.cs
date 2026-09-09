@@ -323,6 +323,31 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendGuarantorConfirmationEmailAsync(string toEmail, string guarantorName, string caregiverName, string confirmationLink)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"Please confirm you are a guarantor for {caregiverName}";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Hello {guarantorName},</h3>
+                    <p>{caregiverName} has listed you as a guarantor as part of their CarePro caregiver vetting.</p>
+                    <p>You do not need a CarePro account. Please click the link below to confirm that you agree to act as their guarantor:</p>
+                    <p><a href=""{confirmationLink}"">Confirm I am a guarantor for {caregiverName}</a></p>
+                    <br />
+                    <p>Or copy and paste this link into your browser:<br /> {confirmationLink}</p>
+                    <br />
+                    <p>If you do not know {caregiverName} or did not expect this email, you can ignore it and no confirmation will be recorded.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         public async Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,
             string caregiverFirstName, string gigTitle, string? gigPhotoUrl, int price,
             string category, string? blurb, string gigLink)

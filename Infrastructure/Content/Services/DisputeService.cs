@@ -22,6 +22,7 @@ namespace Infrastructure.Content.Services
         private readonly IMediator _mediator;
         private readonly IEarningsLedgerService _ledgerService;
         private readonly ICaregiverWalletService _walletService;
+        private readonly IClientWalletService _clientWalletService;
         private readonly ILogger<DisputeService> _logger;
         private readonly IEmailService _emailService;
 
@@ -30,6 +31,7 @@ namespace Infrastructure.Content.Services
             IMediator mediator,
             IEarningsLedgerService ledgerService,
             ICaregiverWalletService walletService,
+            IClientWalletService clientWalletService,
             ILogger<DisputeService> logger,
             IEmailService emailService)
         {
@@ -37,6 +39,7 @@ namespace Infrastructure.Content.Services
             _mediator = mediator;
             _ledgerService = ledgerService;
             _walletService = walletService;
+            _clientWalletService = clientWalletService;
             _logger = logger;
             _emailService = emailService;
         }
@@ -168,6 +171,39 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrWhiteSpace(request.ResolutionSummary))
                 throw new ArgumentException("Resolution summary is required.");
 
+            // ── Phase 7.2: validate + size the refund BEFORE any mutation ──
+            var isRefundAction = request.ResolutionAction is DisputeResolutionAction.FullRefund
+                or DisputeResolutionAction.PartialRefund;
+
+            ClientOrder? refundOrder = null;
+            decimal refundAmount = 0m;
+            if (isRefundAction)
+            {
+                if (!ObjectId.TryParse(dispute.OrderId, out var refundOrderOid))
+                    throw new ArgumentException("Cannot execute a refund: the dispute's order id is invalid.");
+                refundOrder = await _dbContext.ClientOrders.FindAsync(refundOrderOid)
+                    ?? throw new ArgumentException("Cannot execute a refund: the disputed order was not found.");
+
+                decimal orderAmount = refundOrder.Amount;
+
+                if (request.ResolutionAction == DisputeResolutionAction.FullRefund)
+                {
+                    refundAmount = orderAmount;
+                }
+                else // PartialRefund — admin-entered amount
+                {
+                    if (!request.RefundAmount.HasValue || request.RefundAmount.Value <= 0m)
+                        throw new ArgumentException("A positive RefundAmount is required for a partial refund.");
+                    if (request.RefundAmount.Value > orderAmount)
+                        throw new ArgumentException(
+                            $"RefundAmount (₦{request.RefundAmount.Value:N2}) cannot exceed the order amount (₦{orderAmount:N2}).");
+                    refundAmount = Math.Round(request.RefundAmount.Value, 2, MidpointRounding.AwayFromZero);
+                }
+
+                if (refundAmount <= 0m)
+                    throw new ArgumentException("Refund amount resolved to zero — nothing to refund.");
+            }
+
             dispute.Status = DisputeStatus.Resolved;
             dispute.ResolutionAction = request.ResolutionAction;
             dispute.AdminNotes = request.AdminNotes;
@@ -204,6 +240,12 @@ namespace Infrastructure.Content.Services
 
             await _dbContext.SaveChangesAsync();
 
+            // ── Phase 7.2: actually execute the refund (real client wallet credit) ──
+            if (isRefundAction && refundOrder != null)
+            {
+                await ExecuteDisputeRefundAsync(dispute, refundOrder, refundAmount, request.ResolutionAction, adminUserId);
+            }
+
             // ── Notify client and caregiver of resolution ──
             await NotifyDisputeResolvedAsync(dispute);
 
@@ -211,6 +253,84 @@ namespace Infrastructure.Content.Services
                 disputeId, adminUserId, request.ResolutionAction);
 
             return await BuildDisputeResponseAsync(dispute);
+        }
+
+        /// <summary>
+        /// Phase 7.2 — turns a FullRefund/PartialRefund resolution into a real money movement:
+        /// credits the client's CarePro wallet (the same mechanism as a visit-cancellation refund,
+        /// so the client can spend it or withdraw it to bank via the existing RefundRequest flow),
+        /// and claws back the caregiver's still-pending share. Idempotent via <see cref="Dispute.RefundExecutedAt"/>.
+        /// </summary>
+        private async Task ExecuteDisputeRefundAsync(
+            Dispute dispute, ClientOrder order, decimal refundAmount, string action, string adminUserId)
+        {
+            if (dispute.RefundExecutedAt != null)
+            {
+                _logger.LogInformation("Dispute {DisputeId} refund already executed at {At} — skipping",
+                    dispute.Id, dispute.RefundExecutedAt);
+                return;
+            }
+
+            try
+            {
+                var desc = $"{action} for dispute {dispute.Id} on order {dispute.OrderId} — ₦{refundAmount:N2}";
+
+                // 1. Real client wallet credit (the refund).
+                await _clientWalletService.CreditAsync(
+                    dispute.ClientId, refundAmount, desc,
+                    orderId: dispute.OrderId,
+                    ledgerType: ClientLedgerEntryType.DisputeRefundCredit);
+
+                // 2. Claw back the caregiver's still-pending share of the refunded amount.
+                //    DebitOrderCancellationAsync only touches PendingBalance and caps at what's there,
+                //    so already-released (approved-visit) funds are left alone.
+                try
+                {
+                    var shareRate = Domain.Settings.CaregiverEarningsPolicy.ResolveOrderShareRate(
+                        order.CaregiverSharePercentageAtCreation);
+                    var caregiverShare = Math.Round(refundAmount * shareRate, 2, MidpointRounding.AwayFromZero);
+                    if (caregiverShare > 0m && !string.IsNullOrEmpty(dispute.CaregiverId))
+                    {
+                        await _walletService.DebitOrderCancellationAsync(dispute.CaregiverId, caregiverShare);
+                        await _ledgerService.RecordRefundAsync(
+                            dispute.CaregiverId, caregiverShare, dispute.OrderId, null,
+                            $"Reversal of pending earnings — {desc}");
+                    }
+                }
+                catch (Exception cgEx)
+                {
+                    _logger.LogError(cgEx,
+                        "Dispute {DisputeId}: client refund credited but caregiver pending clawback failed — reconcile manually",
+                        dispute.Id);
+                }
+
+                dispute.RefundAmount = refundAmount;
+                dispute.RefundExecutedAt = DateTime.UtcNow;
+                dispute.UpdatedAt = DateTime.UtcNow;
+                _dbContext.Disputes.Update(dispute);
+                await _dbContext.SaveChangesAsync();
+
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: dispute.ClientId,
+                    SenderId: adminUserId,
+                    Type: NotificationTypes.RefundApproved,
+                    Content: $"A {(action == DisputeResolutionAction.FullRefund ? "full" : "partial")} refund of ₦{refundAmount:N2} " +
+                             $"has been credited to your CarePro wallet for the dispute on order {dispute.OrderId}.",
+                    Title: "Refund credited to your wallet",
+                    RelatedEntityId: dispute.Id.ToString(),
+                    OrderId: dispute.OrderId));
+
+                _logger.LogInformation(
+                    "Dispute {DisputeId}: executed {Action} — ₦{Amount} credited to client {ClientId} wallet",
+                    dispute.Id, action, refundAmount, dispute.ClientId);
+            }
+            catch (Exception ex)
+            {
+                // Resolution stands; RefundExecutedAt stays null so this can be retried.
+                _logger.LogError(ex,
+                    "Dispute {DisputeId}: {Action} resolution saved but the refund credit FAILED — retry required (RefundExecutedAt is null)",
+                    dispute.Id, action);
+            }
         }
 
         public async Task<DisputeResponse> MarkUnderReviewAsync(string disputeId, string adminUserId)
@@ -633,6 +753,8 @@ namespace Infrastructure.Content.Services
                 ResolutionSummary = dispute.ResolutionSummary,
                 ResolvedBy = dispute.ResolvedBy,
                 ResolvedAt = dispute.ResolvedAt,
+                RefundAmount = dispute.RefundAmount,
+                RefundExecutedAt = dispute.RefundExecutedAt,
                 CreatedAt = dispute.CreatedAt,
                 UpdatedAt = dispute.UpdatedAt
             };
