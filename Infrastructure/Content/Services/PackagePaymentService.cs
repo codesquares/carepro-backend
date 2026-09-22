@@ -26,6 +26,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IPackageService _packageService;
         private readonly IPackageRequestService _packageRequestService;
+        private readonly IPackageSubscriptionService _packageSubscriptionService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PackagePaymentService> _logger;
@@ -34,6 +35,7 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IPackageService packageService,
             IPackageRequestService packageRequestService,
+            IPackageSubscriptionService packageSubscriptionService,
             FlutterwaveService flutterwaveService,
             IConfiguration configuration,
             ILogger<PackagePaymentService> logger)
@@ -41,6 +43,7 @@ namespace Infrastructure.Content.Services
             _dbContext = dbContext;
             _packageService = packageService;
             _packageRequestService = packageRequestService;
+            _packageSubscriptionService = packageSubscriptionService;
             _flutterwaveService = flutterwaveService;
             _configuration = configuration;
             _logger = logger;
@@ -54,6 +57,12 @@ namespace Infrastructure.Content.Services
                 return Result<PackagePaymentResponse>.Failure(new List<string> { "PackageId is required." });
             if (request.ExtraDays < 0)
                 return Result<PackagePaymentResponse>.Failure(new List<string> { "ExtraDays cannot be negative." });
+
+            var billingType = string.IsNullOrWhiteSpace(request.BillingType)
+                ? PackageRequestBillingTypes.OneTime
+                : request.BillingType.Trim();
+            if (!PackageRequestBillingTypes.All.Contains(billingType))
+                return Result<PackagePaymentResponse>.Failure(new List<string> { $"BillingType must be one of: {string.Join(", ", PackageRequestBillingTypes.All)}." });
 
             var package = await _packageService.GetPackageByIdAsync(request.PackageId);
             if (package == null)
@@ -80,11 +89,12 @@ namespace Infrastructure.Content.Services
             if (totalAmount <= 0)
                 return Result<PackagePaymentResponse>.Failure(new List<string> { "This package cannot be paid for because the total amount is zero or negative." });
 
-            // ── Reuse or expire a stale pending link for the same client+package+add-on ──
+            // ── Reuse or expire a stale pending link for the same client+package+add-on+billing choice ──
             var existingPending = await _dbContext.PendingPackagePayments
                 .FirstOrDefaultAsync(p => p.ClientId == request.ClientId
                                        && p.PackageId == request.PackageId
                                        && p.ExtraDays == request.ExtraDays
+                                       && p.BillingType == billingType
                                        && p.Status == PendingPackagePaymentStatus.Pending);
 
             if (existingPending != null)
@@ -105,6 +115,7 @@ namespace Infrastructure.Content.Services
                         ClientId = request.ClientId,
                         PackageId = request.PackageId,
                         ExtraDays = existingPending.ExtraDays,
+                        BillingType = existingPending.BillingType,
                         BasePrice = existingPending.BasePrice,
                         AdditionalDayAmount = existingPending.AdditionalDayAmount,
                         TotalAmount = existingPending.TotalAmount,
@@ -119,7 +130,13 @@ namespace Infrastructure.Content.Services
                     existingPending.TransactionReference, (int)age.TotalHours);
             }
 
-            string transactionReference = $"CAREPRO-PKG-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
+            // The RECURRING prefix nests under the plain CAREPRO-PKG- prefix on purpose (mirrors
+            // the existing CAREPRO-RECURRING- naming) — the webhook must check it BEFORE the plain
+            // CAREPRO-PKG- prefix, since "CAREPRO-PKG-RECURRING-...".StartsWith("CAREPRO-PKG-") is
+            // also true. See PaymentsController.FlutterwaveWebhook route ordering.
+            bool isRecurring = billingType == PackageRequestBillingTypes.Recurring;
+            string prefix = isRecurring ? "CAREPRO-PKG-RECURRING-" : "CAREPRO-PKG-";
+            string transactionReference = $"{prefix}{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpper()}";
             string redirectUrl = BuildRedirectUrl(transactionReference);
 
             var pendingPayment = new PendingPackagePayment
@@ -129,6 +146,7 @@ namespace Infrastructure.Content.Services
                 ClientId = request.ClientId,
                 PackageId = request.PackageId,
                 ExtraDays = request.ExtraDays,
+                BillingType = billingType,
                 BasePrice = basePrice,
                 AdditionalDayAmount = additionalDayAmount,
                 TotalAmount = totalAmount,
@@ -176,6 +194,7 @@ namespace Infrastructure.Content.Services
                     ClientId = request.ClientId,
                     PackageId = request.PackageId,
                     ExtraDays = request.ExtraDays,
+                    BillingType = billingType,
                     BasePrice = basePrice,
                     AdditionalDayAmount = additionalDayAmount,
                     TotalAmount = totalAmount,
@@ -221,6 +240,19 @@ namespace Infrastructure.Content.Services
                 return Result<PendingPackagePayment>.Failure(new List<string> { "This payment was previously flagged for amount mismatch." });
             }
 
+            // Defensive routing guard: a Recurring payment must only ever be completed via
+            // CompleteRecurringPackagePaymentAsync (token capture + PackageSubscription creation).
+            // Reaching here for one means the webhook's tx_ref prefix routing has a bug — the
+            // CAREPRO-PKG-RECURRING- check must run before this plain CAREPRO-PKG- one.
+            if (pendingPayment.BillingType == PackageRequestBillingTypes.Recurring)
+            {
+                _logger.LogCritical(
+                    "SECURITY: CompletePackagePaymentAsync called for a Recurring payment. TxRef: {TxRef}. " +
+                    "This should be unreachable — webhook route ordering bug. Refusing without completing.",
+                    transactionReference);
+                return Result<PendingPackagePayment>.Failure(new List<string> { "This payment must be completed via the recurring payment path." });
+            }
+
             // CRITICAL SECURITY CHECK: verify the paid amount matches what was quoted (tolerance 0.01)
             if (Math.Abs(paidAmount - pendingPayment.TotalAmount) > 0.01m)
             {
@@ -242,7 +274,8 @@ namespace Infrastructure.Content.Services
                 var packageRequest = await _packageRequestService.CreateAsync(pendingPayment.ClientId, new CreatePackageRequestRequest
                 {
                     PackageId = pendingPayment.PackageId,
-                    Notes = notes
+                    Notes = notes,
+                    BillingType = PackageRequestBillingTypes.OneTime
                 });
 
                 pendingPayment.Status = PendingPackagePaymentStatus.Completed;
@@ -261,6 +294,141 @@ namespace Infrastructure.Content.Services
             {
                 _logger.LogError(ex,
                     "Failed to create PackageRequest for TxRef: {TxRef}. Payment was received but no PackageRequest exists — needs manual follow-up.",
+                    transactionReference);
+
+                pendingPayment.Status = PendingPackagePaymentStatus.Failed;
+                pendingPayment.ErrorMessage = "Payment received but failed to create the package request. Please contact support.";
+                await _dbContext.SaveChangesAsync();
+
+                return Result<PendingPackagePayment>.Failure(new List<string> { "Failed to create package request after payment." });
+            }
+        }
+
+        public async Task<Result<PendingPackagePayment>> CompleteRecurringPackagePaymentAsync(string transactionReference, string flutterwaveTransactionId, decimal paidAmount)
+        {
+            var pendingPayment = await GetByTransactionReferenceAsync(transactionReference);
+            if (pendingPayment == null)
+            {
+                _logger.LogWarning("Recurring package payment completion attempted for unknown TxRef: {TxRef}", transactionReference);
+                return Result<PendingPackagePayment>.Failure(new List<string> { "Payment record not found." });
+            }
+
+            if (pendingPayment.Status == PendingPackagePaymentStatus.Completed)
+            {
+                _logger.LogWarning(
+                    "Duplicate CompleteRecurringPackagePayment attempt for TxRef: {TxRef}. Already completed at {CompletedAt}.",
+                    transactionReference, pendingPayment.CompletedAt);
+                return Result<PendingPackagePayment>.Success(pendingPayment);
+            }
+
+            if (pendingPayment.Status == PendingPackagePaymentStatus.AmountMismatch)
+            {
+                _logger.LogWarning(
+                    "CompleteRecurringPackagePayment retry blocked for previously flagged TxRef: {TxRef} (AmountMismatch).",
+                    transactionReference);
+                return Result<PendingPackagePayment>.Failure(new List<string> { "This payment was previously flagged for amount mismatch." });
+            }
+
+            // Mirror image of the defensive guard in CompletePackagePaymentAsync: a OneTime
+            // payment must never be completed here.
+            if (pendingPayment.BillingType != PackageRequestBillingTypes.Recurring)
+            {
+                _logger.LogCritical(
+                    "SECURITY: CompleteRecurringPackagePaymentAsync called for a non-Recurring payment. TxRef: {TxRef}. " +
+                    "This should be unreachable — webhook route ordering bug. Refusing without completing.",
+                    transactionReference);
+                return Result<PendingPackagePayment>.Failure(new List<string> { "This payment must be completed via the one-time payment path." });
+            }
+
+            // CRITICAL SECURITY CHECK: verify the paid amount matches what was quoted (tolerance 0.01)
+            if (Math.Abs(paidAmount - pendingPayment.TotalAmount) > 0.01m)
+            {
+                _logger.LogCritical(
+                    "RECURRING PACKAGE PAYMENT AMOUNT MISMATCH! TxRef: {TxRef}, Expected: {Expected}, Paid: {Paid}. Possible tampering attempt.",
+                    transactionReference, pendingPayment.TotalAmount, paidAmount);
+
+                pendingPayment.Status = PendingPackagePaymentStatus.AmountMismatch;
+                pendingPayment.ErrorMessage = $"Amount mismatch. Expected: {pendingPayment.TotalAmount}, Paid: {paidAmount}";
+                await _dbContext.SaveChangesAsync();
+
+                return Result<PendingPackagePayment>.Failure(new List<string> { "Payment amount does not match. This incident has been logged." });
+            }
+
+            string notes = BuildPackageRequestNotes(pendingPayment);
+
+            try
+            {
+                // ── Capture the recurring payment token BEFORE creating the PackageRequest ──
+                // Mirrors PendingPaymentService.CreateSubscriptionForRecurringPaymentAsync's Gig-
+                // flow token capture. Non-fatal if extraction fails: the client was genuinely
+                // charged and the PackageRequest must still be created, but a Recurring request
+                // with no token can never actually renew, so this is logged loudly for staff
+                // follow-up rather than silently swallowed.
+                string? paymentToken = null, cardLastFour = null, cardBrand = null, cardExpiry = null;
+                try
+                {
+                    var verification = await _flutterwaveService.VerifyAndExtractTokenAsync(flutterwaveTransactionId);
+                    if (verification != null)
+                    {
+                        paymentToken = verification.PaymentToken;
+                        cardLastFour = verification.CardLastFour;
+                        cardBrand = verification.CardBrand;
+                        cardExpiry = verification.CardExpiry;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(paymentToken))
+                    {
+                        _logger.LogCritical(
+                            "RECURRING PACKAGE PAYMENT HAS NO TOKEN! TxRef: {TxRef}, FlwTxId: {FlwTxId}. " +
+                            "Client was charged and will get a PackageRequest, but the resulting PackageSubscription " +
+                            "cannot renew without a token — needs manual follow-up.",
+                            transactionReference, flutterwaveTransactionId);
+                    }
+                }
+                catch (Exception tokenEx)
+                {
+                    _logger.LogError(tokenEx,
+                        "Failed to extract payment token for recurring package payment TxRef: {TxRef}. Continuing — PackageRequest will still be created.",
+                        transactionReference);
+                }
+
+                var packageRequest = await _packageRequestService.CreateAsync(pendingPayment.ClientId, new CreatePackageRequestRequest
+                {
+                    PackageId = pendingPayment.PackageId,
+                    Notes = notes,
+                    BillingType = PackageRequestBillingTypes.Recurring
+                });
+
+                var subscription = await _packageSubscriptionService.CreatePackageSubscriptionAsync(new CreatePackageSubscriptionRequest
+                {
+                    PackageRequestId = packageRequest.Id,
+                    ClientId = pendingPayment.ClientId,
+                    RecurringAmount = pendingPayment.TotalAmount,
+                    Currency = pendingPayment.Currency,
+                    Email = pendingPayment.Email,
+                    FlutterwavePaymentToken = paymentToken,
+                    CardLastFour = cardLastFour,
+                    CardBrand = cardBrand,
+                    CardExpiry = cardExpiry
+                });
+
+                pendingPayment.Status = PendingPackagePaymentStatus.Completed;
+                pendingPayment.FlutterwaveTransactionId = flutterwaveTransactionId;
+                pendingPayment.CompletedAt = DateTime.UtcNow;
+                pendingPayment.PackageRequestId = packageRequest.Id;
+                pendingPayment.PackageSubscriptionId = subscription.Id.ToString();
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "Recurring package payment completed. TxRef: {TxRef}, FlwTxId: {FlwTxId}, PackageRequestId: {PackageRequestId}, PackageSubscriptionId: {PackageSubscriptionId}, HasToken: {HasToken}",
+                    transactionReference, flutterwaveTransactionId, packageRequest.Id, subscription.Id, !string.IsNullOrWhiteSpace(paymentToken));
+
+                return Result<PendingPackagePayment>.Success(pendingPayment);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to create PackageRequest/PackageSubscription for TxRef: {TxRef}. Payment was received but no PackageRequest exists — needs manual follow-up.",
                     transactionReference);
 
                 pendingPayment.Status = PendingPackagePaymentStatus.Failed;

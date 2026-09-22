@@ -35,6 +35,12 @@ namespace Infrastructure.Content.Services
             if (!package.IsActive)
                 throw new InvalidOperationException("This package is not currently available.");
 
+            var billingType = string.IsNullOrWhiteSpace(request.BillingType)
+                ? PackageRequestBillingTypes.OneTime
+                : request.BillingType.Trim();
+            if (!PackageRequestBillingTypes.All.Contains(billingType))
+                throw new ArgumentException($"BillingType must be one of: {string.Join(", ", PackageRequestBillingTypes.All)}.");
+
             var now = DateTime.UtcNow;
             var entity = new PackageRequest
             {
@@ -54,6 +60,7 @@ namespace Infrastructure.Content.Services
                 Budget = request.Budget,
                 Notes = request.Notes?.Trim(),
                 Status = PackageRequestStatuses.Pending,
+                BillingType = billingType,
                 CreatedAt = now,
             };
 
@@ -122,6 +129,7 @@ namespace Infrastructure.Content.Services
                 Location = e.Location,
                 Budget = e.Budget,
                 Status = e.Status,
+                BillingType = e.BillingType,
                 CreatedAt = e.CreatedAt,
             }).ToList();
         }
@@ -164,6 +172,7 @@ namespace Infrastructure.Content.Services
                 Budget = e.Budget,
                 Notes = e.Notes,
                 Status = e.Status,
+                BillingType = e.BillingType,
                 ConfirmedCaregiver = confirmed,
                 CreatedAt = e.CreatedAt,
             };

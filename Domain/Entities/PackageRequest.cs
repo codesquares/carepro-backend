@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using System;
+using System.Collections.Generic;
 
 namespace Domain.Entities
 {
@@ -37,6 +38,16 @@ namespace Domain.Entities
         public string? Notes { get; set; }
 
         /// <summary>
+        /// Phase 10 — client's billing choice at purchase time: <see cref="PackageRequestBillingTypes.OneTime"/>
+        /// or <see cref="PackageRequestBillingTypes.Recurring"/>. Deliberately a per-request field, not a
+        /// Package-level one — the same Package can be bought either way. Recurring requests get a
+        /// corresponding <see cref="PackageSubscription"/> record (created alongside this one, see
+        /// PackagePaymentService.CompleteRecurringPackagePaymentAsync); OneTime requests never do.
+        /// Defaults to OneTime so pre-Phase-10 records (and the plain admin-payment path) are unaffected.
+        /// </summary>
+        public string BillingType { get; set; } = PackageRequestBillingTypes.OneTime;
+
+        /// <summary>
         /// "pending"   — awaiting assignment
         /// "assigned"  — a caregiver has been assigned and is deciding (see Assignment)
         /// "confirmed" — caregiver accepted; ConfirmedCaregiverId is set and visible to the client
@@ -64,5 +75,13 @@ namespace Domain.Entities
         public const string Assigned = "assigned";
         public const string Confirmed = "confirmed";
         public const string Cancelled = "cancelled";
+    }
+
+    public static class PackageRequestBillingTypes
+    {
+        public const string OneTime = "OneTime";
+        public const string Recurring = "Recurring";
+
+        public static readonly IReadOnlyCollection<string> All = new[] { OneTime, Recurring };
     }
 }

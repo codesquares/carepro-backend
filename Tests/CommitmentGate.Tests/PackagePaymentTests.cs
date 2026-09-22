@@ -63,7 +63,8 @@ public class PackagePaymentTests
     private static PackagePaymentService CreateService(
         CareProDbContext db,
         Mock<IPackageService> packageServiceMock,
-        IPackageRequestService? packageRequestService = null)
+        IPackageRequestService? packageRequestService = null,
+        IPackageSubscriptionService? packageSubscriptionService = null)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["FrontendUrl"] = "https://example.com" })
@@ -73,6 +74,7 @@ public class PackagePaymentTests
             db,
             packageServiceMock.Object,
             packageRequestService ?? new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>()),
+            packageSubscriptionService ?? new PackageSubscriptionService(db, CreateFakeFlutterwave(), Mock.Of<MediatR.IMediator>(), Mock.Of<ILogger<PackageSubscriptionService>>()),
             CreateFakeFlutterwave(),
             config,
             Mock.Of<ILogger<PackagePaymentService>>());

@@ -19,12 +19,23 @@ namespace Domain.Entities
     {
         public ObjectId Id { get; set; }
 
-        /// <summary>Unique transaction reference sent to Flutterwave (tx_ref), prefixed CAREPRO-PKG-.</summary>
+        /// <summary>
+        /// Unique transaction reference sent to Flutterwave (tx_ref). Prefixed CAREPRO-PKG-RECURRING-
+        /// when <see cref="BillingType"/> is Recurring, plain CAREPRO-PKG- for OneTime — the webhook
+        /// must check the RECURRING prefix first since it nests under the plain one.
+        /// </summary>
         public string TransactionReference { get; set; } = string.Empty;
 
         public string ClientId { get; set; } = string.Empty;
 
         public string PackageId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Phase 10 — client's billing choice, chosen by staff on the client's behalf at link
+        /// generation time (see <see cref="PackageRequestBillingTypes"/>). Carried onto the
+        /// resulting PackageRequest on completion.
+        /// </summary>
+        public string BillingType { get; set; } = PackageRequestBillingTypes.OneTime;
 
         /// <summary>Extra-day add-on count, only meaningful when the Package has an AdditionalDayPrice.</summary>
         public int ExtraDays { get; set; }
@@ -56,6 +67,10 @@ namespace Domain.Entities
 
         /// <summary>The PackageRequest ID created after successful payment.</summary>
         public string? PackageRequestId { get; set; }
+
+        /// <summary>Only set when BillingType is Recurring — the PackageSubscription created
+        /// alongside the PackageRequest after a successful first charge + token capture.</summary>
+        public string? PackageSubscriptionId { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

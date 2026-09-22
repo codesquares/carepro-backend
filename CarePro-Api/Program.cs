@@ -230,6 +230,10 @@ builder.Services.AddScoped<IPackagePaymentService, PackagePaymentService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHostedService<RecurringBillingService>();
 
+// Phase 10 — recurring Package billing (repointed renewal engine, never Gig/ClientOrder-anchored)
+builder.Services.AddScoped<IPackageSubscriptionService, PackageSubscriptionService>();
+builder.Services.AddHostedService<PackageRecurringBillingService>();
+
 // Content sanitization (XSS prevention)
 builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 

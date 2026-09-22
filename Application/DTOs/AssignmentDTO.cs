@@ -73,6 +73,14 @@ namespace Application.DTOs
         /// <summary>Optional override for the gig category the matcher scores against. Defaults to the package category.</summary>
         [StringLength(120)]
         public string? ServiceCategory { get; set; }
+
+        /// <summary>
+        /// Phase 10 — "OneTime" or "Recurring" (see <see cref="Domain.Entities.PackageRequestBillingTypes"/>).
+        /// Not client-supplied through this DTO directly (there is no client-facing create endpoint —
+        /// see PackagePaymentService); set internally by the admin payment-completion path based on
+        /// what the client chose at purchase time. Defaults to OneTime when left unset.
+        /// </summary>
+        public string? BillingType { get; set; }
     }
 
     public class PackageRequestDTO
@@ -89,6 +97,7 @@ namespace Application.DTOs
         public decimal? Budget { get; set; }
         public string? Notes { get; set; }
         public string Status { get; set; } = string.Empty;
+        public string BillingType { get; set; } = string.Empty;
         /// <summary>Non-null only once a caregiver has accepted — this is all the client sees before then.</summary>
         public ConfirmedCaregiverDTO? ConfirmedCaregiver { get; set; }
         public DateTime CreatedAt { get; set; }
@@ -123,6 +132,7 @@ namespace Application.DTOs
         public string? Location { get; set; }
         public decimal? Budget { get; set; }
         public string Status { get; set; } = string.Empty;
+        public string BillingType { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
     }
 

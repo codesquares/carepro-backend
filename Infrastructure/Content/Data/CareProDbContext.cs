@@ -125,6 +125,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PendingPackagePayment>().ToCollection("PendingPackagePayments");
             modelBuilder.Entity<PendingPackagePayment>().HasKey(ppp => ppp.Id);
             modelBuilder.Entity<PendingPackagePayment>().Property(ppp => ppp.Id).HasElementName("_id");
+            modelBuilder.Entity<PackageSubscription>().ToCollection("PackageSubscriptions");
+            modelBuilder.Entity<PackageSubscription>().HasKey(ps => ps.Id);
+            modelBuilder.Entity<PackageSubscription>().Property(ps => ps.Id).HasElementName("_id");
             modelBuilder.Entity<Subscription>().ToCollection("Subscriptions");
             modelBuilder.Entity<Subscription>().HasKey(s => s.Id);
             modelBuilder.Entity<Subscription>().Property(s => s.Id).HasElementName("_id");
@@ -299,6 +302,7 @@ namespace Infrastructure.Content.Data
         public DbSet<WebhookLog> WebhookLogs { get; set; }
         public DbSet<PendingPayment> PendingPayments { get; set; }
         public DbSet<PendingPackagePayment> PendingPackagePayments { get; set; }
+        public DbSet<PackageSubscription> PackageSubscriptions { get; set; }
         public DbSet<Subscription> Subscriptions { get; set; }
         public DbSet<ServiceRequirement> ServiceRequirements { get; set; }
         public DbSet<AssessmentSession> AssessmentSessions { get; set; }

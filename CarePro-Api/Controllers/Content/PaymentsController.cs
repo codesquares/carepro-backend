@@ -252,6 +252,29 @@ namespace CarePro_Api.Controllers.Content
                 return Ok(new { success = true, message = "Commitment processed successfully." });
             }
             // ── END ROUTE ─────────────────────────────────────────────────
+            // ── ROUTE: Admin-initiated Recurring Package payment (Phase 10) ──
+            // MUST be checked before the plain CAREPRO-PKG- route below — this prefix
+            // deliberately nests under it (CAREPRO-PKG-RECURRING- starts with CAREPRO-PKG-),
+            // mirroring the existing CAREPRO-RECURRING- naming convention.
+            if (txRef.StartsWith("CAREPRO-PKG-RECURRING-", StringComparison.OrdinalIgnoreCase))
+            {
+                var recurringPackagePaymentResult = await _packagePaymentService.CompleteRecurringPackagePaymentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!recurringPackagePaymentResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete recurring package payment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", recurringPackagePaymentResult.Errors));
+                    return BadRequest(new { success = false, message = "Recurring package payment processing failed." });
+                }
+
+                _logger.LogInformation("Recurring package payment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Recurring package payment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
             // ── ROUTE: Admin-initiated Package payment (Option A) ───────────
             if (txRef.StartsWith("CAREPRO-PKG-", StringComparison.OrdinalIgnoreCase))
             {
