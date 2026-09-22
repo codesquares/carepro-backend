@@ -145,11 +145,11 @@ namespace Infrastructure.Content.Services
                     <p>Please log in to review the details and <strong>accept</strong> the assignment.
                        The client will only see you as their caregiver once you accept.</p>
                     <p>— The CarePro Team</p>";
+                // Always-Send: an assignment offer is an operational event the caregiver
+                // must act on. No unsubscribe header (policy: Preference-Gated only), no
+                // preference gate.
                 await _emailService.SendGenericNotificationEmailAsync(
-                    caregiver.Email, caregiver.FirstName, subject, html,
-                    includeUnsubscribeHeader: true,
-                    gateUserId: caregiverId,
-                    gateNotificationType: NotificationTypes.PackageAssignmentOffered);
+                    caregiver.Email, caregiver.FirstName, subject, html);
             }
             catch (Exception ex)
             {
@@ -267,6 +267,57 @@ namespace Infrastructure.Content.Services
                 .ToList();
         }
 
+        public async Task<List<AcceptedAssignmentDTO>> GetAcceptedAsync()
+        {
+            var accepted = await _db.Assignments
+                .Where(a => a.Status == AssignmentStatuses.Accepted)
+                .ToListAsync();
+
+            if (accepted.Count == 0) return new List<AcceptedAssignmentDTO>();
+
+            var caregiverOids = accepted
+                .Select(a => ObjectId.TryParse(a.CaregiverId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var caregivers = await _db.CareGivers.Where(c => caregiverOids.Contains(c.Id)).ToListAsync();
+            var caregiverName = caregivers.ToDictionary(
+                c => c.Id.ToString(), c => $"{c.FirstName} {c.LastName}".Trim());
+
+            var requestOids = accepted
+                .Select(a => ObjectId.TryParse(a.PackageRequestId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var requests = await _db.PackageRequests.Where(p => requestOids.Contains(p.Id)).ToListAsync();
+            var requestById = requests.ToDictionary(p => p.Id.ToString());
+
+            var packageOids = requests
+                .Select(r => ObjectId.TryParse(r.PackageId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var packages = await _db.Packages.Where(p => packageOids.Contains(p.Id)).ToListAsync();
+            var packageById = packages.ToDictionary(p => p.Id.ToString());
+
+            // Most-recently-accepted first.
+            return accepted
+                .OrderByDescending(a => a.RespondedAt ?? a.AssignedAt)
+                .Select(a =>
+                {
+                    requestById.TryGetValue(a.PackageRequestId, out var req);
+                    Domain.Entities.Package? pkg = null;
+                    if (req != null) packageById.TryGetValue(req.PackageId, out pkg);
+                    return new AcceptedAssignmentDTO
+                    {
+                        AssignmentId = a.Id.ToString(),
+                        PackageRequestId = a.PackageRequestId,
+                        CaregiverId = a.CaregiverId,
+                        CaregiverName = caregiverName.GetValueOrDefault(a.CaregiverId, "(unknown)"),
+                        ClientId = a.ClientId,
+                        PackageCategory = req?.PackageCategory ?? string.Empty,
+                        PackageTierLabel = req?.PackageTierLabel ?? string.Empty,
+                        PayCalculationType = pkg?.PayCalculationType?.ToString() ?? string.Empty,
+                        AcceptedAt = a.RespondedAt,
+                    };
+                })
+                .ToList();
+        }
+
         // ─────────────────────────────── Caregiver ───────────────────────────────
 
         public async Task<List<AssignmentDTO>> GetMyAssignmentsAsync(string caregiverId)
@@ -332,11 +383,11 @@ namespace Infrastructure.Content.Services
                                {request.PackageCategory} ({request.PackageTierLabel}) package request and is now your confirmed caregiver.</p>
                             <p>Log in to view their profile and next steps.</p>
                             <p>— The CarePro Team</p>";
+                        // Always-Send: "your caregiver is confirmed" is a transactional
+                        // milestone. No unsubscribe header (policy: Preference-Gated only),
+                        // no preference gate.
                         await _emailService.SendGenericNotificationEmailAsync(
-                            client.Email, client.FirstName ?? "Client", subject, html,
-                            includeUnsubscribeHeader: true,
-                            gateUserId: request.ClientId,
-                            gateNotificationType: NotificationTypes.PackageAssignmentConfirmed);
+                            client.Email, client.FirstName ?? "Client", subject, html);
                     }
                 }
             }

@@ -11,9 +11,13 @@ using System.Threading.Tasks;
 namespace CarePro_Api.Controllers.Content
 {
     /// <summary>
-    /// Phase 4 — a client's request for a specific pre-priced package. Fulfilment is
-    /// by internal assignment; the client sees a confirmed caregiver only after the
-    /// assigned caregiver accepts (see <see cref="PackageRequestDTO.ConfirmedCaregiver"/>).
+    /// Phase 4 — a client's own view of their requests for a specific pre-priced package.
+    /// Client-facing read-only: creation is no longer exposed here (Option A) — the only
+    /// way a PackageRequest is created is the admin-initiated payment-link flow completing
+    /// via the Flutterwave webhook (see <c>AdminPackagePaymentsController</c> and
+    /// <c>PaymentsController</c>'s CAREPRO-PKG- route), never a direct client POST.
+    /// Fulfilment is by internal assignment; the client sees a confirmed caregiver only
+    /// after the assigned caregiver accepts (see <see cref="PackageRequestDTO.ConfirmedCaregiver"/>).
     /// </summary>
     [Route("api/client/package-requests")]
     [ApiController]
@@ -57,19 +61,19 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreatePackageRequestRequest request)
+        /// <summary>All of the caller's own package requests, newest first.</summary>
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
         {
             var clientId = CurrentClientId();
             if (string.IsNullOrWhiteSpace(clientId))
                 return Unauthorized(new { message = "Client identity not found in token." });
-            if (!ModelState.IsValid) return BadRequest(ModelState);
             try
             {
-                var dto = await _service.CreateAsync(clientId, request);
-                return CreatedAtAction(nameof(GetById), new { id = dto.Id }, new { success = true, data = dto });
+                var data = await _service.GetAllForClientAsync(clientId);
+                return Ok(new { success = true, data });
             }
-            catch (Exception ex) { return HandleException(ex, "CreatePackageRequest"); }
+            catch (Exception ex) { return HandleException(ex, "GetAllPackageRequestsForClient"); }
         }
 
         [HttpGet("{id}")]

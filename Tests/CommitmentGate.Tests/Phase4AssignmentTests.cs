@@ -159,11 +159,13 @@ public class Phase4AssignmentTests
         public required AssignmentService Assignments { get; init; }
         public required PackageRequestService Requests { get; init; }
         public required Mock<IMediator> Mediator { get; init; }
+        public required Mock<IEmailService> Email { get; init; }
     }
 
     private static AssignHarness CreateAssignHarness(CareProDbContext db, bool caregiverReady = true)
     {
         var mediator = new Mock<IMediator>();
+        var email = new Mock<IEmailService>();
         var readiness = new Mock<ICaregiverReadinessService>();
         readiness.Setup(r => r.GetReadinessAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool?>()))
             .ReturnsAsync(caregiverReady
@@ -171,12 +173,12 @@ public class Phase4AssignmentTests
                 : new CaregiverReadinessResult { IsReady = false, IneligibilityReasons = { CaregiverReadinessReasons.NotIdentityVerified } });
 
         var assignments = new AssignmentService(
-            db, mediator.Object, Mock.Of<IEmailService>(), readiness.Object,
+            db, mediator.Object, email.Object, readiness.Object,
             Mock.Of<IPackageContractService>(),
             Mock.Of<ILogger<AssignmentService>>());
         var requests = new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>());
 
-        return new AssignHarness { Assignments = assignments, Requests = requests, Mediator = mediator };
+        return new AssignHarness { Assignments = assignments, Requests = requests, Mediator = mediator, Email = email };
     }
 
     private static async Task<(string prId, string cgId, string clientId)> SeedRequestAndCaregiver(
@@ -251,6 +253,41 @@ public class Phase4AssignmentTests
             Assert.Equal("Accepted", raw.Status);
             Assert.NotNull(raw.RespondedAt);
             Assert.Equal("admin-1", raw.AssignedByAdminId);
+        }
+    }
+
+    [Fact]
+    public async Task AssignmentEmails_AreAlwaysSend_NoUnsubscribeHeader_NoConsentGate()
+    {
+        var dbName = NewDbName();
+        string prId, cgId, assignmentId;
+
+        using (var db = CreateDb(dbName))
+        {
+            (prId, cgId, _) = await SeedRequestAndCaregiver(db);
+            var h = CreateAssignHarness(db);
+
+            var assignment = await h.Assignments.AssignAsync(prId, cgId, "admin-1", "ops@carepro.test", "staff", null);
+            assignmentId = assignment.Id;
+
+            // The caregiver offer email must go out with NO unsubscribe header and NO
+            // preference-gate params — it is Always-Send (policy row #33).
+            h.Email.Verify(e => e.SendGenericNotificationEmailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                false, null, null), Times.Once);
+            h.Email.VerifyNoOtherCalls();
+        }
+
+        using (var db = CreateDb(dbName))
+        {
+            var h = CreateAssignHarness(db);
+            await h.Assignments.AcceptAsync(assignmentId, cgId);
+
+            // The client confirmation email is likewise Always-Send.
+            h.Email.Verify(e => e.SendGenericNotificationEmailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                false, null, null), Times.Once);
+            h.Email.VerifyNoOtherCalls();
         }
     }
 

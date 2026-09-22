@@ -223,6 +223,9 @@ builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
 // Booking commitment (gig access fee) services
 builder.Services.AddScoped<IBookingCommitmentService, BookingCommitmentService>();
 
+// Admin-initiated Package payment link generation + webhook completion (Option A)
+builder.Services.AddScoped<IPackagePaymentService, PackagePaymentService>();
+
 // Subscription & recurring billing services
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHostedService<RecurringBillingService>();

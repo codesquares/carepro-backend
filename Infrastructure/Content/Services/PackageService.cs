@@ -92,6 +92,20 @@ namespace Infrastructure.Content.Services
             return packages.Select(MapToDTO).ToList();
         }
 
+        public async Task<List<ClientPackageDTO>> GetActivePackagesForClientAsync()
+        {
+            var packages = await _context.Packages
+                .Where(p => p.IsActive)
+                .ToListAsync();
+
+            return packages
+                .OrderBy(p => p.Category)
+                .ThenBy(p => p.BasePrice)
+                .ThenBy(p => p.TierLabel)
+                .Select(MapToClientDTO)
+                .ToList();
+        }
+
         public async Task<bool> UpdatePackageAsync(UpdatePackageRequest request)
         {
             if (request == null) throw new ArgumentException("Request body is required");
@@ -239,6 +253,18 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException("FixedCaregiverPay must not be set when PayCalculationType is Hourly");
             }
         }
+
+        private static ClientPackageDTO MapToClientDTO(Package p) => new()
+        {
+            Id = p.Id.ToString(),
+            Category = p.Category,
+            TierLabel = p.TierLabel,
+            RequiredCaregiverType = p.RequiredCaregiverType.ToString(),
+            RequiredSpecialty = p.RequiredSpecialty,
+            Description = p.Description,
+            BasePrice = p.BasePrice,
+            AdditionalDayPrice = p.AdditionalDayPrice,
+        };
 
         private static PackageDTO MapToDTO(Package p) => new()
         {

@@ -22,6 +22,13 @@ namespace Application.Interfaces.Content
         /// <summary>Every assignment awaiting a caregiver response, longest-pending first.</summary>
         Task<List<PendingAssignmentDTO>> GetPendingAcceptanceAsync();
 
+        /// <summary>
+        /// Every Accepted assignment, most-recently-accepted first — the staff-facing picker
+        /// for Payroll (an admin needs a real AssignmentId + its PayCalculationType before
+        /// creating a payroll record; there was previously no admin-facing way to list these).
+        /// </summary>
+        Task<List<AcceptedAssignmentDTO>> GetAcceptedAsync();
+
         // Caregiver
         Task<List<AssignmentDTO>> GetMyAssignmentsAsync(string caregiverId);
         Task<AssignmentActionResult> AcceptAsync(string assignmentId, string caregiverId);

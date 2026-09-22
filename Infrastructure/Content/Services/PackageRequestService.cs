@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
@@ -74,6 +76,54 @@ namespace Infrastructure.Content.Services
                 throw new UnauthorizedAccessException("You are not authorised to view this request.");
 
             return await MapAsync(entity);
+        }
+
+        public async Task<List<PackageRequestDTO>> GetAllForClientAsync(string clientId)
+        {
+            if (string.IsNullOrWhiteSpace(clientId)) throw new ArgumentException("Client identity is required.");
+
+            var entities = await _db.PackageRequests
+                .Where(p => p.ClientId == clientId && p.DeletedAt == null)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
+
+            var result = new List<PackageRequestDTO>(entities.Count);
+            foreach (var entity in entities)
+                result.Add(await MapAsync(entity));
+            return result;
+        }
+
+        public async Task<List<AdminPackageRequestDTO>> GetForAdminAsync(string? status)
+        {
+            var query = _db.PackageRequests.Where(p => p.DeletedAt == null);
+            if (!string.IsNullOrWhiteSpace(status))
+                query = query.Where(p => p.Status == status.Trim().ToLowerInvariant());
+
+            var requests = await query.OrderBy(p => p.CreatedAt).ToListAsync();
+            if (requests.Count == 0) return new List<AdminPackageRequestDTO>();
+
+            var clientOids = requests
+                .Select(r => ObjectId.TryParse(r.ClientId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).Distinct().ToList();
+            var clients = await _db.Clients.Where(c => clientOids.Contains(c.Id)).ToListAsync();
+            var clientName = clients.ToDictionary(
+                c => c.Id.ToString(), c => $"{c.FirstName} {c.LastName}".Trim());
+
+            return requests.Select(e => new AdminPackageRequestDTO
+            {
+                Id = e.Id.ToString(),
+                ClientId = e.ClientId,
+                ClientName = clientName.GetValueOrDefault(e.ClientId, "(unknown)"),
+                PackageCategory = e.PackageCategory,
+                PackageTierLabel = e.PackageTierLabel,
+                RequiredCaregiverType = e.RequiredCaregiverType.ToString(),
+                RequiredSpecialty = e.RequiredSpecialty,
+                ServiceCategory = e.ServiceCategory,
+                Location = e.Location,
+                Budget = e.Budget,
+                Status = e.Status,
+                CreatedAt = e.CreatedAt,
+            }).ToList();
         }
 
         private async Task<PackageRequestDTO> MapAsync(PackageRequest e)

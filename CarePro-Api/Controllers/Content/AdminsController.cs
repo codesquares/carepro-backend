@@ -212,6 +212,41 @@ namespace CarePro_Api.Controllers.Content
         /// <summary>
         /// GET DASHBOARD STATS - Admin endpoint to retrieve aggregated dashboard statistics
         /// </summary>
+        /// <summary>
+        /// SuperAdmin-only: approve or reject a PendingApproval admin account.
+        /// Newly created admin/superadmin accounts start PendingApproval and
+        /// cannot log in until a SuperAdmin explicitly approves them here.
+        /// </summary>
+        [HttpPost]
+        [Route("{adminUserId}/Approval")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> UpdateAdminApprovalStatusAsync(string adminUserId, [FromBody] UpdateAdminApprovalStatusRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                var result = await adminUserService.UpdateAdminApprovalStatusAsync(adminUserId, request.Status);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error updating admin approval status for {AdminUserId}", adminUserId);
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
         [HttpGet]
         [Route("DashboardStats")]
         [Authorize(Roles = "SuperAdmin")]

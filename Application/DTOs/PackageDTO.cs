@@ -23,6 +23,27 @@ namespace Application.DTOs
         public DateTime UpdatedAt { get; set; }
     }
 
+    /// <summary>
+    /// Client-facing projection of an active <see cref="Domain.Entities.Package"/> — only
+    /// what a client needs to browse and choose. Deliberately omits every operational /
+    /// payroll-internal field on <see cref="PackageDTO"/>: <c>PayCalculationType</c>,
+    /// <c>FixedCaregiverPay</c>, <c>IsActive</c> (this projection only ever contains active
+    /// packages), and the <c>CreatedAt</c>/<c>UpdatedAt</c> audit timestamps.
+    /// </summary>
+    public class ClientPackageDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string TierLabel { get; set; } = string.Empty;
+        /// <summary>Informational only — the client cannot filter or choose by this.
+        /// "AuxiliaryNurse" | "CHEW" | "RegisteredNurse".</summary>
+        public string RequiredCaregiverType { get; set; } = string.Empty;
+        public string? RequiredSpecialty { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public decimal BasePrice { get; set; }
+        public decimal? AdditionalDayPrice { get; set; }
+    }
+
     public class AddPackageRequest
     {
         [Required]

@@ -1,7 +1,10 @@
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -23,17 +26,23 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _context;
         private readonly ITaskSheetService _taskSheetService;
         private readonly ICaregiverWalletService _walletService;
+        private readonly IMediator _mediator;
+        private readonly IEmailService _emailService;
         private readonly ILogger<PayrollService> _logger;
 
         public PayrollService(
             CareProDbContext context,
             ITaskSheetService taskSheetService,
             ICaregiverWalletService walletService,
+            IMediator mediator,
+            IEmailService emailService,
             ILogger<PayrollService> logger)
         {
             _context = context;
             _taskSheetService = taskSheetService;
             _walletService = walletService;
+            _mediator = mediator;
+            _emailService = emailService;
             _logger = logger;
         }
 
@@ -208,6 +217,13 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation("Payroll {Id} approved by {AdminEmail} and credited {Amount} to caregiver {CaregiverId}'s wallet",
                 entity.Id, adminEmail, entity.FinalAmount, entity.CaregiverId);
 
+            // The caregiver must be told when money lands — same courtesy as order-based
+            // earnings (EarningsAdded + SendEarningsNotificationEmailAsync). Always-Send:
+            // this is a direct result of the caregiver's own completed work.
+            await NotifyCaregiverPaidAsync(
+                entity, NotificationTypes.PayrollApproved,
+                $"Your payroll for {entity.PayPeriod:MMMM yyyy} has been approved. ₦{entity.FinalAmount:N2} has been added to your wallet and is available to withdraw.");
+
             return MapToDTO(entity);
         }
 
@@ -225,7 +241,69 @@ namespace Infrastructure.Content.Services
             entity.Status = PayrollStatuses.Paid;
             entity.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            await NotifyCaregiverPaidAsync(
+                entity, NotificationTypes.PayrollPaid,
+                $"Your approved payroll for {entity.PayPeriod:MMMM yyyy} (₦{entity.FinalAmount:N2}) has been marked as paid out.");
+
             return true;
+        }
+
+        /// <summary>
+        /// Tells the caregiver — in-app + email — that a payroll amount has moved. Best-effort:
+        /// a notification hiccup must never roll back a completed wallet credit / status change.
+        /// The email uses the policy-#10 "earnings" template (Always-Send).
+        /// </summary>
+        private async Task NotifyCaregiverPaidAsync(Payroll entity, string notificationType, string content)
+        {
+            try
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: entity.CaregiverId,
+                    SenderId: "system",
+                    Type: notificationType,
+                    Content: content,
+                    Title: notificationType == NotificationTypes.PayrollPaid ? "Payroll Paid" : "Payroll Approved",
+                    RelatedEntityId: entity.Id.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send in-app payroll notification for payroll {PayrollId}", entity.Id);
+            }
+
+            try
+            {
+                var caregiver = ObjectId.TryParse(entity.CaregiverId, out var cgOid)
+                    ? await _context.CareGivers.FirstOrDefaultAsync(c => c.Id == cgOid)
+                    : null;
+
+                if (caregiver != null && !string.IsNullOrWhiteSpace(caregiver.Email))
+                {
+                    string clientName = "CarePro";
+                    if (ObjectId.TryParse(entity.ClientId, out var clOid))
+                    {
+                        var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == clOid);
+                        if (client != null)
+                            clientName = $"{client.FirstName} {client.LastName}".Trim();
+                    }
+
+                    var serviceType = "Package care";
+                    if (ObjectId.TryParse(entity.PackageRequestId, out var prOid))
+                    {
+                        var pr = await _context.PackageRequests.FirstOrDefaultAsync(p => p.Id == prOid);
+                        if (pr != null && !string.IsNullOrWhiteSpace(pr.PackageCategory))
+                            serviceType = pr.PackageCategory;
+                    }
+
+                    await _emailService.SendEarningsNotificationEmailAsync(
+                        caregiver.Email, caregiver.FirstName ?? "there",
+                        entity.FinalAmount, clientName, serviceType);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send payroll email for payroll {PayrollId}", entity.Id);
+            }
         }
 
         public async Task<bool> DeletePayrollAsync(string id)

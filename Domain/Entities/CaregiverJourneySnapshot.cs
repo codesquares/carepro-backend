@@ -46,11 +46,15 @@ namespace Domain.Entities
         public bool HasEducation { get; set; }
 
         // ── Vetting (Phase 2) — visibility only; CaregiverReadinessService is the enforcement point ──
-        public int GuarantorCount { get; set; }
-        public int ConfirmedGuarantorCount { get; set; }
-        public bool HasTwoConfirmedGuarantors { get; set; }
-        public bool AddressHistoryComplete { get; set; }
-        public bool CaregiverTypeSet { get; set; }
+        // Nullable: added after this collection already had documents, and the MongoDB EF Core
+        // provider throws on read for any missing non-nullable property. Every rebuild cycle
+        // overwrites these unconditionally (see CaregiverSnapshotService), so a null on an old,
+        // not-yet-rebuilt document is transient — treat it the same as "not complete" / zero.
+        public int? GuarantorCount { get; set; }
+        public int? ConfirmedGuarantorCount { get; set; }
+        public bool? HasTwoConfirmedGuarantors { get; set; }
+        public bool? AddressHistoryComplete { get; set; }
+        public bool? CaregiverTypeSet { get; set; }
         /// <summary>"AuxiliaryNurse" | "CHEW" | "RegisteredNurse" | null.</summary>
         public string? CaregiverType { get; set; }
 

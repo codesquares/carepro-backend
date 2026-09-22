@@ -59,37 +59,68 @@ namespace Infrastructure.Content.Services
             if (string.IsNullOrWhiteSpace(request.Reason))
                 throw new ArgumentException("Dispute reason is required.");
 
-            // ── Validate order exists ──
-            if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
-                throw new ArgumentException("Invalid order ID format.");
-
-            var order = await _dbContext.ClientOrders.FindAsync(orderObjectId);
-            if (order == null)
-                throw new KeyNotFoundException($"Order with ID '{request.OrderId}' not found.");
-
-            // ── For visit disputes, validate task sheet exists and belongs to order ──
+            // ── For visit disputes, load the task sheet first — it decides whether this
+            //    is a legacy ClientOrder dispute or a package-assignment dispute. ──
+            TaskSheet? disputedTaskSheet = null;
             if (request.DisputeType == DisputeType.Visit)
             {
                 if (string.IsNullOrWhiteSpace(request.TaskSheetId))
                     throw new ArgumentException("TaskSheetId is required for visit disputes.");
-
                 if (!ObjectId.TryParse(request.TaskSheetId, out var tsObjectId))
                     throw new ArgumentException("Invalid task sheet ID format.");
 
-                var taskSheet = await _dbContext.TaskSheets.FindAsync(tsObjectId);
-                if (taskSheet == null)
-                    throw new KeyNotFoundException($"Task sheet with ID '{request.TaskSheetId}' not found.");
-                if (taskSheet.OrderId != request.OrderId)
+                disputedTaskSheet = await _dbContext.TaskSheets.FindAsync(tsObjectId)
+                    ?? throw new KeyNotFoundException($"Task sheet with ID '{request.TaskSheetId}' not found.");
+            }
+
+            // ── Resolve the dispute target: legacy ClientOrder, or a package assignment
+            //    (Phase 9.5 package task sheets have no ClientOrder — the owner comes
+            //    from the Assignment instead). ──
+            ClientOrder? order = null;
+            Assignment? assignment = null;
+            string ownerClientId, ownerCaregiverId;
+            string? packageRequestId = null;
+
+            var isPackageVisitDispute = disputedTaskSheet != null
+                && string.IsNullOrEmpty(disputedTaskSheet.OrderId)
+                && !string.IsNullOrEmpty(disputedTaskSheet.AssignmentId);
+
+            if (isPackageVisitDispute)
+            {
+                if (!ObjectId.TryParse(disputedTaskSheet!.AssignmentId, out var aOid))
+                    throw new ArgumentException("Task sheet has an invalid assignment reference.");
+                assignment = await _dbContext.Assignments.FirstOrDefaultAsync(a => a.Id == aOid)
+                    ?? throw new KeyNotFoundException($"Assignment '{disputedTaskSheet.AssignmentId}' not found.");
+                ownerClientId = assignment.ClientId;
+                ownerCaregiverId = assignment.CaregiverId;
+                packageRequestId = assignment.PackageRequestId;
+            }
+            else
+            {
+                if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
+                    throw new ArgumentException("Invalid order ID format.");
+                order = await _dbContext.ClientOrders.FindAsync(orderObjectId)
+                    ?? throw new KeyNotFoundException($"Order with ID '{request.OrderId}' not found.");
+                ownerClientId = order.ClientId;
+                ownerCaregiverId = order.CaregiverId;
+
+                if (disputedTaskSheet != null && disputedTaskSheet.OrderId != request.OrderId)
                     throw new ArgumentException("Task sheet does not belong to the specified order.");
             }
 
             // ── Check for duplicate open dispute on same target ──
-            var existingDispute = await _dbContext.Disputes
-                .Where(d => d.OrderId == request.OrderId
-                    && d.TaskSheetId == request.TaskSheetId
-                    && d.DisputeType == request.DisputeType
-                    && (d.Status == DisputeStatus.Open || d.Status == DisputeStatus.UnderReview))
-                .FirstOrDefaultAsync();
+            var existingDispute = isPackageVisitDispute
+                ? await _dbContext.Disputes
+                    .Where(d => d.TaskSheetId == request.TaskSheetId
+                        && d.DisputeType == request.DisputeType
+                        && (d.Status == DisputeStatus.Open || d.Status == DisputeStatus.UnderReview))
+                    .FirstOrDefaultAsync()
+                : await _dbContext.Disputes
+                    .Where(d => d.OrderId == request.OrderId
+                        && d.TaskSheetId == request.TaskSheetId
+                        && d.DisputeType == request.DisputeType
+                        && (d.Status == DisputeStatus.Open || d.Status == DisputeStatus.UnderReview))
+                    .FirstOrDefaultAsync();
 
             if (existingDispute != null)
                 throw new InvalidOperationException("An active dispute already exists for this target. Please wait for it to be resolved.");
@@ -97,25 +128,30 @@ namespace Infrastructure.Content.Services
             // ── Create dispute record ──
             var dispute = new Dispute
             {
-                OrderId = request.OrderId,
+                OrderId = order?.Id.ToString() ?? string.Empty,
+                AssignmentId = assignment?.Id.ToString(),
+                PackageRequestId = packageRequestId,
                 TaskSheetId = request.TaskSheetId,
                 DisputeType = request.DisputeType,
                 Category = request.Category,
                 Reason = request.Reason,
                 RaisedBy = raisedByUserId,
-                ClientId = order.ClientId,
-                CaregiverId = order.CaregiverId,
+                ClientId = ownerClientId,
+                CaregiverId = ownerCaregiverId,
                 Status = DisputeStatus.Open
             };
 
             _dbContext.Disputes.Add(dispute);
 
-            // ── Flag the order as having a dispute ──
-            order.HasDispute = true;
-            order.DisputeReason = request.Reason;
-            order.ClientOrderStatus = "Disputed";
-            order.OrderUpdatedOn = DateTime.UtcNow;
-            _dbContext.ClientOrders.Update(order);
+            // ── Flag the order as having a dispute (legacy ClientOrder flow only) ──
+            if (order != null)
+            {
+                order.HasDispute = true;
+                order.DisputeReason = request.Reason;
+                order.ClientOrderStatus = "Disputed";
+                order.OrderUpdatedOn = DateTime.UtcNow;
+                _dbContext.ClientOrders.Update(order);
+            }
 
             // ── If visit dispute, update the task sheet review status ──
             if (request.DisputeType == DisputeType.Visit && !string.IsNullOrWhiteSpace(request.TaskSheetId))
@@ -136,23 +172,27 @@ namespace Infrastructure.Content.Services
 
             await _dbContext.SaveChangesAsync();
 
-            // ── Record dispute hold in ledger ──
-            try
+            // ── Record dispute hold in ledger (legacy ClientOrder flow only — package
+            //    caregivers are paid via admin-approved payroll, not the EarningsLedger). ──
+            if (order != null)
             {
-                await _ledgerService.RecordDisputeHoldAsync(
-                    order.CaregiverId, order.Amount, request.OrderId,
-                    $"Dispute raised ({dispute.DisputeType}/{dispute.Category}): {dispute.Reason}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error recording dispute hold for order {OrderId}", request.OrderId);
+                try
+                {
+                    await _ledgerService.RecordDisputeHoldAsync(
+                        order.CaregiverId, order.Amount, order.Id.ToString(),
+                        $"Dispute raised ({dispute.DisputeType}/{dispute.Category}): {dispute.Reason}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error recording dispute hold for order {OrderId}", order.Id);
+                }
             }
 
             // ── Send notifications ──
-            await NotifyDisputeRaisedAsync(dispute, order);
+            await NotifyDisputeRaisedAsync(dispute);
 
-            _logger.LogInformation("Dispute {DisputeId} raised on order {OrderId} by user {UserId}. Type: {Type}, Category: {Category}",
-                dispute.Id, request.OrderId, raisedByUserId, request.DisputeType, request.Category);
+            _logger.LogInformation("Dispute {DisputeId} raised (order '{OrderId}', assignment '{AssignmentId}') by user {UserId}. Type: {Type}, Category: {Category}",
+                dispute.Id, dispute.OrderId, dispute.AssignmentId, raisedByUserId, request.DisputeType, request.Category);
 
             return await BuildDisputeResponseAsync(dispute);
         }
@@ -355,7 +395,7 @@ namespace Infrastructure.Content.Services
                     RecipientId: dispute.ClientId,
                     SenderId: adminUserId,
                     Type: NotificationTypes.DisputeUnderReview,
-                    Content: $"Your dispute on Order {dispute.OrderId} is now under active review by an admin. You will be notified once a decision is made.",
+                    Content: $"Your dispute on {CaseRef(dispute)} is now under active review by an admin. You will be notified once a decision is made.",
                     Title: "Dispute Under Review",
                     RelatedEntityId: dispute.Id.ToString(),
                     OrderId: dispute.OrderId));
@@ -364,7 +404,7 @@ namespace Infrastructure.Content.Services
                     RecipientId: dispute.CaregiverId,
                     SenderId: adminUserId,
                     Type: NotificationTypes.DisputeUnderReview,
-                    Content: $"A dispute on Order {dispute.OrderId} is now under active review by an admin. You will be notified once a decision is made.",
+                    Content: $"A dispute on {CaseRef(dispute)} is now under active review by an admin. You will be notified once a decision is made.",
                     Title: "Dispute Under Review",
                     RelatedEntityId: dispute.Id.ToString(),
                     OrderId: dispute.OrderId));
@@ -506,12 +546,32 @@ namespace Infrastructure.Content.Services
             if (taskSheet == null)
                 throw new KeyNotFoundException($"Task sheet with ID '{taskSheetId}' not found.");
 
-            // ── IDOR check: verify the calling client actually owns this order ──
-            var ownerOrder = await _dbContext.ClientOrders.FirstOrDefaultAsync(
-                o => o.Id.ToString() == taskSheet.OrderId);
-            if (ownerOrder == null)
-                throw new KeyNotFoundException($"Order '{taskSheet.OrderId}' not found.");
-            if (ownerOrder.ClientId != clientUserId)
+            // ── IDOR check: verify the calling client owns this visit ──
+            // Legacy gig/order visits resolve ownership from the ClientOrder; Phase 9.5
+            // package visits have no ClientOrder and resolve it from the Assignment.
+            ClientOrder? ownerOrder = null;
+            string ownerClientId;
+            var isPackageVisit = string.IsNullOrEmpty(taskSheet.OrderId)
+                && !string.IsNullOrEmpty(taskSheet.AssignmentId);
+
+            if (isPackageVisit)
+            {
+                if (!ObjectId.TryParse(taskSheet.AssignmentId, out var aOid))
+                    throw new ArgumentException("Task sheet has an invalid assignment reference.");
+                var assignment = await _dbContext.Assignments.FirstOrDefaultAsync(a => a.Id == aOid)
+                    ?? throw new KeyNotFoundException($"Assignment '{taskSheet.AssignmentId}' not found.");
+                ownerClientId = assignment.ClientId;
+            }
+            else
+            {
+                ownerOrder = await _dbContext.ClientOrders.FirstOrDefaultAsync(
+                    o => o.Id.ToString() == taskSheet.OrderId);
+                if (ownerOrder == null)
+                    throw new KeyNotFoundException($"Order '{taskSheet.OrderId}' not found.");
+                ownerClientId = ownerOrder.ClientId;
+            }
+
+            if (ownerClientId != clientUserId)
                 throw new UnauthorizedAccessException("You are not authorized to review this visit.");
 
             // Update task sheet review fields
@@ -706,6 +766,29 @@ namespace Infrastructure.Content.Services
                         RelatedEntityId: taskSheetId,
                         OrderId: taskSheet.OrderId));
                 }
+                else if (isPackageVisit)
+                {
+                    // Package visits carry no per-visit wallet credit — the caregiver is
+                    // paid through admin-approved payroll. Approval just confirms the visit
+                    // and lets the caregiver start the next one.
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: taskSheet.CaregiverId,
+                        SenderId: clientUserId,
+                        Type: NotificationTypes.VisitApproved,
+                        Content: $"Visit #{taskSheet.SheetNumber} has been approved by the client. You can now start the next visit.",
+                        Title: "Visit Approved",
+                        RelatedEntityId: taskSheetId,
+                        OrderId: string.Empty));
+
+                    await _mediator.Send(new SendNotificationCommand(
+                        RecipientId: clientUserId,
+                        SenderId: clientUserId,
+                        Type: NotificationTypes.VisitApproved,
+                        Content: $"You have approved Visit #{taskSheet.SheetNumber}.",
+                        Title: "Visit Approved",
+                        RelatedEntityId: taskSheetId,
+                        OrderId: string.Empty));
+                }
             }
             catch (Exception ex)
             {
@@ -733,6 +816,13 @@ namespace Infrastructure.Content.Services
 
             return dispute;
         }
+
+        /// <summary>Human-readable reference to what a dispute is about — the ClientOrder for
+        /// legacy gig/order disputes, the package assignment for package-assignment disputes.</summary>
+        private static string CaseRef(Dispute dispute) =>
+            !string.IsNullOrEmpty(dispute.OrderId)
+                ? $"Order {dispute.OrderId}"
+                : $"package assignment {dispute.AssignmentId}";
 
         private async Task<DisputeResponse> BuildDisputeResponseAsync(Dispute dispute)
         {
@@ -794,19 +884,22 @@ namespace Infrastructure.Content.Services
             return response;
         }
 
-        private async System.Threading.Tasks.Task NotifyDisputeRaisedAsync(Dispute dispute, ClientOrder order)
+        private async System.Threading.Tasks.Task NotifyDisputeRaisedAsync(Dispute dispute)
         {
             try
             {
-                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
-                var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == order.CaregiverId);
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == dispute.ClientId);
+                var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == dispute.CaregiverId);
                 var clientName = client != null ? $"{client.FirstName} {client.LastName}" : "A client";
+
+                // Legacy order disputes reference the order; package disputes reference the assignment.
+                var caseRef = CaseRef(dispute);
 
                 var disputeTarget = dispute.DisputeType == DisputeType.Visit
                     ? $"visit (Task Sheet #{dispute.TaskSheetId})"
                     : "order";
                 var title = $"Dispute Raised on {disputeTarget}";
-                var content = $"{clientName} has raised a {dispute.Category.Replace("_", " ")} dispute on {disputeTarget} for Order {order.Id}. Reason: {dispute.Reason}";
+                var content = $"{clientName} has raised a {dispute.Category.Replace("_", " ")} dispute on {disputeTarget} for {caseRef}. Reason: {dispute.Reason}";
 
                 // ── Notify SuperAdmin + HR/ComplianceAndLegal/CareLeads admins ──
                 var admins = await _dbContext.AdminUsers
@@ -822,7 +915,7 @@ namespace Infrastructure.Content.Services
                                    $"<p><strong>Dispute Type:</strong> {dispute.DisputeType}</p>" +
                                    $"<p><strong>Category:</strong> {dispute.Category.Replace("_", " ")}</p>" +
                                    $"<p><strong>Target:</strong> {disputeTarget}</p>" +
-                                   $"<p><strong>Order ID:</strong> {order.Id}</p>" +
+                                   $"<p><strong>Case:</strong> {caseRef}</p>" +
                                    $"<p><strong>Reason:</strong> {dispute.Reason}</p>" +
                                    $"<p>Please log in to the admin portal to review and resolve this dispute.</p>";
 
@@ -852,10 +945,10 @@ namespace Infrastructure.Content.Services
                 if (caregiver != null)
                 {
                     await _mediator.Send(new SendNotificationCommand(
-                        RecipientId: order.CaregiverId,
+                        RecipientId: dispute.CaregiverId,
                         SenderId: dispute.RaisedBy,
                         Type: NotificationTypes.DisputeRaised,
-                        Content: $"A dispute has been raised on your {disputeTarget} for Order {order.Id}. Category: {dispute.Category}. An admin will review this shortly.",
+                        Content: $"A dispute has been raised on your {disputeTarget} for {caseRef}. Category: {dispute.Category}. An admin will review this shortly.",
                         Title: title,
                         RelatedEntityId: dispute.Id.ToString(),
                         OrderId: dispute.OrderId));
@@ -863,10 +956,10 @@ namespace Infrastructure.Content.Services
 
                 // ── Confirm to client ──
                 await _mediator.Send(new SendNotificationCommand(
-                    RecipientId: order.ClientId,
+                    RecipientId: dispute.ClientId,
                     SenderId: dispute.RaisedBy,
                     Type: NotificationTypes.DisputeRaised,
-                    Content: $"Your dispute on {disputeTarget} for Order {order.Id} has been submitted. An admin will review it shortly.",
+                    Content: $"Your dispute on {disputeTarget} for {caseRef} has been submitted. An admin will review it shortly.",
                     Title: "Dispute Submitted",
                     RelatedEntityId: dispute.Id.ToString(),
                     OrderId: dispute.OrderId));
@@ -898,7 +991,7 @@ namespace Infrastructure.Content.Services
                     RecipientId: dispute.ClientId,
                     SenderId: dispute.ResolvedBy ?? string.Empty,
                     Type: NotificationTypes.DisputeResolved,
-                    Content: $"Your dispute on Order {dispute.OrderId} has been {status} by {adminName}.{actionText} {dispute.ResolutionSummary}",
+                    Content: $"Your dispute on {CaseRef(dispute)} has been {status} by {adminName}.{actionText} {dispute.ResolutionSummary}",
                     Title: title,
                     RelatedEntityId: dispute.Id.ToString(),
                     OrderId: dispute.OrderId));
@@ -908,7 +1001,7 @@ namespace Infrastructure.Content.Services
                     RecipientId: dispute.CaregiverId,
                     SenderId: dispute.ResolvedBy ?? string.Empty,
                     Type: NotificationTypes.DisputeResolved,
-                    Content: $"A dispute on Order {dispute.OrderId} has been {status}.{actionText} {dispute.ResolutionSummary}",
+                    Content: $"A dispute on {CaseRef(dispute)} has been {status}.{actionText} {dispute.ResolutionSummary}",
                     Title: title,
                     RelatedEntityId: dispute.Id.ToString(),
                     OrderId: dispute.OrderId));

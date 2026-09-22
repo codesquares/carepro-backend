@@ -73,6 +73,30 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        /// <summary>Staff-facing picker: every package request, optionally filtered by status (e.g. "pending"), oldest first.</summary>
+        [HttpGet("package-requests")]
+        public async Task<IActionResult> GetPackageRequests([FromQuery] string? status)
+        {
+            try
+            {
+                var rows = await _packageRequestService.GetForAdminAsync(status);
+                return Ok(new { success = true, data = rows, count = rows.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetPackageRequests"); }
+        }
+
+        /// <summary>Staff-facing picker: every Accepted assignment (i.e. actually in service), most-recent first — used by Payroll to find a real AssignmentId.</summary>
+        [HttpGet("accepted")]
+        public async Task<IActionResult> GetAccepted()
+        {
+            try
+            {
+                var rows = await _assignmentService.GetAcceptedAsync();
+                return Ok(new { success = true, data = rows, count = rows.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAccepted"); }
+        }
+
         /// <summary>Ranked candidate caregivers for a package request (reuses the scoring engine + a type/specialty hard filter).</summary>
         [HttpGet("candidates")]
         public async Task<IActionResult> GetCandidates([FromQuery] string packageRequestId)

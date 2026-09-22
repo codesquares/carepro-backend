@@ -173,6 +173,48 @@ public class PackageServiceTests
         Assert.True((await CreateService(CreateDb(dbName)).GetPackageByIdAsync(created.Id))!.IsActive);
     }
 
+    [Fact]
+    public async Task GetActivePackagesForClient_ReturnsOnlyActive_ProjectsNoInternals_OrdersByCategoryThenPrice()
+    {
+        var dbName = NewDbName();
+
+        using (var db = CreateDb(dbName))
+        {
+            var svc = CreateService(db);
+            await svc.CreatePackageAsync(Req(PackageCategories.PostPartumCare, "Premium", "RegisteredNurse", "Midwifery", basePrice: 350000));
+            await svc.CreatePackageAsync(Req(PackageCategories.PostPartumCare, "Essential", "AuxiliaryNurse", basePrice: 150000));
+            await svc.CreatePackageAsync(Req(PackageCategories.AdultElderCare, "Standard", "CHEW", basePrice: 120000));
+            var retired = await svc.CreatePackageAsync(Req(PackageCategories.AdultElderCare, "Retired", "CHEW", basePrice: 90000));
+            await svc.ToggleActiveStatusAsync(retired.Id, false);
+        }
+
+        using (var db = CreateDb(dbName))
+        {
+            var result = await CreateService(db).GetActivePackagesForClientAsync();
+
+            // Inactive package excluded.
+            Assert.Equal(3, result.Count);
+            Assert.DoesNotContain(result, p => p.TierLabel == "Retired");
+
+            // Ordered: category asc, then price asc.
+            Assert.Equal(
+                new[] { "Adult/Elder Care", "Post-Partum Care", "Post-Partum Care" },
+                result.Select(p => p.Category).ToArray());
+            var postPartumPrices = result.Where(p => p.Category == "Post-Partum Care").Select(p => p.BasePrice).ToList();
+            Assert.Equal(postPartumPrices.OrderBy(x => x).ToList(), postPartumPrices);
+
+            // Client projection carries the browse fields…
+            var premium = result.Single(p => p.TierLabel == "Premium");
+            Assert.Equal("RegisteredNurse", premium.RequiredCaregiverType);
+            Assert.Equal("Midwifery", premium.RequiredSpecialty);
+            Assert.Equal(350000m, premium.BasePrice);
+
+            // …and the type is ClientPackageDTO (compile-time proof there is no
+            // PayCalculationType / FixedCaregiverPay / IsActive to leak).
+            Assert.IsType<ClientPackageDTO>(premium);
+        }
+    }
+
     // ─────────── All ~11 real package variants are representable ───────────
 
     // PayCalculationType per Phase 9.2's confirmed business data: all 3 Live-in

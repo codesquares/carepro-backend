@@ -57,7 +57,8 @@ public class Phase9EndToEndPayrollTests
 
     // Real ContractTemplateService + real ContractPdfService — no external deps, same as Phase6ContractTests.
     private static PackageContractService CreateContractService(CareProDbContext db) =>
-        new(db, new ContractTemplateService(), new ContractPdfService(), Mock.Of<IMediator>(), Mock.Of<ILogger<PackageContractService>>());
+        new(db, new ContractTemplateService(), new ContractPdfService(), Mock.Of<IMediator>(),
+            Mock.Of<IEmailService>(), Mock.Of<ILogger<PackageContractService>>());
 
     private static AssignmentService CreateAssignmentService(CareProDbContext db, PackageContractService contractService)
     {
@@ -174,7 +175,8 @@ public class Phase9EndToEndPayrollTests
         var today = DateTime.UtcNow.Date;
         using (var db = CreateDb(dbName))
         {
-            var payrollService = new PayrollService(db, CreateTaskSheetService(db), CgWallet(db), Mock.Of<ILogger<PayrollService>>());
+            var payrollService = new PayrollService(db, CreateTaskSheetService(db), CgWallet(db),
+                Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
             var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest
             { AssignmentId = assignmentId, Year = today.Year, Month = today.Month });

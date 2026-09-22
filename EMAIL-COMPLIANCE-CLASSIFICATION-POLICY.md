@@ -20,7 +20,7 @@ No new email type may ship without an explicit entry in this policy.
 - unsubscribe header behavior confirmation for preference-gated types
 3. Unknown/unlisted types are release blockers.
 
-## Classification Matrix (28 Catalogued Types)
+## Classification Matrix (34 Catalogued Types)
 
 | # | Catalogued Email Type | Current Sender Surface | Classification | Rationale |
 |---|---|---|---|---|
@@ -45,7 +45,7 @@ No new email type may ship without an explicit entry in this policy.
 | 19 | Generic notification wrapper (business-typed usage) | SendGenericNotificationEmailAsync | Mixed by scenario | Wrapper is not a business type by itself. Use explicit scenario mapping below. |
 | 20 | Daily unread chat digest | SendBatchMessageNotificationEmailAsync | Preference-Gated | Engagement retention communication |
 | 21 | Contract reminder cadence | SendContractReminderEmailAsync | Preference-Gated | Follow-up/reminder lifecycle cadence |
-| 22 | Contract PDF delivery | SendContractPdfEmailAsync | Always-Send | Formal service document delivery |
+| 22 | Contract PDF delivery | SendContractPdfEmailAsync | Always-Send | Formal service document delivery. Covers both the negotiated-contract flow and (since 2026-09-10) the auto-generated **package** contract — `PackageContractService.GenerateForConfirmedRequestAsync` delivers the PDF to the client and the caregiver on generation. Best-effort; a mail failure never blocks contract generation. |
 | 23 | Payment receipt PDF delivery | SendPaymentReceiptEmailAsync | Always-Send | Financial receipt/document |
 | 24 | Account deletion scheduled | SendAccountDeletionScheduledEmailAsync | Always-Send | Compliance and legal data rights process |
 | 25 | Account deletion cancelled | SendAccountDeletionCancelledEmailAsync | Always-Send | Compliance and legal data rights process |
@@ -54,6 +54,10 @@ No new email type may ship without an explicit entry in this policy.
 | 28 | Gig draft saved | SendDraftGeneratedEmailAsync (NotificationTypes.DraftGenerated / "draft_generated") | Preference-Gated | Self-initiated workflow confirmation, not a live/active transaction or compliance record. Same family as GigPublished/GigPaused/GigDeleted; closest existing analogue is #5 (New gig opportunity). |
 | 29 | Care request match/response updates | Direct calls in `CareRequestMatchingService` (`SendMatchNotificationEmailToCaregiverAsync`) and `CareRequestResponseService` (`SendClientResponderEmailAsync`, inline hire email) — CareRequestNewMatch, CareRequestNewResponder, CareRequestHired | Preference-Gated | Business-critical (a caregiver's actual work opportunities and hiring outcomes) — gated via `IEmailService.SendGenericNotificationEmailAsync`'s `gateUserId`/`gateNotificationType` params, which call `ShouldSendEmailToUserAsync`. For caregiver recipients this evaluates `EmailNotifications && CareRequestUpdates`; the responder-notification recipient is the client, gated on the client's general marketing consent instead (`CareRequestUpdates` is a caregiver-only preference field). See Correction below. |
 | 30 | Client gig recommendation (admin-triggered) | SendClientGigRecommendationEmailAsync | Always-Send | Sent only when a support agent explicitly triggers it after a client asks for help finding a caregiver (e.g. via a WhatsApp assessment conversation) — a direct, solicited one-time response to an active client request, not marketplace/discovery outreach. Falls under the Always-Send branch of the Generic Wrapper Scenario Mapping below (active workflow state driven by the client's own request) rather than the Preference-Gated branch (discovery/engagement/marketplace broadcasts). No `ShouldSendEmailToUserAsync` gating call. |
+| 31 | Guarantor confirmation request | `SendGuarantorConfirmationEmailAsync` (`GuarantorService.SendConfirmationLinkCoreAsync`) | Always-Send | Recipient is the caregiver's nominated guarantor — **not a CarePro user**: no account, no `AppUser`/preference record, no consent surface exists for them, so `ShouldSendEmailToUserAsync` cannot be called (no user id). One-time transactional message carrying a tokenized, rate-limited (cooldown), attempt-capped confirmation link that is a hard requirement of caregiver vetting. Same family as #1 (signup verification). No unsubscribe header. |
+| 32 | Referral code delivery | `SendReferralCodeEmailAsync` (`ReferralService.SendReferralCodeEmailAsync`) | Always-Send | Sent only in direct response to a referral code being created/requested for a specific referrer — a solicited, one-time transactional message that *is* the delivery of the thing the referrer asked for (the code). Recipient is a `Referrer`; no `ShouldSendEmailToUserAsync` call. Predates this policy (introduced 2026-06, commit `2a2122c`); formalised here with no behaviour change. |
+| 33 | Internal package assignment — caregiver offer / client confirmation | `SendGenericNotificationEmailAsync` (Always-Send branch of #19), from `AssignmentService`; notification types `package_assignment_offered`, `package_assignment_confirmed` | Always-Send | Operational workflow-state changes on one specific care engagement: the caregiver must review-and-accept an assignment offer; the client is told their assigned caregiver is now confirmed. Always-Send branch of the Generic Wrapper Scenario Mapping (active workflow state on the user's own engagement). **No unsubscribe header, no `gateUserId`/`gateNotificationType`** — these were removed 2026-09-10 (see Correction below). `package_assignment_declined` and `package_assignment_cancelled` are in-app only — no email path. |
+| 34 | Payroll approved / paid | `SendEarningsNotificationEmailAsync` (same method/template as #10), from `PayrollService.ApprovePayrollAsync` and `MarkPayrollPaidAsync`; notification types `payroll_approved`, `payroll_paid` | Always-Send | Financial settlement visibility for the caregiver's own completed package work — the package-assignment analogue of #10 (order-based earnings). Fired on admin approval (the moment the wallet is credited) and on mark-paid. No gate: a direct result of work the caregiver performed. Best-effort — a notification failure never rolls back the wallet credit. |
 
 ## Correction — 2026-07-23: Row #29 mechanism and coverage were both wrong
 
@@ -96,12 +100,12 @@ These are operational status outcomes for processes the caregiver actively parti
 
 ## Generic Wrapper Scenario Mapping (for #19)
 When using SendGenericNotificationEmailAsync, implementers must explicitly select one branch:
-- Always-Send branch: order/payment/refund/dispute/compliance/active workflow state changes.
+- Always-Send branch: order/payment/refund/dispute/compliance/active workflow state changes. Includes **internal package assignment** offer/confirmation emails (#33) — a state change on one specific care engagement the recipient is party to.
 - Preference-Gated branch: discovery, engagement, reminder cadence, marketplace opportunity broadcasts.
 
 Code requirement:
-- preferenceGated must be set to true only for the preference-gated branch.
-- preferenceGated must remain false for always-send scenarios.
+- The `includeUnsubscribeHeader` parameter (formerly `preferenceGated`) must be `true` only for the preference-gated branch, and `false` (the default — omit it) for always-send scenarios.
+- The `gateUserId` / `gateNotificationType` parameters must be supplied **only** when the notification type is in `EmailNotificationTrackingService._preferenceGatedTypes`. Passing them for a type that is not preference-gated is a no-op that misleads readers into thinking the send is consent-gated — do not do it.
 
 ## One-Click Unsubscribe Requirement (Preference-Gated Only)
 Every preference-gated email must include both headers:
@@ -118,3 +122,20 @@ For each newly added email type:
 - preference behavior
 - header presence for preference-gated sends
 4. Include evidence output in CI logs.
+
+## Correction — 2026-09-10: cross-phase audit backfill (Phases 2, 4, 6, 9)
+
+A cross-phase completeness audit found email types shipped across Phases 2–9 without policy rows, in violation of this document's own enforcement rule. Reconciled against the actual code:
+
+- **Rows #31–#34 added** (guarantor confirmation, referral code delivery, package assignment offer/confirmation, payroll approved/paid). Every one is Always-Send with real reasoning above; none had a policy row before this pass.
+- **Row #22 scope widened** — `SendContractPdfEmailAsync` now also delivers the auto-generated package contract PDF (Phase 6). Before this pass, package clients/caregivers only ever saw their care agreement in-app; the negotiated-contract flow already emailed the PDF. Now both do.
+- **Row #33 — unsubscribe header + dead gate params removed.** The two package-assignment `SendGenericNotificationEmailAsync` calls in `AssignmentService` were passing `includeUnsubscribeHeader: true` (these are Always-Send — the header is Preference-Gated-only) and `gateUserId`/`gateNotificationType` for `package_assignment_offered` / `package_assignment_confirmed`, which are **not** in `_preferenceGatedTypes`, so `ShouldSendEmailToUserAsync` returned `true` unconditionally and the parameters did nothing. Both removed; behaviour is unchanged (still Always-Send) but the code no longer implies a consent gate that was never there.
+- **`payroll_approved` / `payroll_paid` notification types added** to `Application.DTOs.NotificationTypes`. They are **not** added to `_immediateOnceOnlyTypes` or `_preferenceGatedTypes` — `PayrollService` sends the email directly (same pattern as `RefundRequestService`), so routing them through `ImmediateNotificationProcessor` would double-send.
+
+Confirmed in-app-only across these phases (no email path, so no row required, consistent with the 2026-07-23 Gap Closure note on in-app types): `package_assignment_declined`, `package_assignment_cancelled`, `package_contract_generated` (the in-app notice — the PDF itself now emails via #22), `caregiver_checked_in`, and the check-in timestamp-discrepancy flag (log + queryable field only).
+
+Full sweep performed — every `IEmailService.Send*` method with a live call site in `Infrastructure` / `CarePro-Api` was cross-checked against this matrix:
+
+- **All live senders are now covered by a row**, #1–#34.
+- `SendBulkCustomEmailAsync` — same category as #27 (admin outreach, Preference-Gated); currently has **no call site** (only `SendCustomEmailToUserAsync` is wired, in `AdminsController`). If it is wired up later it inherits #27's classification.
+- Still explicitly deferred (unchanged from the 2026-07-23 Gap Closure note — these are gated correctly in code, just not yet given individual matrix rows): the `GigPublished` / `GigPaused` / `GigDeleted` email family, the `Contract*` client/caregiver lifecycle family, and `PriceNegotiationExpired`. This audit did not expand or close that backlog; it only covers the Phase 2–9 additions above.

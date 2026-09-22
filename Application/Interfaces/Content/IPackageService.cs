@@ -13,6 +13,13 @@ namespace Application.Interfaces.Content
         Task<PackageDTO> CreatePackageAsync(AddPackageRequest request);
         Task<PackageDTO?> GetPackageByIdAsync(string id);
         Task<List<PackageDTO>> GetAllPackagesAsync();
+
+        /// <summary>
+        /// Client-facing catalog: every <see cref="Domain.Entities.Package"/> with
+        /// <c>IsActive == true</c>, projected to <see cref="ClientPackageDTO"/> (no
+        /// operational/payroll internals). Ordered by category, then price ascending.
+        /// </summary>
+        Task<List<ClientPackageDTO>> GetActivePackagesForClientAsync();
         Task<bool> UpdatePackageAsync(UpdatePackageRequest request);
         Task<bool> DeletePackageAsync(string id);
         Task<bool> ToggleActiveStatusAsync(string id, bool isActive);

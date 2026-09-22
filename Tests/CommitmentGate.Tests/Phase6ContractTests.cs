@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
@@ -31,12 +34,14 @@ public class Phase6ContractTests
     private static string NewDbName() => $"carepro_phase6_{Guid.NewGuid():N}";
 
     // Real ContractTemplateService + real ContractPdfService — used unmodified.
-    private static PackageContractService CreateContractService(CareProDbContext db, Mock<IMediator>? mediator = null)
+    private static PackageContractService CreateContractService(CareProDbContext db,
+        Mock<IMediator>? mediator = null, IEmailService? emailService = null)
         => new(
             db,
             new ContractTemplateService(),
             new ContractPdfService(),
             (mediator ?? new Mock<IMediator>()).Object,
+            emailService ?? Mock.Of<IEmailService>(),
             Mock.Of<ILogger<PackageContractService>>());
 
     private static AssignmentService CreateAssignmentService(
@@ -263,5 +268,56 @@ public class Phase6ContractTests
             It.Is<Application.Commands.SendNotificationCommand>(c =>
                 c.RecipientId == cg.Id.ToString() && c.Type == NotificationTypes.PackageContractGenerated),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Generation_EmailsTheContractPdf_ToBothParties()
+    {
+        using var db = CreateDb(NewDbName());
+        var (client, pkg, cg) = Seed(db);
+        var pr = AddConfirmedRequest(db, client, pkg, cg);
+
+        var email = new Mock<IEmailService>();
+        var capturedPdfs = new List<byte[]>();
+        email.Setup(e => e.SendContractPdfEmailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>()))
+            .Callback<string, string, string, string, byte[]>((_, _, _, _, bytes) => capturedPdfs.Add(bytes))
+            .Returns(Task.CompletedTask);
+
+        var result = await CreateContractService(db, emailService: email.Object)
+            .GenerateForConfirmedRequestAsync(pr.Id.ToString());
+
+        // Delivered to the client and to the caregiver, with the real contract id.
+        email.Verify(e => e.SendContractPdfEmailAsync(
+            client.Email, It.IsAny<string>(), result.Id, It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
+        email.Verify(e => e.SendContractPdfEmailAsync(
+            cg.Email, It.IsAny<string>(), result.Id, It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
+
+        // Each send carried a real, well-formed PDF.
+        Assert.Equal(2, capturedPdfs.Count);
+        Assert.All(capturedPdfs, bytes =>
+        {
+            Assert.True(bytes.Length > 0);
+            Assert.Equal("%PDF", Encoding.ASCII.GetString(bytes, 0, 4));
+        });
+    }
+
+    [Fact]
+    public async Task Generation_ContractStands_EvenIfPdfEmailFails()
+    {
+        using var db = CreateDb(NewDbName());
+        var (client, pkg, cg) = Seed(db);
+        var pr = AddConfirmedRequest(db, client, pkg, cg);
+
+        var email = new Mock<IEmailService>();
+        email.Setup(e => e.SendContractPdfEmailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>()))
+            .ThrowsAsync(new Exception("SMTP unavailable"));
+
+        var result = await CreateContractService(db, emailService: email.Object)
+            .GenerateForConfirmedRequestAsync(pr.Id.ToString());
+
+        Assert.True(result.NewlyGenerated);
+        Assert.Equal(1, await db.Contracts.CountAsync(c => c.PackageRequestId == pr.Id.ToString()));
     }
 }

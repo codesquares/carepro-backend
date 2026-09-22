@@ -23,15 +23,18 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly ICaregiverVettingService vettingService;
         private readonly IGuarantorService guarantorService;
+        private readonly ICaregiverReadinessService readinessService;
         private readonly ILogger<CaregiverVettingController> logger;
 
         public CaregiverVettingController(
             ICaregiverVettingService vettingService,
             IGuarantorService guarantorService,
+            ICaregiverReadinessService readinessService,
             ILogger<CaregiverVettingController> logger)
         {
             this.vettingService = vettingService;
             this.guarantorService = guarantorService;
+            this.readinessService = readinessService;
             this.logger = logger;
         }
 
@@ -68,6 +71,28 @@ namespace CarePro_Api.Controllers.Content
                     logger.LogError(ex, "Unexpected error during {Action}", action);
                     return StatusCode(500, new { message = "An unexpected error occurred." });
             }
+        }
+
+        // ─────────────────── READINESS ───────────────────
+
+        /// <summary>
+        /// The caller's own hire-readiness state, including IneligibilityReasons
+        /// (e.g. "guarantors_incomplete", "address_history_incomplete",
+        /// "caregiver_type_not_set"). Caregiver id is always taken from the JWT —
+        /// there is no route parameter, so a caregiver can never query another
+        /// caregiver's readiness. Wraps the existing ICaregiverReadinessService,
+        /// which until now was only consumed server-to-server.
+        /// </summary>
+        [HttpGet("readiness")]
+        public async Task<IActionResult> GetReadiness()
+        {
+            var guard = RequireCaregiver(out var caregiverId);
+            if (guard != null) return guard;
+            try
+            {
+                return Ok(await readinessService.GetReadinessAsync(caregiverId));
+            }
+            catch (Exception ex) { return HandleException(ex, "GetReadiness"); }
         }
 
         // ─────────────────── 2.1  CLASSIFICATION ───────────────────

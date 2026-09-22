@@ -105,6 +105,27 @@ namespace Application.DTOs
         public DateTime ConfirmedAt { get; set; }
     }
 
+    /// <summary>
+    /// Row in the staff-facing package-request picker (Assignment Console). Lets ops
+    /// browse/filter requests before searching candidates for one — there was previously
+    /// no admin-facing way to discover a PackageRequestId at all.
+    /// </summary>
+    public class AdminPackageRequestDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string ClientId { get; set; } = string.Empty;
+        public string ClientName { get; set; } = string.Empty;
+        public string PackageCategory { get; set; } = string.Empty;
+        public string PackageTierLabel { get; set; } = string.Empty;
+        public string RequiredCaregiverType { get; set; } = string.Empty;
+        public string? RequiredSpecialty { get; set; }
+        public string ServiceCategory { get; set; } = string.Empty;
+        public string? Location { get; set; }
+        public decimal? Budget { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+    }
+
     // ─────────────────── 4.2  Assignment ───────────────────
 
     public class AssignCaregiverRequest
@@ -165,6 +186,25 @@ namespace Application.DTOs
         /// <summary>How long this assignment has been awaiting a response.</summary>
         public double PendingForHours { get; set; }
         public string PendingForHuman { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Row in the staff-facing Accepted-assignments picker (Payroll Admin). Lets ops browse
+    /// which assignments are actually in service before creating a payroll record for one —
+    /// there was previously no admin-facing way to list Accepted assignments at all.
+    /// </summary>
+    public class AcceptedAssignmentDTO
+    {
+        public string AssignmentId { get; set; } = string.Empty;
+        public string PackageRequestId { get; set; } = string.Empty;
+        public string CaregiverId { get; set; } = string.Empty;
+        public string CaregiverName { get; set; } = string.Empty;
+        public string ClientId { get; set; } = string.Empty;
+        public string PackageCategory { get; set; } = string.Empty;
+        public string PackageTierLabel { get; set; } = string.Empty;
+        /// <summary>"Hourly" | "Fixed" — which branch payroll creation will take for this assignment.</summary>
+        public string PayCalculationType { get; set; } = string.Empty;
+        public DateTime? AcceptedAt { get; set; }
     }
 
     public class AssignmentActionResult

@@ -14,6 +14,7 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IPendingPaymentService _pendingPaymentService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
+        private readonly IPackagePaymentService _packagePaymentService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IReceiptPdfService _receiptPdfService;
         private readonly ISubscriptionService _subscriptionService;
@@ -22,6 +23,7 @@ namespace CarePro_Api.Controllers.Content
         public PaymentsController(
             IPendingPaymentService pendingPaymentService,
             IBookingCommitmentService bookingCommitmentService,
+            IPackagePaymentService packagePaymentService,
             FlutterwaveService flutterwaveService,
             IReceiptPdfService receiptPdfService,
             ISubscriptionService subscriptionService,
@@ -29,6 +31,7 @@ namespace CarePro_Api.Controllers.Content
         {
             _pendingPaymentService = pendingPaymentService;
             _bookingCommitmentService = bookingCommitmentService;
+            _packagePaymentService = packagePaymentService;
             _flutterwaveService = flutterwaveService;
             _receiptPdfService = receiptPdfService;
             _subscriptionService = subscriptionService;
@@ -247,6 +250,26 @@ namespace CarePro_Api.Controllers.Content
 
                 _logger.LogInformation("Booking commitment completed successfully for TxRef: {TxRef}", txRef);
                 return Ok(new { success = true, message = "Commitment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
+            // ── ROUTE: Admin-initiated Package payment (Option A) ───────────
+            if (txRef.StartsWith("CAREPRO-PKG-", StringComparison.OrdinalIgnoreCase))
+            {
+                var packagePaymentResult = await _packagePaymentService.CompletePackagePaymentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!packagePaymentResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete package payment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", packagePaymentResult.Errors));
+                    return BadRequest(new { success = false, message = "Package payment processing failed." });
+                }
+
+                _logger.LogInformation("Package payment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Package payment processed successfully." });
             }
             // ── END ROUTE ─────────────────────────────────────────────────
 

@@ -212,6 +212,12 @@ namespace Application.DTOs
         // ── Phase 6: Auto-generated package contract ──
         /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
         public const string PackageContractGenerated = "package_contract_generated";
+
+        // ── Phase 9: Payroll (package assignments are paid via admin-approved payroll) ──
+        /// <summary>To the caregiver: an admin approved their payroll and the amount was credited to their wallet.</summary>
+        public const string PayrollApproved = "payroll_approved";
+        /// <summary>To the caregiver: their approved payroll has been marked paid out.</summary>
+        public const string PayrollPaid = "payroll_paid";
         /// <summary>Sent to the client when a caregiver they've hired (negotiation still in flight,
         /// not yet Agreed) loses hire-readiness — e.g. identity verification fails.</summary>
         public const string CaregiverBecameIneligible = "caregiver_became_ineligible";

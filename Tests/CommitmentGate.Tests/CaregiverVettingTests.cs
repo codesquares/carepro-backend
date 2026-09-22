@@ -807,18 +807,18 @@ public class CaregiverVettingTests
         await CreateSnapshotService(db).RebuildAllSnapshotsAsync();
 
         var completeSnap = await db.CaregiverJourneySnapshots.FirstAsync(s => s.CaregiverId == complete.Id.ToString());
-        Assert.Equal(2, completeSnap.GuarantorCount);
-        Assert.Equal(2, completeSnap.ConfirmedGuarantorCount);
-        Assert.True(completeSnap.HasTwoConfirmedGuarantors);
-        Assert.True(completeSnap.AddressHistoryComplete);
-        Assert.True(completeSnap.CaregiverTypeSet);
+        Assert.Equal(2, completeSnap.GuarantorCount.GetValueOrDefault());
+        Assert.Equal(2, completeSnap.ConfirmedGuarantorCount.GetValueOrDefault());
+        Assert.True(completeSnap.HasTwoConfirmedGuarantors.GetValueOrDefault());
+        Assert.True(completeSnap.AddressHistoryComplete.GetValueOrDefault());
+        Assert.True(completeSnap.CaregiverTypeSet.GetValueOrDefault());
         Assert.Equal("RegisteredNurse", completeSnap.CaregiverType);
 
         var partialSnap = await db.CaregiverJourneySnapshots.FirstAsync(s => s.CaregiverId == partial.Id.ToString());
-        Assert.Equal(0, partialSnap.GuarantorCount);
-        Assert.False(partialSnap.HasTwoConfirmedGuarantors);
-        Assert.False(partialSnap.AddressHistoryComplete);
-        Assert.False(partialSnap.CaregiverTypeSet);
+        Assert.Equal(0, partialSnap.GuarantorCount.GetValueOrDefault());
+        Assert.False(partialSnap.HasTwoConfirmedGuarantors.GetValueOrDefault());
+        Assert.False(partialSnap.AddressHistoryComplete.GetValueOrDefault());
+        Assert.False(partialSnap.CaregiverTypeSet.GetValueOrDefault());
         Assert.Null(partialSnap.CaregiverType);
     }
 
@@ -833,7 +833,7 @@ public class CaregiverVettingTests
         await snapshotService.RebuildAllSnapshotsAsync();
 
         var first = await db.CaregiverJourneySnapshots.FirstAsync(s => s.CaregiverId == caregiver.Id.ToString());
-        Assert.False(first.HasTwoConfirmedGuarantors);
+        Assert.False(first.HasTwoConfirmedGuarantors.GetValueOrDefault());
 
         // Caregiver completes vetting, next rebuild picks it up (no cadence change).
         SeedVettingComplete(db, caregiver);
@@ -842,9 +842,9 @@ public class CaregiverVettingTests
 
         var snaps = await db.CaregiverJourneySnapshots.Where(s => s.CaregiverId == caregiver.Id.ToString()).ToListAsync();
         Assert.Single(snaps); // updated in place, not duplicated
-        Assert.True(snaps[0].HasTwoConfirmedGuarantors);
-        Assert.True(snaps[0].AddressHistoryComplete);
-        Assert.True(snaps[0].CaregiverTypeSet);
+        Assert.True(snaps[0].HasTwoConfirmedGuarantors.GetValueOrDefault());
+        Assert.True(snaps[0].AddressHistoryComplete.GetValueOrDefault());
+        Assert.True(snaps[0].CaregiverTypeSet.GetValueOrDefault());
     }
 
     [Fact]

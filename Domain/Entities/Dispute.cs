@@ -9,9 +9,20 @@ namespace Domain.Entities
         public ObjectId Id { get; set; } = ObjectId.GenerateNewId();
 
         /// <summary>
-        /// The order this dispute is associated with (always present).
+        /// The order this dispute is associated with. Present for legacy gig/ClientOrder
+        /// disputes; empty for package-assignment visit disputes (see AssignmentId).
         /// </summary>
         public string OrderId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Set instead of OrderId for a package-assignment visit dispute — the package
+        /// flow has no ClientOrder. Same nullable/alternate-reference pattern as
+        /// TaskSheet.AssignmentId (Phase 9.5) and Contract.PackageRequestId (Phase 6).
+        /// </summary>
+        public string? AssignmentId { get; set; }
+
+        /// <summary>Set alongside AssignmentId. Denormalised from Assignment.PackageRequestId.</summary>
+        public string? PackageRequestId { get; set; }
 
         /// <summary>
         /// For visit disputes: the specific task sheet being disputed. Null for order-level disputes.

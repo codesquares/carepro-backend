@@ -1,6 +1,7 @@
 using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using MediatR;
@@ -26,6 +27,7 @@ namespace Infrastructure.Content.Services
         private readonly IContractTemplateService _templateService;
         private readonly IContractPdfService _pdfService;
         private readonly IMediator _mediator;
+        private readonly IEmailService _emailService;
         private readonly ILogger<PackageContractService> _logger;
 
         /// <summary>Nominal contract period when the package itself defines no fixed duration.</summary>
@@ -36,12 +38,14 @@ namespace Infrastructure.Content.Services
             IContractTemplateService templateService,
             IContractPdfService pdfService,
             IMediator mediator,
+            IEmailService emailService,
             ILogger<PackageContractService> logger)
         {
             _db = db;
             _templateService = templateService;
             _pdfService = pdfService;
             _mediator = mediator;
+            _emailService = emailService;
             _logger = logger;
         }
 
@@ -130,6 +134,12 @@ namespace Infrastructure.Content.Services
                     RelatedEntityId: contract.Id));
             }
 
+            // Deliver the agreement PDF by email to both parties — same as the negotiated-
+            // contract flow (SendContractPdfEmailAsync, policy #22, Always-Send). Best-effort:
+            // a mail failure must not undo a generated contract.
+            await EmailContractPdfAsync(contract.Id, data, client, caregiver,
+                $"{package.Category} ({package.TierLabel}) Package");
+
             return Map(contract, request, newlyGenerated: true);
         }
 
@@ -167,6 +177,47 @@ namespace Infrastructure.Content.Services
 
             // Reused, unmodified.
             return _pdfService.GeneratePdf(data);
+        }
+
+        /// <summary>
+        /// Renders the contract PDF and emails it to the client and the caregiver.
+        /// Best-effort — every failure is logged and swallowed so a mail problem never
+        /// undoes a generated contract.
+        /// </summary>
+        private async Task EmailContractPdfAsync(
+            string contractId, ContractGenerationDataDTO data,
+            Client? client, Caregiver? caregiver, string agreementTitle)
+        {
+            byte[] pdfBytes;
+            try
+            {
+                pdfBytes = _pdfService.GeneratePdf(data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to render package contract PDF for contract {ContractId} — email skipped", contractId);
+                return;
+            }
+
+            var recipients = new[]
+            {
+                (Email: client?.Email, FirstName: client?.FirstName),
+                (Email: caregiver?.Email, FirstName: caregiver?.FirstName),
+            };
+
+            foreach (var (email, firstName) in recipients)
+            {
+                if (string.IsNullOrWhiteSpace(email)) continue;
+                try
+                {
+                    await _emailService.SendContractPdfEmailAsync(
+                        email, firstName ?? "there", contractId, agreementTitle, pdfBytes);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to email package contract PDF {ContractId} to {Email}", contractId, email);
+                }
+            }
         }
 
         // ─────────────────────── Adapter: Package → ContractGenerationDataDTO ───────────────────────
