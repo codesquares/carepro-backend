@@ -14,6 +14,7 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IPendingPaymentService _pendingPaymentService;
         private readonly IBookingCommitmentService _bookingCommitmentService;
+        private readonly IPackagePaymentService _packagePaymentService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IReceiptPdfService _receiptPdfService;
         private readonly ISubscriptionService _subscriptionService;
@@ -22,6 +23,7 @@ namespace CarePro_Api.Controllers.Content
         public PaymentsController(
             IPendingPaymentService pendingPaymentService,
             IBookingCommitmentService bookingCommitmentService,
+            IPackagePaymentService packagePaymentService,
             FlutterwaveService flutterwaveService,
             IReceiptPdfService receiptPdfService,
             ISubscriptionService subscriptionService,
@@ -29,6 +31,7 @@ namespace CarePro_Api.Controllers.Content
         {
             _pendingPaymentService = pendingPaymentService;
             _bookingCommitmentService = bookingCommitmentService;
+            _packagePaymentService = packagePaymentService;
             _flutterwaveService = flutterwaveService;
             _receiptPdfService = receiptPdfService;
             _subscriptionService = subscriptionService;
@@ -36,30 +39,30 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Initiates a secure payment. All pricing is calculated server-side.
+        /// RETIRED. This used to start a direct client-to-caregiver gig purchase (client picks a named
+        /// caregiver, pays, and a legacy ClientOrder is created with that caregiver and their wallet is
+        /// credited — no assignment step). Care is now sold as packages and the caregiver is assigned
+        /// internally, so a client must never be able to buy a gig directly. Rejected for every caller,
+        /// unconditionally; there is deliberately no flag or special-gig exception (no code path creates
+        /// special gigs any more).
+        ///
+        /// The webhook below is intentionally untouched so a payment link issued before this block
+        /// shipped can still complete. Recurring subscription charges do not go through this endpoint.
         /// </summary>
         [HttpPost("initiate")]
         [Authorize]
-        public async Task<IActionResult> InitiatePayment([FromBody] InitiatePaymentRequest request)
+        public IActionResult InitiatePayment([FromBody] InitiatePaymentRequest request)
         {
-            // Get client ID from the authenticated user
-            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                ?? User.FindFirst("sub")?.Value
-                ?? User.FindFirst("userId")?.Value;
+            _logger.LogWarning(
+                "Blocked retired direct gig-purchase initiation. UserId: {UserId}, GigId: {GigId}",
+                User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value,
+                request?.GigId);
 
-            if (string.IsNullOrEmpty(clientId))
+            return StatusCode(StatusCodes.Status403Forbidden, new
             {
-                return Unauthorized(new { success = false, message = "User not authenticated." });
-            }
-
-            var result = await _pendingPaymentService.CreatePendingPaymentAsync(request, clientId);
-
-            if (!result.IsSuccess)
-            {
-                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
-            }
-
-            return Ok(result.Value);
+                success = false,
+                message = "Direct gig purchases are no longer available. Please request a care package instead."
+            });
         }
 
         /// <summary>
@@ -247,6 +250,49 @@ namespace CarePro_Api.Controllers.Content
 
                 _logger.LogInformation("Booking commitment completed successfully for TxRef: {TxRef}", txRef);
                 return Ok(new { success = true, message = "Commitment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
+            // ── ROUTE: Admin-initiated Recurring Package payment (Phase 10) ──
+            // MUST be checked before the plain CAREPRO-PKG- route below — this prefix
+            // deliberately nests under it (CAREPRO-PKG-RECURRING- starts with CAREPRO-PKG-),
+            // mirroring the existing CAREPRO-RECURRING- naming convention.
+            if (txRef.StartsWith("CAREPRO-PKG-RECURRING-", StringComparison.OrdinalIgnoreCase))
+            {
+                var recurringPackagePaymentResult = await _packagePaymentService.CompleteRecurringPackagePaymentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!recurringPackagePaymentResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete recurring package payment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", recurringPackagePaymentResult.Errors));
+                    return BadRequest(new { success = false, message = "Recurring package payment processing failed." });
+                }
+
+                _logger.LogInformation("Recurring package payment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Recurring package payment processed successfully." });
+            }
+            // ── END ROUTE ─────────────────────────────────────────────────
+            // ── ROUTE: Admin-initiated Package payment (Option A) ───────────
+            if (txRef.StartsWith("CAREPRO-PKG-", StringComparison.OrdinalIgnoreCase))
+            {
+                var packagePaymentResult = await _packagePaymentService.CompletePackagePaymentAsync(
+                    txRef,
+                    transactionId,
+                    payload.Amount > 0 ? payload.Amount : payload.ChargedAmount
+                );
+
+                if (!packagePaymentResult.IsSuccess)
+                {
+                    _logger.LogError("Failed to complete package payment for TxRef: {TxRef}. Errors: {Errors}",
+                        txRef, string.Join(", ", packagePaymentResult.Errors));
+                    return BadRequest(new { success = false, message = "Package payment processing failed." });
+                }
+
+                _logger.LogInformation("Package payment completed successfully for TxRef: {TxRef}", txRef);
+                return Ok(new { success = true, message = "Package payment processed successfully." });
             }
             // ── END ROUTE ─────────────────────────────────────────────────
 

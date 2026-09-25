@@ -30,6 +30,7 @@ namespace Application.Interfaces.Content
         Task<IEnumerable<CaregiverPublicResponse>> GetAllCaregiverUserPublicAsync();
         Task<CaregiverResponse> GetCaregiverUserAsync(string caregiverId);
         Task<CaregiverPublicResponse> GetCaregiverUserPublicAsync(string caregiverId);
+        Task<CaregiverSelfProfileResponse> GetMyProfileAsync(string caregiverId);
 
         Task<string> UpdateCaregiverInformationAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest);
 

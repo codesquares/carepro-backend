@@ -34,6 +34,26 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                // The gig is created FOR a caregiver, so the caller must be that caregiver (or an admin). The
+                // caregiverId in the form is not trusted: a non-admin must be a Caregiver and can only create for
+                // their own token identity; anything else is rejected before any validation or work happens.
+                if (!IsAdminCaller())
+                {
+                    if (!User.IsInRole("Caregiver"))
+                    {
+                        return Forbid();
+                    }
+
+                    var callerId = CurrentUserId();
+                    if (!string.IsNullOrWhiteSpace(addGigRequest?.CaregiverId) && addGigRequest!.CaregiverId != callerId)
+                    {
+                        logger.LogWarning("Blocked gig creation for another caregiver. CallerId: {CallerId}, RequestedCaregiverId: {Requested}", callerId, addGigRequest.CaregiverId);
+                        return Forbid();
+                    }
+
+                    if (addGigRequest != null) addGigRequest.CaregiverId = callerId!;
+                }
+
                 // Validate the incoming request
                 if (!(await ValidateAddGigAsync(addGigRequest)))
                 {
@@ -176,7 +196,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
+                                // Caregiver-scoped listing: only that caregiver (or an admin) may read it.
+                if (!IsGigOwnerOrAdmin(caregiverId))
+                {
+                    return Forbid();
+                }
+
+logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
 
                 var services = await gigServices.GetAllCaregiverGigsAsync(caregiverId);
 
@@ -212,7 +238,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                logger.LogInformation($"Retrieving all Services for Caregiver with MessageId: {caregiverId}");
+                                // Caregiver-scoped listing: only that caregiver (or an admin) may read it.
+                if (!IsGigOwnerOrAdmin(caregiverId))
+                {
+                    return Forbid();
+                }
+
+logger.LogInformation($"Retrieving all Services for Caregiver with MessageId: {caregiverId}");
 
                 var services = await gigServices.GetAllSubCategoriesForCaregiverAsync(caregiverId);
 
@@ -250,7 +282,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
+                                // Caregiver-scoped listing: only that caregiver (or an admin) may read it.
+                if (!IsGigOwnerOrAdmin(caregiverId))
+                {
+                    return Forbid();
+                }
+
+logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
 
                 var services = await gigServices.GetAllCaregiverPausedGigsAsync(caregiverId);
 
@@ -287,7 +325,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
+                                // Caregiver-scoped listing: only that caregiver (or an admin) may read it.
+                if (!IsGigOwnerOrAdmin(caregiverId))
+                {
+                    return Forbid();
+                }
+
+logger.LogInformation($"Retrieving all Gigs for Caregiver with MessageId: {caregiverId}");
 
                 var services = await gigServices.GetAllCaregiverDraftGigsAsync(caregiverId);
 
@@ -317,7 +361,6 @@ namespace CarePro_Api.Controllers.Content
         }
 
         [HttpGet("{gigId}")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetGigAsync(string gigId)
         {
             try
@@ -346,6 +389,14 @@ namespace CarePro_Api.Controllers.Content
                     }
                 }
 
+                // Only the owning caregiver and admins may see a gig that is not publicly listed (Draft, Paused,
+                // or any other non-Published/Active state). 404 rather than 403 so existence isn't leaked.
+                var isOwnerOrAdmin = IsGigOwnerOrAdmin(gig.CaregiverId);
+                if (!isOwnerOrAdmin && !IsPubliclyListedStatus(gig.Status))
+                {
+                    return NotFound(new { message = $"Gig with ID '{gigId}' not found." });
+                }
+
                 var sessionId = Request.Headers["X-Session-Id"].FirstOrDefault()
                     ?? Request.Cookies["sessionId"]
                     ?? Request.Cookies["session_id"];
@@ -359,6 +410,21 @@ namespace CarePro_Api.Controllers.Content
                             logger.LogWarning(t.Exception, "Failed to track view for gig {GigId}", gigId);
                         }
                     }, TaskScheduler.Default);
+
+                // Clients (and other caregivers) must not learn who is behind a gig — the platform
+                // assigns caregivers internally. Only the gig's own caregiver and admins get the name, the
+                // caregiver id, the intro video (their face/voice) and their professional history; the rest
+                // are omitted from the JSON entirely. Internal callers of IGigServices.GetGigAsync are
+                // unaffected since this is response-only.
+                if (!isOwnerOrAdmin)
+                {
+                    gig.CaregiverName = null!;
+                    gig.CaregiverId = null!;
+                    gig.VideoURL = null;
+                    gig.CaregiverEducation = null!;
+                    gig.CaregiverCertifications = null!;
+                    gig.CaregiverWorkExperience = null!;
+                }
 
                 return Ok(gig);
             }
@@ -390,6 +456,10 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var (ownerId, failure) = await AuthorizeGigWriteAsync(gigId);
+                if (failure != null) return failure;
+                if (updateGigStatusToPauseRequest != null) updateGigStatusToPauseRequest.CaregiverId = ownerId!;
+
                 var result = await gigServices.UpdateGigStatusToPauseAsync(gigId, updateGigStatusToPauseRequest);
                 logger.LogInformation($"Gig Status with ID: {gigId} updated.");
                 return Ok(new { Message = result });
@@ -446,6 +516,10 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var (ownerId, failure) = await AuthorizeGigWriteAsync(gigId);
+                if (failure != null) return failure;
+                if (updateGigRequest != null) updateGigRequest.CaregiverId = ownerId!;
+
                 var result = await gigServices.UpdateGigAsync(gigId, updateGigRequest);
                 logger.LogInformation($"Gig Status with ID: {gigId} updated.");
                 return Ok(result);
@@ -512,12 +586,12 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(caregiverId))
-                {
-                    return BadRequest(new { message = "Caregiver ID is required." });
-                }
+                // The caregiverId query parameter is kept for client compatibility but is ignored: ownership is
+                // resolved from the gig and the caller's token.
+                var (ownerId, failure) = await AuthorizeGigWriteAsync(gigId);
+                if (failure != null) return failure;
 
-                var result = await gigServices.SoftDeleteGigAsync(gigId, caregiverId);
+                var result = await gigServices.SoftDeleteGigAsync(gigId, ownerId!);
                 logger.LogInformation($"Gig with ID: {gigId} soft deleted by caregiver: {caregiverId}");
                 return Ok(new { message = result });
             }
@@ -565,12 +639,14 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { message = "Either provide a list of gig IDs or set deleteAll to true." });
                 }
 
-                if (string.IsNullOrWhiteSpace(request.AdminUserId))
+                // The audit trail must record who actually made the call, not whatever id the body claims.
+                var auditAdminId = CurrentUserId();
+                if (string.IsNullOrWhiteSpace(auditAdminId))
                 {
-                    return BadRequest(new { message = "Admin user ID is required for audit purposes." });
+                    return Unauthorized(new { message = "User not authenticated." });
                 }
 
-                var result = await gigServices.AdminBulkSoftDeleteGigsAsync(request.GigIds, request.DeleteAll, request.AdminUserId);
+                var result = await gigServices.AdminBulkSoftDeleteGigsAsync(request.GigIds, request.DeleteAll, auditAdminId);
 
                 logger.LogWarning(
                     "Admin bulk soft-delete executed by {AdminUserId}. Deleted: {Deleted}, Skipped: {Skipped}, Failed: {Failed}",
@@ -599,12 +675,10 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(caregiverId))
-                {
-                    return BadRequest(new { message = "Caregiver ID is required." });
-                }
+                var (ownerId, failure) = await AuthorizeGigWriteAsync(gigId);
+                if (failure != null) return failure;
 
-                var result = await gigServices.RestoreGigAsync(gigId, caregiverId);
+                var result = await gigServices.RestoreGigAsync(gigId, ownerId!);
                 logger.LogInformation("Gig {GigId} restored by caregiver {CaregiverId}", gigId, caregiverId);
                 return Ok(new { message = result });
             }
@@ -645,6 +719,13 @@ namespace CarePro_Api.Controllers.Content
                 if (string.IsNullOrWhiteSpace(caregiverId))
                 {
                     return BadRequest(new { message = "Caregiver ID is required." });
+                }
+
+                // Each DeletedGigDTO carries the caregiver's name, and this route had no ownership
+                // check, so any signed-in user could read any caregiver's name by passing their ID.
+                if (!IsGigOwnerOrAdmin(caregiverId))
+                {
+                    return Forbid();
                 }
 
                 var deletedGigs = await gigServices.GetDeletedGigsByCaregiverAsync(caregiverId);
@@ -693,6 +774,56 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+
+        /// <summary>True when the caller is the caregiver who owns the gig, or an admin.</summary>
+        private bool IsGigOwnerOrAdmin(string? caregiverId)
+        {
+            if (User.IsInRole("Admin") || User.IsInRole("SuperAdmin"))
+            {
+                return true;
+            }
+
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+
+            return !string.IsNullOrEmpty(userId) && userId == caregiverId;
+        }
+
+        private string? CurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private bool IsAdminCaller() => User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+
+        /// <summary>
+        /// Authorizes a write to an existing gig. Ownership comes from the gig record and the caller's JWT —
+        /// never from a caregiverId supplied in the request body/query, which is attacker-controlled. Returns the
+        /// owning caregiver's id to hand to the service (so a request-supplied id can't be trusted downstream),
+        /// or the failure result: 404 if the gig doesn't exist, 403 if the caller is neither its owner nor an admin.
+        /// </summary>
+        private async Task<(string? ownerId, ActionResult? failure)> AuthorizeGigWriteAsync(string gigId)
+        {
+            var ownerId = await gigServices.GetGigOwnerIdAsync(gigId);
+            if (ownerId == null)
+            {
+                return (null, NotFound(new { message = $"Gig with ID '{gigId}' not found." }));
+            }
+
+            if (!IsGigOwnerOrAdmin(ownerId))
+            {
+                logger.LogWarning("Blocked gig write by non-owner. GigId: {GigId}, CallerId: {CallerId}", gigId, CurrentUserId());
+                return (null, Forbid());
+            }
+
+            return (ownerId, null);
+        }
+
+        /// <summary>A gig is publicly visible only while Published or Active; Draft/Paused/etc. are owner+admin only.</summary>
+        private static bool IsPubliclyListedStatus(string? status) =>
+            string.Equals(status, "Published", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase);
 
         #region Validation
 

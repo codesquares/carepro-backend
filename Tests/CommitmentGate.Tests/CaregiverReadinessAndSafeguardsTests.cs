@@ -20,10 +20,9 @@ using Xunit;
 namespace CommitmentGate.Tests;
 
 /// <summary>
-/// Covers the caregiver-readiness gate introduced for the hire-conversion work:
-/// the consolidated readiness service, the hire-time gate (CareRequestResponseService),
-/// and the negotiation-agree backstop (GigPriceNegotiationService). Uses the same real
-/// local MongoDB instance as CommitmentGateTests (see CreateDb()), not an in-memory fake —
+/// Covers the caregiver-readiness gate: the consolidated readiness service and the
+/// payment-completion backstop (PendingPaymentService). Uses the same real local
+/// MongoDB instance as CommitmentGateTests (see CreateDb()), not an in-memory fake —
 /// these are integration tests, not pure unit tests with everything mocked away.
 /// </summary>
 public class CaregiverReadinessAndSafeguardsTests
@@ -41,6 +40,54 @@ public class CaregiverReadinessAndSafeguardsTests
     {
         var eligibilityService = new EligibilityService(db, Mock.Of<ILogger<EligibilityService>>());
         return new CaregiverReadinessService(db, eligibilityService, Mock.Of<ILogger<CaregiverReadinessService>>());
+    }
+
+    /// <summary>
+    /// Satisfies the Phase 2 vetting gates (2 confirmed guarantors, 5-year address
+    /// history, caregiver type). Callers must still SaveChanges afterwards.
+    /// </summary>
+    private static void SeedVettingComplete(CareProDbContext db, Caregiver caregiver)
+    {
+        var caregiverId = caregiver.Id;
+        caregiver.CaregiverType = CaregiverType.RegisteredNurse;
+
+        for (var i = 0; i < 2; i++)
+        {
+            db.Guarantors.Add(new Guarantor
+            {
+                Id = ObjectId.GenerateNewId(),
+                CaregiverId = caregiverId.ToString(),
+                Name = $"Guarantor {i}",
+                RelationshipToCaregiver = "Colleague",
+                PhoneNo = "+2348000000000",
+                Email = $"g{i}-{Guid.NewGuid():N}@example.com",
+                Address = "1 Test Street",
+                Status = GuarantorStatuses.Confirmed,
+                VerifiedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory
+        {
+            Id = ObjectId.GenerateNewId(),
+            CaregiverId = caregiverId.ToString(),
+            Address = "Old address",
+            MovedIn = DateTime.UtcNow.AddYears(-6),
+            MovedOut = DateTime.UtcNow.AddYears(-2),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory
+        {
+            Id = ObjectId.GenerateNewId(),
+            CaregiverId = caregiverId.ToString(),
+            Address = "Current address",
+            MovedIn = DateTime.UtcNow.AddYears(-2),
+            MovedOut = null,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -79,7 +126,7 @@ public class CaregiverReadinessAndSafeguardsTests
     {
         using var db = CreateDb();
         var caregiverId = ObjectId.GenerateNewId();
-        db.CareGivers.Add(new Caregiver
+        var readyCaregiver = new Caregiver
         {
             Id = caregiverId,
             FirstName = "Ready",
@@ -90,7 +137,8 @@ public class CaregiverReadinessAndSafeguardsTests
             IsAvailable = true,
             IsIdentityVerified = true,
             CreatedAt = DateTime.UtcNow
-        });
+        };
+        db.CareGivers.Add(readyCaregiver);
         db.Gigs.Add(new Gig
         {
             Id = ObjectId.GenerateNewId(),
@@ -101,6 +149,7 @@ public class CaregiverReadinessAndSafeguardsTests
             Price = 15000,
             CreatedAt = DateTime.UtcNow
         });
+        SeedVettingComplete(db, readyCaregiver);
         await db.SaveChangesAsync();
 
         var service = CreateReadinessService(db);
@@ -112,6 +161,69 @@ public class CaregiverReadinessAndSafeguardsTests
         Assert.Empty(result.IneligibilityReasons);
         Assert.True(result.IsIdentityVerified);
         Assert.True(result.HasActiveGig);
+        Assert.True(result.HasTwoConfirmedGuarantors);
+        Assert.True(result.AddressHistoryComplete);
+        Assert.True(result.CaregiverTypeSet);
+    }
+
+    [Fact]
+    public async Task GetReadinessAsync_MissingEachPhase2Requirement_ShowsNotReadyWithReason()
+    {
+        using var db = CreateDb();
+        var caregiverId = ObjectId.GenerateNewId();
+        var caregiver = new Caregiver
+        {
+            Id = caregiverId,
+            FirstName = "Partial",
+            LastName = "Caregiver",
+            Email = $"partial-{Guid.NewGuid():N}@example.com",
+            Role = "Caregiver",
+            Status = true,
+            IsAvailable = true,
+            IsIdentityVerified = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.CareGivers.Add(caregiver);
+        db.Gigs.Add(new Gig
+        {
+            Id = ObjectId.GenerateNewId(),
+            CaregiverId = caregiverId.ToString(),
+            Title = "General Care",
+            Category = "General",
+            Status = "Active",
+            Price = 15000,
+            CreatedAt = DateTime.UtcNow
+        });
+        SeedVettingComplete(db, caregiver);
+        await db.SaveChangesAsync();
+        var service = CreateReadinessService(db);
+
+        // Baseline: everything present → ready.
+        Assert.True((await service.GetReadinessAsync(caregiverId.ToString(), "General")).IsReady);
+
+        // Remove caregiver type only.
+        caregiver.CaregiverType = null;
+        await db.SaveChangesAsync();
+        var noType = await service.GetReadinessAsync(caregiverId.ToString(), "General");
+        Assert.False(noType.IsReady);
+        Assert.Contains(CaregiverReadinessReasons.CaregiverTypeNotSet, noType.IneligibilityReasons);
+        caregiver.CaregiverType = CaregiverType.CHEW;
+        await db.SaveChangesAsync();
+
+        // Drop one guarantor to confirmed-count 1.
+        var oneGuarantor = await db.Guarantors.FirstAsync(g => g.CaregiverId == caregiverId.ToString());
+        db.Guarantors.Remove(oneGuarantor);
+        await db.SaveChangesAsync();
+        var oneG = await service.GetReadinessAsync(caregiverId.ToString(), "General");
+        Assert.False(oneG.IsReady);
+        Assert.Contains(CaregiverReadinessReasons.GuarantorsIncomplete, oneG.IneligibilityReasons);
+
+        // Wipe address history.
+        var addrs = await db.CaregiverAddressHistories.Where(a => a.CaregiverId == caregiverId.ToString()).ToListAsync();
+        db.CaregiverAddressHistories.RemoveRange(addrs);
+        await db.SaveChangesAsync();
+        var noAddr = await service.GetReadinessAsync(caregiverId.ToString(), "General");
+        Assert.Contains(CaregiverReadinessReasons.AddressHistoryIncomplete, noAddr.IneligibilityReasons);
     }
 
     [Fact]
@@ -153,6 +265,7 @@ public class CaregiverReadinessAndSafeguardsTests
         var unready = new Caregiver { Id = unreadyId, FirstName = "U", LastName = "U", Email = "u@example.com", Role = "Caregiver", Status = true, IsAvailable = true, IsIdentityVerified = false, CreatedAt = DateTime.UtcNow };
         db.CareGivers.AddRange(ready, unready);
         db.Gigs.Add(new Gig { Id = ObjectId.GenerateNewId(), CaregiverId = readyId.ToString(), Title = "G", Category = "General", Status = "Active", Price = 10000, CreatedAt = DateTime.UtcNow });
+        SeedVettingComplete(db, ready);
         await db.SaveChangesAsync();
 
         var service = CreateReadinessService(db);
@@ -161,168 +274,6 @@ public class CaregiverReadinessAndSafeguardsTests
         Assert.True(result[readyId.ToString()].IsReady);
         Assert.False(result[unreadyId.ToString()].IsReady);
         Assert.Contains(CaregiverReadinessReasons.NotIdentityVerified, result[unreadyId.ToString()].IneligibilityReasons);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    //  Hire-time gate — CareRequestResponseService.HireResponderAsync
-    // ─────────────────────────────────────────────────────────────
-
-    private static (CareRequestResponseService service, ObjectId requestId, ObjectId responseId) SeedHireScenario(
-        CareProDbContext db, bool caregiverReady)
-    {
-        var clientId = ObjectId.GenerateNewId();
-        var caregiverId = ObjectId.GenerateNewId();
-        var requestId = ObjectId.GenerateNewId();
-        var responseId = ObjectId.GenerateNewId();
-
-        db.Clients.Add(new Client { Id = clientId, FirstName = "Client", LastName = "Test", Email = "client@example.com", Role = "Client", Password = "x", IsDeleted = false }); // pragma: allowlist-secret
-        db.CareGivers.Add(new Caregiver
-        {
-            Id = caregiverId,
-            FirstName = "Caregiver",
-            LastName = "Test",
-            Email = "caregiver@example.com",
-            Role = "Caregiver",
-            Status = true,
-            IsAvailable = true,
-            IsIdentityVerified = caregiverReady,
-            CreatedAt = DateTime.UtcNow
-        });
-        if (caregiverReady)
-        {
-            db.Gigs.Add(new Gig { Id = ObjectId.GenerateNewId(), CaregiverId = caregiverId.ToString(), Title = "G", Category = "General", Status = "Active", Price = 10000, CreatedAt = DateTime.UtcNow });
-        }
-        db.CareRequests.Add(new CareRequest
-        {
-            Id = requestId,
-            ClientId = clientId.ToString(),
-            ServiceCategory = "General",
-            Title = "Need care",
-            Status = "matched",
-            CreatedAt = DateTime.UtcNow
-        });
-        db.CareRequestResponses.Add(new Domain.Entities.CareRequestResponse
-        {
-            Id = responseId,
-            CareRequestId = requestId.ToString(),
-            CaregiverId = caregiverId.ToString(),
-            Status = "pending",
-            RespondedAt = DateTime.UtcNow
-        });
-        db.SaveChangesAsync().GetAwaiter().GetResult();
-
-        var negotiationService = new Mock<IGigPriceNegotiationService>();
-        negotiationService
-            .Setup(x => x.InitiateFromCareRequestHireAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<decimal>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<string>>()))
-            .ReturnsAsync(new GigPriceNegotiationResponseDTO { NegotiationId = ObjectId.GenerateNewId().ToString() });
-
-        var readinessService = CreateReadinessService(db);
-
-        var service = new CareRequestResponseService(
-            db,
-            Mock.Of<IMediator>(),
-            Mock.Of<IEmailService>(),
-            Mock.Of<IGeocodingService>(),
-            negotiationService.Object,
-            readinessService,
-            Mock.Of<ILogger<CareRequestResponseService>>());
-
-        return (service, requestId, responseId);
-    }
-
-    [Fact]
-    public async Task HireResponderAsync_CaregiverNotReady_ThrowsCaregiverNotReadyException()
-    {
-        using var db = CreateDb();
-        var (service, requestId, responseId) = SeedHireScenario(db, caregiverReady: false);
-        var request = await db.CareRequests.FindAsync(requestId);
-
-        var ex = await Assert.ThrowsAsync<CaregiverNotReadyException>(
-            () => service.HireResponderAsync(requestId.ToString(), responseId.ToString(), request!.ClientId));
-
-        Assert.NotEmpty(ex.Reasons);
-        Assert.Equal("CAREGIVER_NOT_READY", ex.ErrorCode);
-
-        // Confirm the block actually prevented the hire — response must NOT be marked hired.
-        var response = await db.CareRequestResponses.FindAsync(responseId);
-        Assert.Equal("pending", response!.Status);
-    }
-
-    [Fact]
-    public async Task HireResponderAsync_CaregiverReady_Succeeds()
-    {
-        using var db = CreateDb();
-        var (service, requestId, responseId) = SeedHireScenario(db, caregiverReady: true);
-        var request = await db.CareRequests.FindAsync(requestId);
-
-        var result = await service.HireResponderAsync(requestId.ToString(), responseId.ToString(), request!.ClientId);
-
-        Assert.True(result.Success);
-        var response = await db.CareRequestResponses.FindAsync(responseId);
-        Assert.Equal("hired", response!.Status);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    //  Negotiation-agree backstop — GigPriceNegotiationService.ClientAcceptAsync
-    // ─────────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task ClientAcceptAsync_CaregiverBecameIneligible_ThrowsCaregiverNotReadyException()
-    {
-        using var db = CreateDb();
-        var clientId = ObjectId.GenerateNewId().ToString();
-        var caregiverId = ObjectId.GenerateNewId();
-        var negotiationId = ObjectId.GenerateNewId();
-
-        // Caregiver was ready when hired, but is unverified now — the exact scenario
-        // the backstop exists for.
-        db.CareGivers.Add(new Caregiver
-        {
-            Id = caregiverId,
-            FirstName = "Caregiver",
-            LastName = "Test",
-            Email = "caregiver@example.com",
-            Role = "Caregiver",
-            Status = true,
-            IsAvailable = true,
-            IsIdentityVerified = false,
-            CreatedAt = DateTime.UtcNow
-        });
-        db.GigPriceNegotiations.Add(new GigPriceNegotiation
-        {
-            Id = negotiationId,
-            ClientId = clientId,
-            CaregiverId = caregiverId.ToString(),
-            EntrySource = "CareRequestHire",
-            GigTitleSnapshot = "Care",
-            GigCategorySnapshot = "General",
-            OriginalGigPrice = 10000,
-            LatestProposedPrice = 10000,
-            ProposedBy = "Caregiver",
-            Status = GigPriceNegotiationStatus.Initiated,
-            ExpiresAt = DateTime.UtcNow.AddHours(48),
-            Version = 0
-        });
-        await db.SaveChangesAsync();
-
-        var readinessService = CreateReadinessService(db);
-        var service = new GigPriceNegotiationService(
-            db,
-            Mock.Of<IMediator>(),
-            Mock.Of<IEmailService>(),
-            readinessService,
-            Mock.Of<ILogger<GigPriceNegotiationService>>());
-
-        var ex = await Assert.ThrowsAsync<CaregiverNotReadyException>(
-            () => service.ClientAcceptAsync(clientId, negotiationId.ToString(), version: 0));
-
-        Assert.NotEmpty(ex.Reasons);
-
-        // Confirm the block actually prevented agreement — status must NOT be Agreed.
-        var negotiation = await db.GigPriceNegotiations.FindAsync(negotiationId);
-        Assert.NotEqual(GigPriceNegotiationStatus.Agreed, negotiation!.Status);
     }
 
     // ─────────────────────────────────────────────────────────────

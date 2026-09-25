@@ -148,6 +148,10 @@ namespace Infrastructure.Content.Services
             if (request.AmountRequested <= 0)
                 throw new ArgumentException("Withdrawal amount must be greater than zero.");
 
+            // CaregiverId is server-set (from the JWT) and never bound from the client body.
+            if (string.IsNullOrEmpty(request.CaregiverId))
+                throw new ArgumentException("Caregiver could not be identified for this withdrawal request.");
+
             // Check if there's already a pending withdrawal for this caregiver
             bool hasPending = await HasPendingRequest(request.CaregiverId);
             if (hasPending)

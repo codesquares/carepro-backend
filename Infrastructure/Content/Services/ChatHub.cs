@@ -23,24 +23,21 @@ namespace Infrastructure.Content.Services
         private readonly ChatRepository _chatRepository;
         private readonly ILogger<ChatHub> _logger;
         private readonly IContentSanitizer _contentSanitizer;
-        private readonly IBookingCommitmentService _bookingCommitmentService;
         private readonly IChatComplianceService _chatComplianceService;
-        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
+        private readonly IChatAccessService _chatAccessService;
 
         public ChatHub(
             ChatRepository chatRepository,
             ILogger<ChatHub> logger,
             IContentSanitizer contentSanitizer,
-            IBookingCommitmentService bookingCommitmentService,
             IChatComplianceService chatComplianceService,
-            IOptions<CommitmentFeeSettings> commitmentFeeSettings)
+            IChatAccessService chatAccessService)
         {
             _chatRepository = chatRepository;
             _logger = logger;
             _contentSanitizer = contentSanitizer;
-            _bookingCommitmentService = bookingCommitmentService;
             _chatComplianceService = chatComplianceService;
-            _commitmentFeeSettings = commitmentFeeSettings;
+            _chatAccessService = chatAccessService;
         }
 
         /// <summary>
@@ -144,28 +141,22 @@ namespace Infrastructure.Content.Services
                 throw new HubException("Cannot send messages to yourself");
             }
 
-            // ── BOOKING COMMITMENT GATE ──────────────────────────────────────
-            // If the sender is a Client messaging a Caregiver, they must have
-            // paid a booking commitment fee first. Caregivers can always reply.
+            // ── ASSIGNMENT GATE ──────────────────────────────────────────────
+            // Messaging exists only between a client and a caregiver who share an Accepted
+            // assignment. Applies to both roles; anything else (no relationship, ended
+            // assignment, old-model thread, unknown user) is rejected.
             var senderRole = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
                           ?? Context.User?.FindFirst("role")?.Value;
 
-            if (!string.IsNullOrEmpty(senderRole) &&
-                senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
+            var access = await _chatAccessService.GetAccessAsync(currentUserId, senderRole ?? string.Empty, receiverId);
+            if (!access.CanSend)
             {
-                if (_commitmentFeeSettings.Value.Enabled)
-                {
-                    var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, receiverId);
-                    if (!hasAccess)
-                    {
-                        _logger.LogWarning(
-                            "Chat blocked: Client {ClientId} has no booking commitment with caregiver {CaregiverId}",
-                            currentUserId, receiverId);
-                        throw new HubException("You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page.");
-                    }
-                }
+                _logger.LogWarning(
+                    "Chat blocked: {SenderId} ({Role}) -> {ReceiverId}, access state {State}",
+                    currentUserId, senderRole, receiverId, access.State);
+                throw new HubException(access.Reason ?? "You cannot message this user.");
             }
-            // ── END BOOKING COMMITMENT GATE ──────────────────────────────────
+            // ── END ASSIGNMENT GATE ──────────────────────────────────────────
 
             _logger.LogInformation("Sending message from {SenderId} to {ReceiverId}", currentUserId, receiverId);
 
@@ -457,6 +448,9 @@ namespace Infrastructure.Content.Services
                 var currentUserId = GetCurrentUserId();
 
                 var conversations = await _chatRepository.GetAllUserConversationsAsync(currentUserId);
+                var role = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+                        ?? Context.User?.FindFirst("role")?.Value ?? string.Empty;
+                await _chatAccessService.EnrichConversationsAsync(currentUserId, role, conversations);
                 return conversations;
             }
             catch (Exception ex)

@@ -15,6 +15,13 @@ namespace Domain.Entities
         public string CaregiverId { get; set; } = string.Empty;
         public string? PaymentTransactionId { get; set; }
 
+        // Phase 6: auto-generated package contract linkage.
+        // Nullable — legacy/negotiated contracts have neither. When PackageRequestId
+        // is set, this contract was auto-generated from a Package + CarePro's standard
+        // terms the moment the PackageRequest reached "confirmed" — no negotiation.
+        public string? PackageRequestId { get; set; }
+        public string? PackageId { get; set; }
+
         // Package and Task Details (from Order/Gig - no price negotiation)
         public PackageSelection SelectedPackage { get; set; } = new PackageSelection();
         public List<ClientTask> Tasks { get; set; } = new List<ClientTask>();

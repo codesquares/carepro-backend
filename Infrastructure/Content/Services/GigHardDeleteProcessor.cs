@@ -15,7 +15,7 @@ namespace Infrastructure.Content.Services
     /// DeletedOn is 30+ days ago:
     ///
     /// 1. Hard-deletes: VisitCheckins, Notifications, PendingPayments, BookingCommitments
-    /// 2. Anonymizes: Reviews, Contracts (PII fields), TaskSheets, ObservationReports
+    /// 2. Anonymizes: Contracts (PII fields), TaskSheets, ObservationReports
     /// 3. Retains as-is: BillingRecords (tax law), IncidentReports (legal liability), ClientOrders (financial audit)
     /// 4. Hard-deletes the Gig record itself
     ///
@@ -172,32 +172,7 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation("GigHardDeleteProcessor: Gig {GigId} - Deleting {Count} booking commitments", gigId, bookingCommitments.Count);
             }
 
-            // ── 6. Hard-delete: OrderTasks (task drafts, no financial value) ──
-            var orderTasks = await dbContext.OrderTasks
-                .Where(ot => ot.GigId == gigId)
-                .ToListAsync();
-            if (orderTasks.Any())
-            {
-                dbContext.OrderTasks.RemoveRange(orderTasks);
-                _logger.LogInformation("GigHardDeleteProcessor: Gig {GigId} - Deleting {Count} order tasks", gigId, orderTasks.Count);
-            }
-
-            // ── 7. Anonymize: Reviews (keep rating for analytics, strip PII) ──
-            var reviews = await dbContext.Reviews
-                .Where(r => r.GigId == gigId)
-                .ToListAsync();
-            foreach (var review in reviews)
-            {
-                review.Message = RedactedMarker;
-                review.ClientId = RedactedMarker;
-                dbContext.Reviews.Update(review);
-            }
-            if (reviews.Any())
-            {
-                _logger.LogInformation("GigHardDeleteProcessor: Gig {GigId} - Anonymized {Count} reviews", gigId, reviews.Count);
-            }
-
-            // ── 8. Anonymize: Contracts (strip PII fields, keep structure + financial terms) ──
+            // ── 6. Anonymize: Contracts (strip PII fields, keep structure + financial terms) ──
             var contracts = await dbContext.Contracts
                 .Where(c => c.GigId == gigId)
                 .ToListAsync();
@@ -217,7 +192,7 @@ namespace Infrastructure.Content.Services
                 _logger.LogInformation("GigHardDeleteProcessor: Gig {GigId} - Anonymized {Count} contracts", gigId, contracts.Count);
             }
 
-            // ── 9. Anonymize: TaskSheets (strip signature + dispute reason, keep task structure) ──
+            // ── 7. Anonymize: TaskSheets (strip signature + dispute reason, keep task structure) ──
             if (relatedOrderIds.Any())
             {
                 var taskSheets = await dbContext.TaskSheets
@@ -234,7 +209,7 @@ namespace Infrastructure.Content.Services
                     _logger.LogInformation("GigHardDeleteProcessor: Gig {GigId} - Anonymized {Count} task sheets", gigId, taskSheets.Count);
                 }
 
-                // ── 10. Anonymize: ObservationReports (strip description + photos, keep category/severity) ──
+                // ── 8. Anonymize: ObservationReports (strip description + photos, keep category/severity) ──
                 var observationReports = await dbContext.ObservationReports
                     .Where(or => relatedOrderIds.Contains(or.OrderId))
                     .ToListAsync();
@@ -250,7 +225,7 @@ namespace Infrastructure.Content.Services
                 }
             }
 
-            // ── 11. Terminate expired subscriptions (mark as Terminated if not already) ──
+            // ── 9. Terminate expired subscriptions (mark as Terminated if not already) ──
             var subscriptions = await dbContext.Subscriptions
                 .Where(s => s.GigId == gigId
                     && s.Status != SubscriptionStatus.Cancelled
@@ -274,7 +249,7 @@ namespace Infrastructure.Content.Services
             // - ClientOrders: Financial audit trail
             // - Disputes: Legal record
 
-            // ── 12. Hard-delete the Gig record itself ──
+            // ── 10. Hard-delete the Gig record itself ──
             dbContext.Gigs.Remove(gig);
 
             await dbContext.SaveChangesAsync();

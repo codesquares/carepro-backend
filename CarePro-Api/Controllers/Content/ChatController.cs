@@ -23,21 +23,18 @@ namespace CarePro_Api.Controllers.Content
         private readonly ChatRepository _chatRepository;
         private readonly IContentSanitizer _contentSanitizer;
         private readonly IChatComplianceService _chatComplianceService;
-        private readonly IBookingCommitmentService _bookingCommitmentService;
-        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
+        private readonly IChatAccessService _chatAccessService;
 
         public ChatController(
             ChatRepository chatRepository,
             IContentSanitizer contentSanitizer,
             IChatComplianceService chatComplianceService,
-            IBookingCommitmentService bookingCommitmentService,
-            IOptions<CommitmentFeeSettings> commitmentFeeSettings)
+            IChatAccessService chatAccessService)
         {
             _chatRepository = chatRepository;
             _contentSanitizer = contentSanitizer;
             _chatComplianceService = chatComplianceService;
-            _bookingCommitmentService = bookingCommitmentService;
-            _commitmentFeeSettings = commitmentFeeSettings;
+            _chatAccessService = chatAccessService;
         }
 
         /// <summary>
@@ -74,6 +71,20 @@ namespace CarePro_Api.Controllers.Content
 
             var messages = await _chatRepository.GetChatHistoryAsync(user1, user2, skip, take);
             return Ok(messages);
+        }
+
+        /// <summary>
+        /// Where the caller's conversation with <paramref name="otherUserId"/> stands (Active / Ended /
+        /// Archived / None), whether they may send, and — when a relationship exists — who the other
+        /// person is. Identity is never returned for State = None.
+        /// </summary>
+        [HttpGet("access/{otherUserId}")]
+        public async Task<IActionResult> GetAccess(string otherUserId)
+        {
+            var currentUserId = GetCurrentUserId();
+            var role = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+            var access = await _chatAccessService.GetAccessAsync(currentUserId, role, otherUserId);
+            return Ok(access);
         }
 
         [HttpGet("ChatPreview")]
@@ -113,21 +124,16 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { error = "Cannot send messages to yourself" });
                 }
 
-                // ── BOOKING COMMITMENT GATE ──────────────────────────────────────
-                var senderRole = User.FindFirstValue(ClaimTypes.Role);
-                if (!string.IsNullOrEmpty(senderRole) &&
-                    senderRole.Equals("Client", StringComparison.OrdinalIgnoreCase))
+                // ── ASSIGNMENT GATE ──────────────────────────────────────────────
+                // Messaging exists only between a client and a caregiver who share an Accepted
+                // assignment. Applies to both roles.
+                var senderRole = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+                var access = await _chatAccessService.GetAccessAsync(currentUserId, senderRole, request.ReceiverId);
+                if (!access.CanSend)
                 {
-                    if (_commitmentFeeSettings.Value.Enabled)
-                    {
-                        var hasAccess = await _bookingCommitmentService.HasActiveCommitmentWithCaregiverAsync(currentUserId, request.ReceiverId);
-                        if (!hasAccess)
-                        {
-                            return BadRequest(new { error = "You must pay the booking commitment fee before messaging this caregiver. Please unlock access from the gig page." });
-                        }
-                    }
+                    return StatusCode(StatusCodes.Status403Forbidden, new { error = access.Reason ?? "You cannot message this user.", accessState = access.State });
                 }
-                // ── END BOOKING COMMITMENT GATE ──────────────────────────────────
+                // ── END ASSIGNMENT GATE ──────────────────────────────────────────
 
                 // ── CONTACT PATTERN COMPLIANCE CHECK ─────────────────────────────
                 var complianceResult = await _chatComplianceService.EvaluateMessageAsync(currentUserId, request.ReceiverId, request.Message);
@@ -319,6 +325,7 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 var conversations = await _chatRepository.GetAllUserConversationsAsync(userId);
+                await _chatAccessService.EnrichConversationsAsync(currentUserId, User.FindFirstValue(ClaimTypes.Role) ?? string.Empty, conversations);
 
                 return Ok(conversations);
             }

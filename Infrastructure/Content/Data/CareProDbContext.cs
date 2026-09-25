@@ -85,9 +85,6 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<CaregiverPreference>().HasKey(cp => cp.Id);
             modelBuilder.Entity<CaregiverPreference>().Property(cp => cp.Id).HasElementName("_id");
             modelBuilder.Entity<CaregiverPreference>().HasIndex(cp => cp.CaregiverId).IsUnique();
-            modelBuilder.Entity<ClientRecommendation>().ToCollection("ClientRecommendations");
-            modelBuilder.Entity<ClientRecommendation>().HasKey(cr => cr.Id);
-            modelBuilder.Entity<ClientRecommendation>().Property(cr => cr.Id).HasElementName("_id");
             modelBuilder.Entity<Notification>().ToCollection("Notifications");
             modelBuilder.Entity<QuestionBank>().ToCollection("QuestionBank");
             modelBuilder.Entity<Earnings>().ToCollection("Earnings");
@@ -98,13 +95,21 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
-            modelBuilder.Entity<ContractNegotiationHistory>().ToCollection("ContractNegotiationHistory");
-            modelBuilder.Entity<ContractNegotiationHistory>().HasKey(cnh => cnh.Id);
-            modelBuilder.Entity<ContractNegotiationHistory>().Property(cnh => cnh.Id).HasElementName("_id");
-            modelBuilder.Entity<OrderTasks>().ToCollection("OrderTasks");
             modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
             modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
             modelBuilder.Entity<TrainingMaterial>().Property(tm => tm.Id).HasElementName("_id");
+
+            modelBuilder.Entity<Package>().ToCollection("Packages");
+            modelBuilder.Entity<Package>().HasKey(p => p.Id);
+            modelBuilder.Entity<Package>().Property(p => p.Id).HasElementName("_id");
+
+            modelBuilder.Entity<PackageRequest>().ToCollection("PackageRequests");
+            modelBuilder.Entity<PackageRequest>().HasKey(pr => pr.Id);
+            modelBuilder.Entity<PackageRequest>().Property(pr => pr.Id).HasElementName("_id");
+
+            modelBuilder.Entity<Assignment>().ToCollection("Assignments");
+            modelBuilder.Entity<Assignment>().HasKey(a => a.Id);
+            modelBuilder.Entity<Assignment>().Property(a => a.Id).HasElementName("_id");
             modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
             modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
             modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");
@@ -117,9 +122,12 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PendingPayment>().ToCollection("PendingPayments");
             modelBuilder.Entity<PendingPayment>().HasKey(pp => pp.Id);
             modelBuilder.Entity<PendingPayment>().Property(pp => pp.Id).HasElementName("_id");
-            modelBuilder.Entity<CareRequest>().ToCollection("CareRequests");
-            modelBuilder.Entity<CareRequest>().HasKey(cr => cr.Id);
-            modelBuilder.Entity<CareRequest>().Property(cr => cr.Id).HasElementName("_id");
+            modelBuilder.Entity<PendingPackagePayment>().ToCollection("PendingPackagePayments");
+            modelBuilder.Entity<PendingPackagePayment>().HasKey(ppp => ppp.Id);
+            modelBuilder.Entity<PendingPackagePayment>().Property(ppp => ppp.Id).HasElementName("_id");
+            modelBuilder.Entity<PackageSubscription>().ToCollection("PackageSubscriptions");
+            modelBuilder.Entity<PackageSubscription>().HasKey(ps => ps.Id);
+            modelBuilder.Entity<PackageSubscription>().Property(ps => ps.Id).HasElementName("_id");
             modelBuilder.Entity<Subscription>().ToCollection("Subscriptions");
             modelBuilder.Entity<Subscription>().HasKey(s => s.Id);
             modelBuilder.Entity<Subscription>().Property(s => s.Id).HasElementName("_id");
@@ -200,10 +208,6 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ChatViolation>().HasKey(cv => cv.Id);
             modelBuilder.Entity<ChatViolation>().Property(cv => cv.Id).HasElementName("_id");
 
-            modelBuilder.Entity<OrderNegotiation>().ToCollection("OrderNegotiations");
-            modelBuilder.Entity<OrderNegotiation>().HasKey(n => n.Id);
-            modelBuilder.Entity<OrderNegotiation>().Property(n => n.Id).HasElementName("_id");
-
             modelBuilder.Entity<ClientWallet>().ToCollection("ClientWallets");
             modelBuilder.Entity<ClientWallet>().HasKey(cw => cw.Id);
             modelBuilder.Entity<ClientWallet>().Property(cw => cw.Id).HasElementName("_id");
@@ -212,18 +216,6 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ClientWalletLedger>().ToCollection("ClientWalletLedgers");
             modelBuilder.Entity<ClientWalletLedger>().HasKey(cl => cl.Id);
             modelBuilder.Entity<ClientWalletLedger>().Property(cl => cl.Id).HasElementName("_id");
-
-            modelBuilder.Entity<CareRequestResponse>().ToCollection("CareRequestResponses");
-            modelBuilder.Entity<CareRequestResponse>().HasKey(crr => crr.Id);
-            modelBuilder.Entity<CareRequestResponse>().Property(crr => crr.Id).HasElementName("_id");
-
-            modelBuilder.Entity<CareRequestNotifiedCaregiver>().ToCollection("CareRequestNotifiedCaregivers");
-            modelBuilder.Entity<CareRequestNotifiedCaregiver>().HasKey(cn => cn.Id);
-            modelBuilder.Entity<CareRequestNotifiedCaregiver>().Property(cn => cn.Id).HasElementName("_id");
-
-            modelBuilder.Entity<CareRequestBroadcastEmailLog>().ToCollection("CareRequestBroadcastEmailLogs");
-            modelBuilder.Entity<CareRequestBroadcastEmailLog>().HasKey(cn => cn.Id);
-            modelBuilder.Entity<CareRequestBroadcastEmailLog>().Property(cn => cn.Id).HasElementName("_id");
 
             modelBuilder.Entity<RefundRequest>().ToCollection("RefundRequests");
             modelBuilder.Entity<RefundRequest>().HasKey(rr => rr.Id);
@@ -282,12 +274,6 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<AdminUser>().HasQueryFilter(a => !a.IsDeleted);
             modelBuilder.Entity<ChatMessage>().HasQueryFilter(m => !m.IsDeleted);
             modelBuilder.Entity<Location>().HasQueryFilter(l => !l.IsDeleted);
-            modelBuilder.Entity<CareRequest>().HasQueryFilter(cr => cr.DeletedAt == null);
-
-            modelBuilder.Entity<GigPriceNegotiation>().ToCollection("GigPriceNegotiations");
-            modelBuilder.Entity<GigPriceNegotiation>().HasKey(n => n.Id);
-            modelBuilder.Entity<GigPriceNegotiation>().Property(n => n.Id).HasElementName("_id");
-
         }
 
 
@@ -302,7 +288,6 @@ namespace Infrastructure.Content.Data
         public DbSet<Assessment> Assessments { get; set; }
         public DbSet<ClientPreference> ClientPreferences { get; set; }
         public DbSet<CaregiverPreference> CaregiverPreferences { get; set; }
-        public DbSet<ClientRecommendation> ClientRecommendations { get; set; }
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<QuestionBank> QuestionBank { get; set; }
         public DbSet<Earnings> Earnings { get; set; }
@@ -311,14 +296,13 @@ namespace Infrastructure.Content.Data
         public DbSet<Review> Reviews { get; set; }
         public DbSet<Location> Locations { get; set; }
         public DbSet<Contract> Contracts { get; set; }
-        public DbSet<ContractNegotiationHistory> ContractNegotiationHistory { get; set; }
-        public DbSet<OrderTasks> OrderTasks { get; set; }
         public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
         public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<WebhookLog> WebhookLogs { get; set; }
         public DbSet<PendingPayment> PendingPayments { get; set; }
-        public DbSet<CareRequest> CareRequests { get; set; }
+        public DbSet<PendingPackagePayment> PendingPackagePayments { get; set; }
+        public DbSet<PackageSubscription> PackageSubscriptions { get; set; }
         public DbSet<Subscription> Subscriptions { get; set; }
         public DbSet<ServiceRequirement> ServiceRequirements { get; set; }
         public DbSet<AssessmentSession> AssessmentSessions { get; set; }
@@ -337,25 +321,28 @@ namespace Infrastructure.Content.Data
         public DbSet<IncidentReport> IncidentReports { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
-        public DbSet<OrderNegotiation> OrderNegotiations { get; set; }
         public DbSet<ClientWallet> ClientWallets { get; set; }
         public DbSet<ClientWalletLedger> ClientWalletLedgers { get; set; }
-        public DbSet<CareRequestResponse> CareRequestResponses { get; set; }
-        public DbSet<CareRequestNotifiedCaregiver> CareRequestNotifiedCaregivers { get; set; }
-        public DbSet<CareRequestBroadcastEmailLog> CareRequestBroadcastEmailLogs { get; set; }
         public DbSet<RefundRequest> RefundRequests { get; set; }
         public DbSet<GigTemplateCategory> GigTemplateCategories { get; set; }
         public DbSet<IdempotencyRecord> IdempotencyRecords { get; set; }
         public DbSet<CaregiverEducation> CaregiverEducations { get; set; }
         public DbSet<CaregiverQualification> CaregiverQualifications { get; set; }
         public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
+        public DbSet<Guarantor> Guarantors { get; set; }
+        public DbSet<CaregiverAddressHistory> CaregiverAddressHistories { get; set; }
+        public DbSet<CaregiverSocialMediaHandle> CaregiverSocialMediaHandles { get; set; }
+        public DbSet<Package> Packages { get; set; }
+        public DbSet<PackageRequest> PackageRequests { get; set; }
+        public DbSet<CaregiverPayRate> CaregiverPayRates { get; set; }
+        public DbSet<Payroll> Payrolls { get; set; }
+        public DbSet<Assignment> Assignments { get; set; }
         public DbSet<AdminAuditLog> AdminAuditLogs { get; set; }
         public DbSet<AnalyticsEvent> AnalyticsEvents { get; set; }
         public DbSet<CaregiverJourneySnapshot> CaregiverJourneySnapshots { get; set; }
         public DbSet<PushSubscription> PushSubscriptions { get; set; }
         public DbSet<ClientOnboardingWalkthrough> ClientOnboardingWalkthroughs { get; set; }
         public DbSet<ClientOnboardingTipSeen> ClientOnboardingTipsSeen { get; set; }
-        public DbSet<GigPriceNegotiation> GigPriceNegotiations { get; set; }
         public DbSet<GigView> GigViews { get; set; }
     }
 }

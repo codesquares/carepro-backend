@@ -40,6 +40,20 @@ namespace Domain.Entities
     }
 
     /// <summary>
+    /// Approval states for AdminUser accounts. New accounts start PendingApproval
+    /// so that a created-but-not-yet-approved account has no working access, even
+    /// if the SuperAdmin-only creation endpoint's authorization were ever weakened.
+    /// A null/empty Status (accounts created before this field existed) is treated
+    /// as Approved so existing admins are not retroactively locked out.
+    /// </summary>
+    public static class AdminUserStatus
+    {
+        public const string PendingApproval = "PendingApproval";
+        public const string Approved = "Approved";
+        public const string Rejected = "Rejected";
+    }
+
+    /// <summary>
     /// Valid admin departments. SuperAdmin has full access regardless of department.
     /// </summary>
     public static class AdminDepartments

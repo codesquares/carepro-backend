@@ -9,6 +9,8 @@ namespace Application.DTOs
     {
         public string Id { get; set; } = string.Empty;
         public string OrderId { get; set; } = string.Empty;
+        public string? AssignmentId { get; set; }
+        public string? PackageRequestId { get; set; }
         public string CaregiverId { get; set; } = string.Empty;
         public int SheetNumber { get; set; }
         public int BillingCycleNumber { get; set; }
@@ -65,6 +67,24 @@ namespace Application.DTOs
         public List<TaskSheetDTO> Sheets { get; set; } = new List<TaskSheetDTO>();
         public int MaxSheets { get; set; }
         public int CurrentSheetCount { get; set; }
+    }
+
+    /// <summary>
+    /// Monthly hours aggregation for payroll (Phase 9.6) — SUM(VisitDurationMinutes)
+    /// across a caregiver's submitted task sheets for a calendar month, optionally
+    /// scoped to one Assignment (each package assignment gets its own Payroll row per
+    /// Phase 9.7, so its hours need to be summed separately from a caregiver's other
+    /// concurrent assignments).
+    /// </summary>
+    public class CaregiverMonthlyHoursDTO
+    {
+        public string CaregiverId { get; set; } = string.Empty;
+        public string? AssignmentId { get; set; }
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public double TotalMinutes { get; set; }
+        public double TotalHours { get; set; }
+        public int TaskSheetCount { get; set; }
     }
 
     // ── Request DTOs ──

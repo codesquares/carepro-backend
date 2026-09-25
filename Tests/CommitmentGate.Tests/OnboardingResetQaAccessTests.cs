@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using Application.DTOs;
+using Application.Interfaces;
 using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using CarePro_Api.Controllers.Content;
@@ -142,6 +143,8 @@ public class OnboardingResetQaAccessTests
             Mock.Of<IEmailService>(),
             Mock.Of<ICertificationService>(),
             Mock.Of<IDefaultAddressCleanupService>(),
+            Mock.Of<IGigServices>(),
+            Mock.Of<IConfiguration>(),
             Mock.Of<ILogger<AdminsController>>(),
             hostEnvironment.Object);
     }

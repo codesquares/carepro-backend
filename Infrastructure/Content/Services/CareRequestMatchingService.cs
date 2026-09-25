@@ -1,12 +1,8 @@
-using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces.Content;
-using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
@@ -22,10 +18,6 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IGeocodingService _geocodingService;
         private readonly IEligibilityService _eligibilityService;
-        private readonly IClientRecommendationService _recommendationService;
-        private readonly IMediator _mediator;
-        private readonly IEmailService _emailService;
-        private readonly IConfiguration _configuration;
         private readonly ILogger<CareRequestMatchingService> _logger;
 
         // Scoring weights (sum = 100)
@@ -46,212 +38,124 @@ namespace Infrastructure.Content.Services
             CareProDbContext dbContext,
             IGeocodingService geocodingService,
             IEligibilityService eligibilityService,
-            IClientRecommendationService recommendationService,
-            IMediator mediator,
-            IEmailService emailService,
-            IConfiguration configuration,
             ILogger<CareRequestMatchingService> logger)
         {
             _dbContext = dbContext;
             _geocodingService = geocodingService;
             _eligibilityService = eligibilityService;
-            _recommendationService = recommendationService;
-            _mediator = mediator;
-            _emailService = emailService;
-            _configuration = configuration;
             _logger = logger;
         }
 
-        public async Task<CareRequestMatchResponse> FindMatchesForCareRequestAsync(string careRequestId)
+        // ─────────────────────────────────────────────────────────────
+        //  Phase 4: internal assignment entry point
+        //
+        //  Reuses the exact scoring pipeline (RunMatchingPipelineAsync) and the
+        //  existing IEligibilityService checks — no changes to either. Adds only a
+        //  hard filter on the package's RequiredCaregiverType / RequiredSpecialty.
+        //  Internal assignment picks a single caregiver — no persistence beyond the
+        //  ranked candidate list, no competitive-flow notifications.
+        // ─────────────────────────────────────────────────────────────
+        public async Task<List<CaregiverMatchDTO>> FindCandidatesForPackageAsync(PackageAssignmentMatchQuery query)
         {
-            _logger.LogInformation("Starting matching for CareRequest {CareRequestId}", careRequestId);
+            if (query == null) throw new ArgumentException("Query is required.");
+            if (string.IsNullOrWhiteSpace(query.ServiceCategory))
+                throw new ArgumentException("ServiceCategory is required.");
 
-            if (!ObjectId.TryParse(careRequestId, out var objectId))
-                throw new ArgumentException("Invalid care request ID format.");
-
-            var careRequest = await _dbContext.CareRequests.FindAsync(objectId);
-            if (careRequest == null)
-                throw new KeyNotFoundException($"Care request '{careRequestId}' not found.");
-
-            if (careRequest.Status != "pending" && careRequest.Status != "unmatched")
+            if (!Enum.TryParse<CaregiverType>(query.RequiredCaregiverType, ignoreCase: false, out var requiredType)
+                || !Enum.IsDefined(typeof(CaregiverType), requiredType))
             {
-                _logger.LogInformation("CareRequest {CareRequestId} is not pending (status: {Status}), skipping matching", careRequestId, careRequest.Status);
-                return new CareRequestMatchResponse
-                {
-                    Success = true,
-                    Message = $"Care request is already '{careRequest.Status}'.",
-                    CareRequestId = careRequestId,
-                    Status = careRequest.Status
-                };
+                throw new ArgumentException(
+                    "RequiredCaregiverType must be one of: AuxiliaryNurse, CHEW, RegisteredNurse.");
             }
 
-            // Resolve coordinates for the care request if not already set
-            var (requestLat, requestLng) = await ResolveCoordinatesAsync(careRequest);
+            var transientRequest = new TransientMatchRequest
+            {
+                ClientId = query.ClientId ?? string.Empty,
+                ServiceCategory = query.ServiceCategory,
+                Location = query.Location,
+                Latitude = query.Latitude,
+                Longitude = query.Longitude,
+                Budget = query.Budget?.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+            };
 
-            // Run matching pipeline
-            var matches = await RunMatchingPipelineAsync(careRequest, requestLat, requestLng, DefaultMaxDistanceKm);
+            var (lat, lng) = await ResolveCoordinatesNoPersistAsync(transientRequest);
 
-            bool hasAlternatives = false;
+            Func<Caregiver, bool> hardFilter = c =>
+                c.CaregiverType == requiredType
+                && (string.IsNullOrWhiteSpace(query.RequiredSpecialty)
+                    || string.Equals(c.Specialty?.Trim(), query.RequiredSpecialty.Trim(), StringComparison.OrdinalIgnoreCase));
 
-            // If fewer than 3 strong matches, run relaxed pass
+            var matches = await RunMatchingPipelineAsync(transientRequest, lat, lng, DefaultMaxDistanceKm, hardFilter);
+
             if (matches.Count(m => m.MatchScore >= StrongMatchThreshold) < 3)
             {
-                _logger.LogInformation("Fewer than 3 strong matches for CareRequest {CareRequestId}, running relaxed pass", careRequestId);
-                var relaxedMatches = await RunMatchingPipelineAsync(careRequest, requestLat, requestLng, RelaxedMaxDistanceKm);
-
-                // Merge: keep original strong matches, add new ones from relaxed pass
-                var existingIds = new HashSet<string>(matches.Select(m => m.CaregiverId));
-                var additional = relaxedMatches.Where(m => !existingIds.Contains(m.CaregiverId)).ToList();
-                matches.AddRange(additional);
+                var relaxed = await RunMatchingPipelineAsync(transientRequest, lat, lng, RelaxedMaxDistanceKm, hardFilter);
+                var seen = new HashSet<string>(matches.Select(m => m.CaregiverId));
+                matches.AddRange(relaxed.Where(m => !seen.Contains(m.CaregiverId)));
                 matches = matches.OrderByDescending(m => m.MatchScore).ToList();
-                hasAlternatives = additional.Count > 0;
             }
 
-            // Take top 10 and assign ranks
-            var topMatches = matches.Take(MaxResults).ToList();
-            for (int i = 0; i < topMatches.Count; i++)
-                topMatches[i].Rank = i + 1;
+            var top = matches.Take(MaxResults).ToList();
+            for (int i = 0; i < top.Count; i++) top[i].Rank = i + 1;
 
-            // Persist to ClientRecommendation
-            await StoreRecommendationsAsync(careRequest.ClientId, careRequestId, topMatches);
-
-            // Update CareRequest status
-            if (topMatches.Count > 0)
-            {
-                careRequest.Status = "matched";
-                careRequest.MatchedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                careRequest.MatchRetryCount = (careRequest.MatchRetryCount ?? 0) + 1;
-                if (careRequest.MatchRetryCount >= 3)
-                {
-                    careRequest.Status = "escalated";
-                    _logger.LogWarning("CareRequest {CareRequestId} escalated after {RetryCount} failed match attempts", careRequestId, careRequest.MatchRetryCount);
-                }
-                else
-                {
-                    careRequest.Status = "unmatched";
-                }
-            }
-            careRequest.MatchCount = topMatches.Count;
-            careRequest.UpdatedAt = DateTime.UtcNow;
-            _dbContext.CareRequests.Update(careRequest);
-            await _dbContext.SaveChangesAsync();
-
-            // Send notifications
-            await SendMatchNotificationsAsync(careRequest, topMatches, hasAlternatives);
-
-            var response = new CareRequestMatchResponse
-            {
-                Success = true,
-                CareRequestId = careRequestId,
-                Status = careRequest.Status,
-                TotalMatches = topMatches.Count,
-                HasAlternatives = hasAlternatives,
-                Matches = topMatches,
-                Message = topMatches.Count > 0
-                    ? $"Found {topMatches.Count} matching caregivers."
-                    : "No matches found. The CarePro team is working to find the right caregiver for you."
-            };
-
-            _logger.LogInformation("Matching completed for CareRequest {CareRequestId}: {Count} matches", careRequestId, topMatches.Count);
-            return response;
+            _logger.LogInformation(
+                "Package assignment matching: {Count} eligible {Type} candidates for category '{Category}'",
+                top.Count, requiredType, query.ServiceCategory);
+            return top;
         }
 
-        public async Task<CareRequestMatchResponse> GetMatchesForCareRequestAsync(string careRequestId, string requestingUserId)
+        private async Task<(double? lat, double? lng)> ResolveCoordinatesNoPersistAsync(TransientMatchRequest request)
         {
-            if (!ObjectId.TryParse(careRequestId, out var objectId))
-                throw new ArgumentException("Invalid care request ID format.");
+            if (request.Latitude.HasValue && request.Longitude.HasValue)
+                return (request.Latitude, request.Longitude);
 
-            var careRequest = await _dbContext.CareRequests.FindAsync(objectId);
-            if (careRequest == null)
-                throw new KeyNotFoundException($"Care request '{careRequestId}' not found.");
-
-            // Authorization: only the owning client can view matches
-            if (careRequest.ClientId != requestingUserId)
+            if (!string.IsNullOrEmpty(request.Location))
             {
-                // Check if user is admin
-                if (!ObjectId.TryParse(requestingUserId, out var adminOid))
-                    throw new UnauthorizedAccessException("You are not authorized to view these matches.");
-
-                var isAdmin = await _dbContext.AdminUsers.AnyAsync(a => a.Id == adminOid);
-                if (!isAdmin)
-                    throw new UnauthorizedAccessException("You are not authorized to view these matches.");
-            }
-
-            // Get the latest recommendation for this client
-            var recommendation = await _dbContext.ClientRecommendations
-                .Where(r => r.ClientId == careRequest.ClientId && r.IsActive && !r.IsArchived
-                            && r.PreferenceSnapshot == careRequestId)
-                .OrderByDescending(r => r.CreatedAt)
-                .FirstOrDefaultAsync();
-
-            if (recommendation == null)
-            {
-                return new CareRequestMatchResponse
+                try
                 {
-                    Success = true,
-                    Message = careRequest.Status == "pending"
-                        ? "Matching is still in progress. Please check back shortly."
-                        : "No matches have been generated for this care request.",
-                    CareRequestId = careRequestId,
-                    Status = careRequest.Status,
-                    TotalMatches = 0
-                };
-            }
-
-            // Mark as viewed
-            if (!recommendation.ViewedAt.HasValue)
-            {
-                recommendation.ViewedAt = DateTime.UtcNow;
-                _dbContext.ClientRecommendations.Update(recommendation);
-                await _dbContext.SaveChangesAsync();
-            }
-
-            // Build match DTOs from stored recommendations
-            var matches = new List<CaregiverMatchDTO>();
-            int rank = 1;
-            foreach (var item in recommendation.Recommendations.OrderByDescending(r => r.MatchScore))
-            {
-                var caregiverId = item.CaregiverId ?? item.ProviderId;
-                var caregiver = await GetCaregiverBasicInfo(caregiverId);
-
-                matches.Add(new CaregiverMatchDTO
+                    var geocode = await _geocodingService.GeocodeAsync(request.Location);
+                    return (geocode.Latitude, geocode.Longitude);
+                }
+                catch (Exception ex)
                 {
-                    Rank = rank++,
-                    CaregiverId = caregiverId,
-                    CaregiverName = caregiver?.Name ?? "Caregiver",
-                    ProfileImage = caregiver?.ProfileImage,
-                    IsAvailable = caregiver?.IsAvailable ?? false,
-                    AboutMe = caregiver?.AboutMe,
-                    Location = item.Location,
-                    MatchScore = item.MatchScore,
-                    MatchedServiceCategory = item.ServiceType,
-                    GigPrice = (int?)item.Price,
-                    AverageRating = item.Rating,
-                    ReviewCount = item.ReviewCount
-                });
+                    _logger.LogWarning(ex, "Failed to geocode package-request location '{Location}'", request.Location);
+                }
             }
 
-            return new CareRequestMatchResponse
+            if (ObjectId.TryParse(request.ClientId, out var clientOid))
             {
-                Success = true,
-                Message = $"Found {matches.Count} matches for your care request.",
-                CareRequestId = careRequestId,
-                Status = careRequest.Status,
-                TotalMatches = matches.Count,
-                Matches = matches
-            };
+                var client = await _dbContext.Clients.FindAsync(clientOid);
+                if (client?.Latitude != null && client?.Longitude != null)
+                    return (client.Latitude, client.Longitude);
+            }
+
+            return (null, null);
         }
 
         #region Matching Pipeline
 
+        private sealed class TransientMatchRequest
+        {
+            public string ClientId { get; set; } = string.Empty;
+            public string ServiceCategory { get; set; } = string.Empty;
+            public string? Location { get; set; }
+            public double? Latitude { get; set; }
+            public double? Longitude { get; set; }
+            public string? Budget { get; set; }
+            public string? Notes { get; set; }
+        }
+
         private async Task<List<CaregiverMatchDTO>> RunMatchingPipelineAsync(
-            CareRequest careRequest, double? requestLat, double? requestLng, double maxDistanceKm)
+            TransientMatchRequest careRequest, double? requestLat, double? requestLng, double maxDistanceKm,
+            Func<Caregiver, bool>? extraHardFilter = null)
         {
             // Phase 1: Hard Filters — get candidate caregivers
             var candidates = await GetCandidateCaregivers(careRequest.ServiceCategory);
+
+            // Phase 4: internal package assignment adds a hard filter on the package's
+            // RequiredCaregiverType / RequiredSpecialty. Scoring and eligibility below are unchanged.
+            if (extraHardFilter != null)
+                candidates = candidates.Where(extraHardFilter).ToList();
 
             _logger.LogInformation("Phase 1: {Count} candidates after hard filters for category '{Category}'",
                 candidates.Count, careRequest.ServiceCategory);
@@ -371,13 +275,13 @@ namespace Infrastructure.Content.Services
 
         #region Scoring Factors
 
-        private double CalculateCategoryScore(CareRequest request, List<Gig> matchingGigs)
+        private double CalculateCategoryScore(TransientMatchRequest request, List<Gig> matchingGigs)
         {
             // Base: has matching category = 0.7
             double score = 0.7;
 
             // Bonus for subcategory/tag keyword overlap with request title/description
-            var requestKeywords = ExtractKeywords(request.Title + " " + (request.Notes ?? string.Empty));
+            var requestKeywords = ExtractKeywords(request.ServiceCategory + " " + (request.Notes ?? string.Empty));
             foreach (var gig in matchingGigs)
             {
                 var gigKeywords = ExtractKeywords(gig.SubCategory + " " + gig.Tags + " " + gig.Title);
@@ -494,41 +398,6 @@ namespace Infrastructure.Content.Services
 
         #region Helpers
 
-        private async Task<(double? lat, double? lng)> ResolveCoordinatesAsync(CareRequest careRequest)
-        {
-            // If already geocoded, use stored coordinates
-            if (careRequest.Latitude.HasValue && careRequest.Longitude.HasValue)
-                return (careRequest.Latitude, careRequest.Longitude);
-
-            // Try to geocode the care request's Location field
-            if (!string.IsNullOrEmpty(careRequest.Location))
-            {
-                try
-                {
-                    var geocode = await _geocodingService.GeocodeAsync(careRequest.Location);
-                    careRequest.Latitude = geocode.Latitude;
-                    careRequest.Longitude = geocode.Longitude;
-                    _dbContext.CareRequests.Update(careRequest);
-                    await _dbContext.SaveChangesAsync();
-                    return (geocode.Latitude, geocode.Longitude);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to geocode CareRequest location '{Location}'", careRequest.Location);
-                }
-            }
-
-            // Fall back to client's stored coordinates
-            if (ObjectId.TryParse(careRequest.ClientId, out var clientOid))
-            {
-                var client = await _dbContext.Clients.FindAsync(clientOid);
-                if (client?.Latitude != null && client?.Longitude != null)
-                    return (client.Latitude, client.Longitude);
-            }
-
-            return (null, null);
-        }
-
         private static decimal? ParseBudget(string? budget)
         {
             if (string.IsNullOrEmpty(budget)) return null;
@@ -557,204 +426,6 @@ namespace Infrastructure.Content.Services
                     Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
             var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
             return R * c;
-        }
-
-        private async Task StoreRecommendationsAsync(string clientId, string careRequestId, List<CaregiverMatchDTO> matches)
-        {
-            // Archive existing recommendations for this care request
-            var existing = await _dbContext.ClientRecommendations
-                .Where(r => r.ClientId == clientId && r.PreferenceSnapshot == careRequestId && r.IsActive)
-                .ToListAsync();
-
-            foreach (var rec in existing)
-            {
-                rec.IsActive = false;
-                rec.IsArchived = true;
-                rec.ArchivedAt = DateTime.UtcNow;
-                _dbContext.ClientRecommendations.Update(rec);
-            }
-
-            var recommendation = new ClientRecommendation
-            {
-                Id = ObjectId.GenerateNewId(),
-                ClientId = clientId,
-                Recommendations = matches.Select(m => new RecommendationItem
-                {
-                    ProviderId = m.CaregiverId,
-                    CaregiverId = m.CaregiverId,
-                    MatchScore = m.MatchScore,
-                    ServiceType = m.MatchedServiceCategory,
-                    Location = m.Location ?? "",
-                    Price = m.GigPrice ?? 0,
-                    PriceUnit = "NGN",
-                    Rating = m.AverageRating,
-                    ReviewCount = m.ReviewCount
-                }).ToList(),
-                GeneratedAt = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow,
-                IsActive = true,
-                IsArchived = false,
-                PreferenceSnapshot = careRequestId
-            };
-
-            await _dbContext.ClientRecommendations.AddAsync(recommendation);
-            await _dbContext.SaveChangesAsync();
-        }
-
-        private async Task SendMatchNotificationsAsync(CareRequest careRequest, List<CaregiverMatchDTO> matches, bool hasAlternatives)
-        {
-            var careRequestId = careRequest.Id.ToString();
-
-            if (matches.Count > 0)
-            {
-                // ── Notify matched CAREGIVERS (in-app + email) ──
-                foreach (var match in matches)
-                {
-                    // Track notification in CareRequestNotifiedCaregivers
-                    var alreadyNotified = await _dbContext.CareRequestNotifiedCaregivers
-                        .AnyAsync(n => n.CareRequestId == careRequestId && n.CaregiverId == match.CaregiverId);
-
-                    if (alreadyNotified) continue;
-
-                    var notifiedRecord = new CareRequestNotifiedCaregiver
-                    {
-                        Id = MongoDB.Bson.ObjectId.GenerateNewId(),
-                        CareRequestId = careRequestId,
-                        CaregiverId = match.CaregiverId,
-                        NotifiedAt = DateTime.UtcNow,
-                        MatchScore = match.MatchScore
-                    };
-                    await _dbContext.CareRequestNotifiedCaregivers.AddAsync(notifiedRecord);
-
-                    // In-app notification to caregiver
-                    await _mediator.Send(new SendNotificationCommand(
-                        match.CaregiverId,
-                        "system",
-                        NotificationTypes.CareRequestNewMatch,
-                        $"A client needs {careRequest.ServiceCategory} in {careRequest.Location ?? "your area"}. Budget: {careRequest.Budget ?? "Not specified"}. Tap to view.",
-                        "A new care request matches your profile",
-                        careRequestId));
-
-                    // Email notification to caregiver
-                    try
-                    {
-                        await SendMatchNotificationEmailToCaregiverAsync(careRequest, match);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to send match email to caregiver {CaregiverId} for CareRequest {CareRequestId}",
-                            match.CaregiverId, careRequestId);
-                    }
-                }
-
-                await _dbContext.SaveChangesAsync();
-
-                // Notify admins — match success (keep this)
-                await NotifyAdminsAsync(
-                    NotificationTypes.CareRequestAdminMatchUpdate,
-                    $"Care request '{careRequest.Title}' matched {matches.Count} caregiver{(matches.Count > 1 ? "s" : "")}. Category: {careRequest.ServiceCategory}. Caregivers have been notified.",
-                    "Care Request Matched",
-                    careRequestId);
-            }
-            else
-            {
-                // No matches — only notify admins once per care request
-                if (careRequest.NoMatchEmailSentAt == null)
-                {
-                    await NotifyAdminsAsync(
-                        NotificationTypes.CareRequestAdminNoMatch,
-                        $"No matches found for care request '{careRequest.Title}' (Category: {careRequest.ServiceCategory}, Location: {careRequest.Location ?? "Not specified"}). Review required.",
-                        "No Match — Action Required",
-                        careRequestId);
-
-                    try
-                    {
-                        await SendNoMatchEmailToAdminsAsync(careRequest);
-                        careRequest.NoMatchEmailSentAt = DateTime.UtcNow;
-                        _dbContext.CareRequests.Update(careRequest);
-                        await _dbContext.SaveChangesAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to send no-match admin email for CareRequest {CareRequestId}.", careRequestId);
-                    }
-                }
-                else
-                {
-                    _logger.LogInformation("No-match email already sent for CareRequest {CareRequestId} at {SentAt}, skipping.", careRequestId, careRequest.NoMatchEmailSentAt);
-                }
-            }
-        }
-
-        private async Task SendMatchNotificationEmailToCaregiverAsync(CareRequest careRequest, CaregiverMatchDTO match)
-        {
-            if (!ObjectId.TryParse(match.CaregiverId, out var caregiverOid)) return;
-            var caregiver = await _dbContext.CareGivers.FindAsync(caregiverOid);
-            if (caregiver == null) return;
-
-            var subject = $"New Care Request Matches Your Profile — {careRequest.ServiceCategory}";
-            var htmlContent = $@"
-                <h3>Hi {caregiver.FirstName},</h3>
-                <p>A client has posted a care request that matches your profile!</p>
-                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
-                    <p><strong>Request:</strong> {careRequest.Title}</p>
-                    <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
-                    <p><strong>Urgency:</strong> {careRequest.Urgency}</p>
-                    <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
-                    <p><strong>Budget:</strong> {careRequest.Budget ?? "Not specified"}</p>
-                </div>
-                <p>Log in to your dashboard to <strong>view the request details</strong> and respond if you're interested.</p>
-                <p>— The CarePro Team</p>";
-
-            await _emailService.SendGenericNotificationEmailAsync(
-                caregiver.Email, caregiver.FirstName, subject, htmlContent,
-                includeUnsubscribeHeader: true,
-                gateUserId: match.CaregiverId,
-                gateNotificationType: NotificationTypes.CareRequestNewMatch);
-        }
-
-        private async Task NotifyAdminsAsync(string type, string content, string title, string relatedEntityId)
-        {
-            var admins = await _dbContext.AdminUsers.Where(a => !a.IsDeleted).ToListAsync();
-            foreach (var admin in admins)
-            {
-                await _mediator.Send(new SendNotificationCommand(
-                    admin.Id.ToString(), "system", type, content, title, relatedEntityId));
-            }
-        }
-
-        // NOTE: SendMatchFoundEmailToClientAsync and SendNoMatchEmailToClientAsync removed.
-        // Clients are no longer emailed on match/no-match. They only get notified when a caregiver responds.
-
-        private async Task SendNoMatchEmailToAdminsAsync(CareRequest careRequest)
-        {
-            var admins = await _dbContext.AdminUsers.Where(a => !a.IsDeleted).ToListAsync();
-            foreach (var admin in admins)
-            {
-                var subject = $"Action Required: No Match for Care Request '{careRequest.Title}'";
-                var content = $@"
-                    <p>A care request has <strong>no matches</strong> and needs attention.</p>
-                    <div style='background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107;'>
-                        <p><strong>Request ID:</strong> {careRequest.Id}</p>
-                        <p><strong>Client ID:</strong> {careRequest.ClientId}</p>
-                        <p><strong>Title:</strong> {careRequest.Title}</p>
-                        <p><strong>Category:</strong> {careRequest.ServiceCategory}</p>
-                        <p><strong>Urgency:</strong> {careRequest.Urgency}</p>
-                        <p><strong>Location:</strong> {careRequest.Location ?? "Not specified"}</p>
-                        <p><strong>Budget:</strong> {careRequest.Budget ?? "Not specified"}</p>
-                    </div>
-                    <p>Please review and take action — the client has been notified that the team is working on it.</p>";
-
-                await _emailService.SendGenericNotificationEmailAsync(admin.Email, admin.FirstName, subject, content);
-            }
-        }
-
-        private async Task<(string Name, string? ProfileImage, bool IsAvailable, string? AboutMe)?> GetCaregiverBasicInfo(string caregiverId)
-        {
-            if (!ObjectId.TryParse(caregiverId, out var oid)) return null;
-            var cg = await _dbContext.CareGivers.FindAsync(oid);
-            if (cg == null) return null;
-            return ($"{cg.FirstName} {cg.LastName}", cg.ProfileImage, cg.IsAvailable, cg.AboutMe);
         }
 
         #endregion

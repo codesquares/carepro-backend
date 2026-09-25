@@ -262,6 +262,133 @@ namespace Infrastructure.Content.Services
             return MapToDTO(taskSheet);
         }
 
+        /// <summary>
+        /// Alternative to CreateTaskSheetAsync for package assignments (Phase 9.5) — no
+        /// ClientOrder exists here, so authorization comes from an Accepted Assignment
+        /// and its Generated Contract instead. Unlike the legacy Gig flow there is no
+        /// Gig-based max-sheets/billing-cycle cap: a package assignment is an ongoing
+        /// engagement (Assignment persists across periods, per the Phase 9 discovery),
+        /// not a fixed-length gig, so sheets keep being created one per day for as long
+        /// as the assignment stays Accepted.
+        /// </summary>
+        public async Task<TaskSheetDTO> CreateTaskSheetForAssignmentAsync(string assignmentId, string caregiverId)
+        {
+            if (!ObjectId.TryParse(assignmentId, out var assignmentObjectId))
+                throw new ArgumentException("Invalid assignment ID format.");
+
+            var assignment = await _dbContext.Assignments.FirstOrDefaultAsync(a => a.Id == assignmentObjectId)
+                ?? throw new KeyNotFoundException($"Assignment '{assignmentId}' not found.");
+
+            if (assignment.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("You are not authorized to create task sheets for this assignment.");
+
+            if (assignment.Status != AssignmentStatuses.Accepted)
+                throw new InvalidOperationException("This assignment has not been accepted yet.");
+
+            var contract = await _dbContext.Contracts.FirstOrDefaultAsync(c =>
+                    c.PackageRequestId == assignment.PackageRequestId && c.Status == ContractStatus.Generated)
+                ?? throw new KeyNotFoundException("No active contract found for this package assignment.");
+
+            var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
+            var todayNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone).Date;
+
+            int existingCount = await _dbContext.TaskSheets
+                .Where(ts => ts.AssignmentId == assignmentId)
+                .CountAsync();
+
+            // One task sheet per day (Nigerian time) — prevent duplicates
+            var existingToday = await _dbContext.TaskSheets
+                .Where(ts => ts.AssignmentId == assignmentId
+                    && ts.ScheduledDate.HasValue
+                    && ts.ScheduledDate.Value.Date == todayNigeria
+                    && ts.Status != "cancelled")
+                .AnyAsync();
+
+            if (existingToday)
+            {
+                throw new InvalidOperationException("A task sheet has already been created for today. Only one visit per day is allowed.");
+            }
+
+            // Previous started sheet must be approved by client before a new one can be created
+            if (existingCount > 0)
+            {
+                var previousSheet = await _dbContext.TaskSheets
+                    .Where(ts => ts.AssignmentId == assignmentId
+                        && ts.Status != "cancelled"
+                        && ts.Status != "scheduled")
+                    .OrderByDescending(ts => ts.SheetNumber)
+                    .FirstOrDefaultAsync();
+
+                if (previousSheet != null)
+                {
+                    if (previousSheet.Status != "submitted")
+                    {
+                        throw new InvalidOperationException(
+                            $"Visit #{previousSheet.SheetNumber} has not been submitted yet. Please submit it before creating a new visit.");
+                    }
+
+                    if (previousSheet.ClientReviewStatus != "Approved" && previousSheet.ClientReviewStatus != "Disputed")
+                    {
+                        throw new InvalidOperationException(
+                            $"Visit #{previousSheet.SheetNumber} has not been reviewed by the client yet. The client must approve or review the previous visit before a new one can start.");
+                    }
+                }
+            }
+
+            var tasks = contract.Tasks?.Select(t => new TaskSheetItem
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                Text = !string.IsNullOrEmpty(t.Description) ? $"{t.Title} — {t.Description}" : t.Title,
+                Completed = false,
+                AddedByCaregiver = false
+            }).ToList() ?? new List<TaskSheetItem>();
+
+            var taskSheet = new TaskSheet
+            {
+                Id = ObjectId.GenerateNewId(),
+                OrderId = string.Empty,
+                AssignmentId = assignmentId,
+                PackageRequestId = assignment.PackageRequestId,
+                CaregiverId = caregiverId,
+                SheetNumber = existingCount + 1,
+                BillingCycleNumber = 1,
+                Tasks = tasks,
+                Status = "in-progress",
+                ScheduledDate = todayNigeria,
+                SubmittedAt = null,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _dbContext.TaskSheets.AddAsync(taskSheet);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("TaskSheet created: {TaskSheetId} for Assignment: {AssignmentId}, Sheet #{SheetNumber}",
+                taskSheet.Id, assignmentId, taskSheet.SheetNumber);
+
+            return MapToDTO(taskSheet);
+        }
+
+        public async Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId)
+        {
+            if (!ObjectId.TryParse(assignmentId, out var assignmentObjectId))
+                throw new ArgumentException("Invalid assignment ID format.");
+
+            var assignment = await _dbContext.Assignments.FirstOrDefaultAsync(a => a.Id == assignmentObjectId)
+                ?? throw new KeyNotFoundException($"Assignment '{assignmentId}' not found.");
+
+            if (assignment.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("This assignment doesn't belong to you.");
+
+            var sheets = await _dbContext.TaskSheets
+                .Where(ts => ts.AssignmentId == assignmentId)
+                .OrderByDescending(ts => ts.ScheduledDate)
+                .ThenByDescending(ts => ts.SheetNumber)
+                .ToListAsync();
+
+            return sheets.Select(MapToDTO).ToList();
+        }
+
         public async Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId)
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
@@ -374,16 +501,31 @@ namespace Infrastructure.Content.Services
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
 
-            // Block completed orders
-            var order = await GetOrderOrThrow(taskSheet.OrderId);
-            _logger.LogInformation("SubmitTaskSheet - Order {OrderId} has ClientOrderStatus: '{Status}', TaskSheet {TaskSheetId} has Status: '{SheetStatus}'",
-                taskSheet.OrderId, order.ClientOrderStatus ?? "(null)", taskSheetId, taskSheet.Status);
-
-            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            // Phase 9.5: a package-assignment task sheet has no ClientOrder — there's no
+            // order-level "Completed" status to check, and the client is resolved from
+            // the Assignment instead.
+            string notifyClientId;
+            if (!string.IsNullOrEmpty(taskSheet.AssignmentId))
             {
-                _logger.LogWarning("SubmitTaskSheet blocked - Order {OrderId} is completed (status: '{Status}')",
-                    taskSheet.OrderId, order.ClientOrderStatus);
-                throw new InvalidOperationException("This order has been completed. Task sheets can no longer be submitted.");
+                var assignment = await _dbContext.Assignments
+                    .FirstOrDefaultAsync(a => a.Id.ToString() == taskSheet.AssignmentId)
+                    ?? throw new KeyNotFoundException($"Assignment '{taskSheet.AssignmentId}' not found.");
+                notifyClientId = assignment.ClientId;
+            }
+            else
+            {
+                var order = await GetOrderOrThrow(taskSheet.OrderId);
+                _logger.LogInformation("SubmitTaskSheet - Order {OrderId} has ClientOrderStatus: '{Status}', TaskSheet {TaskSheetId} has Status: '{SheetStatus}'",
+                    taskSheet.OrderId, order.ClientOrderStatus ?? "(null)", taskSheetId, taskSheet.Status);
+
+                if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("SubmitTaskSheet blocked - Order {OrderId} is completed (status: '{Status}')",
+                        taskSheet.OrderId, order.ClientOrderStatus);
+                    throw new InvalidOperationException("This order has been completed. Task sheets can no longer be submitted.");
+                }
+
+                notifyClientId = order.ClientId;
             }
 
             // Verify ownership
@@ -442,8 +584,12 @@ namespace Infrastructure.Content.Services
             taskSheet.SubmittedAt = DateTime.UtcNow;
             taskSheet.UpdatedAt = DateTime.UtcNow;
 
-            // Calculate visit duration from check-in to submission
-            taskSheet.VisitDurationMinutes = Math.Round((taskSheet.SubmittedAt.Value - checkin.CheckinTimestamp).TotalMinutes, 1);
+            // Calculate visit duration from check-in to submission. Uses the server-
+            // authoritative ServerReceivedAt (Phase 9.4), not the device-supplied
+            // CheckinTimestamp, since this drives payroll hours (Phase 9.6). Falls back
+            // to CheckinTimestamp only for checkins recorded before Phase 9.4 shipped.
+            var effectiveCheckinTime = checkin.ServerReceivedAt ?? checkin.CheckinTimestamp;
+            taskSheet.VisitDurationMinutes = Math.Round((taskSheet.SubmittedAt.Value - effectiveCheckinTime).TotalMinutes, 1);
 
             _dbContext.TaskSheets.Update(taskSheet);
             await _dbContext.SaveChangesAsync();
@@ -454,7 +600,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == taskSheet.CaregiverId);
-                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == order.ClientId);
+                var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id.ToString() == notifyClientId);
                 var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Your caregiver";
                 var clientName = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "Your client";
                 var durationText = taskSheet.VisitDurationMinutes.HasValue
@@ -463,7 +609,7 @@ namespace Infrastructure.Content.Services
 
                 // Notify client
                 await _mediator.Send(new SendNotificationCommand(
-                    RecipientId: order.ClientId,
+                    RecipientId: notifyClientId,
                     SenderId: taskSheet.CaregiverId,
                     Type: NotificationTypes.VisitSubmitted,
                     Content: $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber}.{durationText} Please review and approve the visit.",
@@ -485,7 +631,7 @@ namespace Infrastructure.Content.Services
                 // Notify caregiver (confirmation)
                 await _mediator.Send(new SendNotificationCommand(
                     RecipientId: taskSheet.CaregiverId,
-                    SenderId: order.ClientId,
+                    SenderId: notifyClientId,
                     Type: NotificationTypes.VisitSubmitted,
                     Content: $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} Waiting for client approval.",
                     Title: "Visit Submitted Successfully",
@@ -509,6 +655,47 @@ namespace Infrastructure.Content.Services
             }
 
             return MapToDTO(taskSheet);
+        }
+
+        /// <summary>
+        /// Phase 9.6 — monthly hours aggregation. Buckets by TaskSheet.ScheduledDate (the
+        /// calendar date the visit was actually for), not SubmittedAt, so a visit worked
+        /// on the last day of a month and submitted the next day still counts toward the
+        /// month it was worked. Only "submitted" sheets have a final VisitDurationMinutes.
+        /// </summary>
+        public async Task<CaregiverMonthlyHoursDTO> GetMonthlyHoursForCaregiverAsync(
+            string caregiverId, int year, int month, string? assignmentId = null)
+        {
+            if (month < 1 || month > 12)
+                throw new ArgumentException("Month must be between 1 and 12.");
+
+            var monthStart = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthEnd = monthStart.AddMonths(1);
+
+            IQueryable<TaskSheet> query = _dbContext.TaskSheets.Where(ts =>
+                ts.CaregiverId == caregiverId
+                && ts.Status == "submitted"
+                && ts.VisitDurationMinutes.HasValue
+                && ts.ScheduledDate.HasValue
+                && ts.ScheduledDate.Value >= monthStart
+                && ts.ScheduledDate.Value < monthEnd);
+
+            if (!string.IsNullOrEmpty(assignmentId))
+                query = query.Where(ts => ts.AssignmentId == assignmentId);
+
+            var sheets = await query.ToListAsync();
+            var totalMinutes = sheets.Sum(ts => ts.VisitDurationMinutes!.Value);
+
+            return new CaregiverMonthlyHoursDTO
+            {
+                CaregiverId = caregiverId,
+                AssignmentId = assignmentId,
+                Year = year,
+                Month = month,
+                TotalMinutes = Math.Round(totalMinutes, 1),
+                TotalHours = Math.Round(totalMinutes / 60.0, 2),
+                TaskSheetCount = sheets.Count
+            };
         }
 
         // ── Private helpers ──
@@ -563,6 +750,8 @@ namespace Infrastructure.Content.Services
             {
                 Id = entity.Id.ToString(),
                 OrderId = entity.OrderId,
+                AssignmentId = entity.AssignmentId,
+                PackageRequestId = entity.PackageRequestId,
                 CaregiverId = entity.CaregiverId,
                 SheetNumber = entity.SheetNumber,
                 BillingCycleNumber = entity.BillingCycleNumber,

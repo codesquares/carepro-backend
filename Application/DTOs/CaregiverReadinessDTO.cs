@@ -14,6 +14,11 @@ namespace Application.DTOs
         public bool IsIdentityVerified { get; set; }
         public bool HasActiveGig { get; set; }
         public bool AssessmentPassed { get; set; }
+
+        // ── Phase 2 vetting gates ──
+        public bool HasTwoConfirmedGuarantors { get; set; }
+        public bool AddressHistoryComplete { get; set; }
+        public bool CaregiverTypeSet { get; set; }
     }
 
     public static class CaregiverReadinessReasons
@@ -22,5 +27,10 @@ namespace Application.DTOs
         public const string AssessmentNotPassed = "assessment_not_passed";
         public const string NoActiveGig = "no_active_gig";
         public const string CertificateMissing = "certificate_missing";
+
+        // ── Phase 2 vetting gates ──
+        public const string GuarantorsIncomplete = "guarantors_incomplete";
+        public const string AddressHistoryIncomplete = "address_history_incomplete";
+        public const string CaregiverTypeNotSet = "caregiver_type_not_set";
     }
 }

@@ -1,18 +1,16 @@
-﻿using Application.Commands;
+using Application.Commands;
 using Application.DTOs;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using MediatR;
-using Microsoft.Build.Framework;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
@@ -20,15 +18,15 @@ namespace Infrastructure.Content.Services
     public class ReviewService : IReviewService
     {
         private readonly CareProDbContext careProDbContext;
-        private readonly IGigServices gigServices;
+        private readonly ICareGiverService careGiverService;
         private readonly IClientService clientService;
         private readonly IMediator _mediator;
         private readonly ILogger<ReviewService> logger;
 
-        public ReviewService(CareProDbContext careProDbContext, IGigServices gigServices, IClientService clientService, IMediator mediator, ILogger<ReviewService> logger)
+        public ReviewService(CareProDbContext careProDbContext, ICareGiverService careGiverService, IClientService clientService, IMediator mediator, ILogger<ReviewService> logger)
         {
             this.careProDbContext = careProDbContext;
-            this.gigServices = gigServices;
+            this.careGiverService = careGiverService;
             this.clientService = clientService;
             _mediator = mediator;
             this.logger = logger;
@@ -38,12 +36,12 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                /// CONVERT DTO TO DOMAIN OBJECT            
+                /// CONVERT DTO TO DOMAIN OBJECT
                 var review = new Review
                 {
                     ClientId = addReviewRequest.ClientId,
                     CaregiverId = addReviewRequest.CaregiverId,
-                    GigId = addReviewRequest.GigId,
+                    AssignmentId = addReviewRequest.AssignmentId,
                     Message = addReviewRequest.Message,
                     Rating = addReviewRequest.Rating,
 
@@ -81,32 +79,16 @@ namespace Infrastructure.Content.Services
 
         }
 
-        public async Task<IEnumerable<ReviewResponse>> GetAllGigReviewAsync(string gigId)
+        public async Task<IEnumerable<ReviewResponse>> GetReviewsByAssignmentAsync(string assignmentId)
         {
             try
             {
                 var reviews = await careProDbContext.Reviews
-                    .Where(g => g.GigId == gigId)
-                    .OrderByDescending(n => n.ReviewedOn)
+                    .Where(r => r.AssignmentId == assignmentId)
+                    .OrderByDescending(r => r.ReviewedOn)
                     .ToListAsync();
 
                 var reviewsDTO = new List<ReviewResponse>();
-
-                GigDTO? gig;
-                try
-                {
-                    gig = await gigServices.GetGigAsync(gigId);
-                }
-                catch (KeyNotFoundException)
-                {
-                    // Gig was soft-deleted — return empty reviews rather than crashing
-                    return reviewsDTO;
-                }
-                if (gig == null)
-                {
-                    return reviewsDTO;
-                }
-
 
                 foreach (var review in reviews)
                 {
@@ -116,34 +98,34 @@ namespace Infrastructure.Content.Services
                         throw new KeyNotFoundException($"Client with ID:{review.ClientId} Not found");
                     }
 
+                    CaregiverResponse? caregiver;
+                    try { caregiver = await careGiverService.GetCaregiverUserAsync(review.CaregiverId); }
+                    catch (KeyNotFoundException) { caregiver = null; }
 
-                    var reviewDTO = new ReviewResponse()
+                    reviewsDTO.Add(new ReviewResponse
                     {
                         ReviewId = review.ReviewId.ToString(),
                         ClientId = review.ClientId,
                         ClientName = client.FirstName + " " + client.LastName,
                         CaregiverId = review.CaregiverId,
-                        CaregiverName = gig.CaregiverName,
-                        GigId = review.GigId,
+                        CaregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : string.Empty,
+                        AssignmentId = review.AssignmentId,
                         Message = review.Message,
                         Rating = review.Rating,
                         ReviewedOn = review.ReviewedOn,
-                    };
-
-
-                    reviewsDTO.Add(reviewDTO);
+                    });
                 }
 
                 return reviewsDTO;
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error retrieving reviews for Gig {GigId}", gigId);
+                logger.LogError(ex, "Error retrieving reviews for Assignment {AssignmentId}", assignmentId);
                 throw;
             }
         }
 
-        public async Task<ReviewResponse> GetGigReviewAsync(string reviewId)
+        public async Task<ReviewResponse> GetReviewAsync(string reviewId)
         {
             var review = await careProDbContext.Reviews.FirstOrDefaultAsync(x => x.ReviewId.ToString() == reviewId);
 
@@ -158,32 +140,30 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Client with ID:{review.ClientId} Not found");
             }
 
-            var gig = await gigServices.GetGigAsync(review.GigId);
-            if (gig == null)
+            var caregiver = await careGiverService.GetCaregiverUserAsync(review.CaregiverId);
+            if (caregiver == null)
             {
-                throw new KeyNotFoundException($"Gig with ID:{review.GigId} Not found");
+                throw new KeyNotFoundException($"Caregiver with ID:{review.CaregiverId} Not found");
             }
 
-            var reviewDTO = new ReviewResponse()
+            return new ReviewResponse
             {
                 ReviewId = review.ReviewId.ToString(),
                 ClientId = review.ClientId,
                 ClientName = client.FirstName + " " + client.LastName,
                 CaregiverId = review.CaregiverId,
-                CaregiverName = gig.CaregiverName,
-                GigId = review.GigId,
+                CaregiverName = $"{caregiver.FirstName} {caregiver.LastName}",
+                AssignmentId = review.AssignmentId,
                 Message = review.Message,
                 Rating = review.Rating,
                 ReviewedOn = review.ReviewedOn,
             };
-
-            return reviewDTO;
         }
 
-        public async Task<int> GetReviewCountAsync(string gigId)
+        public async Task<int> GetReviewCountAsync(string assignmentId)
         {
             return await careProDbContext.Reviews
-                   .CountAsync(g => g.GigId == gigId);
+                   .CountAsync(r => r.AssignmentId == assignmentId);
         }
 
         public async Task<IEnumerable<ReviewResponse>> GetCaregiverReviewsAsync(string caregiverId)
@@ -196,19 +176,14 @@ namespace Infrastructure.Content.Services
                     .ToListAsync();
 
                 var result = new List<ReviewResponse>();
-                var gigCache = new Dictionary<string, GigDTO?>();
+                CaregiverResponse? caregiver;
+                try { caregiver = await careGiverService.GetCaregiverUserAsync(caregiverId); }
+                catch (KeyNotFoundException) { caregiver = null; }
 
                 foreach (var review in reviews)
                 {
                     var client = await clientService.GetClientUserAsync(review.ClientId);
                     if (client == null) continue;
-
-                    if (!gigCache.TryGetValue(review.GigId, out var gig))
-                    {
-                        try { gig = await gigServices.GetGigAsync(review.GigId); }
-                        catch (KeyNotFoundException) { gig = null; }
-                        gigCache[review.GigId] = gig;
-                    }
 
                     result.Add(new ReviewResponse
                     {
@@ -216,8 +191,8 @@ namespace Infrastructure.Content.Services
                         ClientId = review.ClientId,
                         ClientName = client.FirstName + " " + client.LastName,
                         CaregiverId = review.CaregiverId,
-                        CaregiverName = gig?.CaregiverName ?? string.Empty,
-                        GigId = review.GigId,
+                        CaregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : string.Empty,
+                        AssignmentId = review.AssignmentId,
                         Message = review.Message,
                         Rating = review.Rating,
                         ReviewedOn = review.ReviewedOn,

@@ -49,6 +49,13 @@ namespace Application.DTOs
         /// Brief summary of the resolution outcome.
         /// </summary>
         public string ResolutionSummary { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Required when <see cref="ResolutionAction"/> is "PartialRefund" — the exact amount
+        /// the admin decided to refund. Must be &gt; 0 and ≤ the original order amount.
+        /// Ignored for "FullRefund" (the full order amount is used) and every other action.
+        /// </summary>
+        public decimal? RefundAmount { get; set; }
     }
 
     // ── Response DTO ──
@@ -77,6 +84,10 @@ namespace Application.DTOs
         public string? ResolvedBy { get; set; }
         public string? ResolvedByName { get; set; }
         public DateTime? ResolvedAt { get; set; }
+
+        // Phase 7.2 — actual refund execution
+        public decimal? RefundAmount { get; set; }
+        public DateTime? RefundExecutedAt { get; set; }
 
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
