@@ -217,6 +217,34 @@ namespace Application.DTOs
         public DateTime? AcceptedAt { get; set; }
     }
 
+    /// <summary>
+    /// The caregiver's own view of an assignment — used for both the "My Assignments"
+    /// list and its detail view. Enriched the same way <see cref="AcceptedAssignmentDTO"/>
+    /// is for the admin picker (client name, package category/tier, pay type), but scoped
+    /// to what's appropriate to share with the caregiver rather than staff.
+    ///
+    /// Deliberately has no "Schedule" field: neither <c>Contract.Schedule</c> nor any other
+    /// record holds an advance day-of-week schedule for a package-model assignment today —
+    /// <c>PackageContractService</c> always writes an empty Schedule list for these. What
+    /// visit-time data does exist lives on individual <c>TaskSheet</c> rows, created one at
+    /// a time by the caregiver — see <c>GET /api/caregiver/assignments/{id}/visits</c>.
+    /// </summary>
+    public class CaregiverAssignmentDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string PackageRequestId { get; set; } = string.Empty;
+        public string ClientId { get; set; } = string.Empty;
+        public string ClientName { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string PackageCategory { get; set; } = string.Empty;
+        public string PackageTierLabel { get; set; } = string.Empty;
+        /// <summary>"Hourly" | "Fixed" — informational context, not shown as an amount.</summary>
+        public string PayCalculationType { get; set; } = string.Empty;
+        public DateTime AssignedAt { get; set; }
+        public DateTime? RespondedAt { get; set; }
+        public string? DeclineReason { get; set; }
+    }
+
     public class AssignmentActionResult
     {
         public bool Success { get; set; }

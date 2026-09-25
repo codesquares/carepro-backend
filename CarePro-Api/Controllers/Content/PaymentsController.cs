@@ -39,30 +39,30 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Initiates a secure payment. All pricing is calculated server-side.
+        /// RETIRED. This used to start a direct client-to-caregiver gig purchase (client picks a named
+        /// caregiver, pays, and a legacy ClientOrder is created with that caregiver and their wallet is
+        /// credited — no assignment step). Care is now sold as packages and the caregiver is assigned
+        /// internally, so a client must never be able to buy a gig directly. Rejected for every caller,
+        /// unconditionally; there is deliberately no flag or special-gig exception (no code path creates
+        /// special gigs any more).
+        ///
+        /// The webhook below is intentionally untouched so a payment link issued before this block
+        /// shipped can still complete. Recurring subscription charges do not go through this endpoint.
         /// </summary>
         [HttpPost("initiate")]
         [Authorize]
-        public async Task<IActionResult> InitiatePayment([FromBody] InitiatePaymentRequest request)
+        public IActionResult InitiatePayment([FromBody] InitiatePaymentRequest request)
         {
-            // Get client ID from the authenticated user
-            var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                ?? User.FindFirst("sub")?.Value
-                ?? User.FindFirst("userId")?.Value;
+            _logger.LogWarning(
+                "Blocked retired direct gig-purchase initiation. UserId: {UserId}, GigId: {GigId}",
+                User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value,
+                request?.GigId);
 
-            if (string.IsNullOrEmpty(clientId))
+            return StatusCode(StatusCodes.Status403Forbidden, new
             {
-                return Unauthorized(new { success = false, message = "User not authenticated." });
-            }
-
-            var result = await _pendingPaymentService.CreatePendingPaymentAsync(request, clientId);
-
-            if (!result.IsSuccess)
-            {
-                return BadRequest(new { success = false, message = string.Join(", ", result.Errors) });
-            }
-
-            return Ok(result.Value);
+                success = false,
+                message = "Direct gig purchases are no longer available. Please request a care package instead."
+            });
         }
 
         /// <summary>

@@ -30,7 +30,8 @@ namespace Application.Interfaces.Content
         Task<List<AcceptedAssignmentDTO>> GetAcceptedAsync();
 
         // Caregiver
-        Task<List<AssignmentDTO>> GetMyAssignmentsAsync(string caregiverId);
+        Task<List<CaregiverAssignmentDTO>> GetMyAssignmentsAsync(string caregiverId);
+        Task<CaregiverAssignmentDTO> GetMyAssignmentDetailAsync(string assignmentId, string caregiverId);
         Task<AssignmentActionResult> AcceptAsync(string assignmentId, string caregiverId);
         Task<AssignmentActionResult> DeclineAsync(string assignmentId, string caregiverId, string? reason);
     }

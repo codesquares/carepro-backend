@@ -175,7 +175,7 @@ public class Phase9EndToEndPayrollTests
         var today = DateTime.UtcNow.Date;
         using (var db = CreateDb(dbName))
         {
-            var payrollService = new PayrollService(db, CreateTaskSheetService(db), CgWallet(db),
+            var payrollService = new PayrollService(db, CreateTaskSheetService(db), CgWallet(db), Mock.Of<IEarningsLedgerService>(),
                 Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
             var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest

@@ -369,6 +369,26 @@ namespace Infrastructure.Content.Services
             return MapToDTO(taskSheet);
         }
 
+        public async Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId)
+        {
+            if (!ObjectId.TryParse(assignmentId, out var assignmentObjectId))
+                throw new ArgumentException("Invalid assignment ID format.");
+
+            var assignment = await _dbContext.Assignments.FirstOrDefaultAsync(a => a.Id == assignmentObjectId)
+                ?? throw new KeyNotFoundException($"Assignment '{assignmentId}' not found.");
+
+            if (assignment.CaregiverId != caregiverId)
+                throw new UnauthorizedAccessException("This assignment doesn't belong to you.");
+
+            var sheets = await _dbContext.TaskSheets
+                .Where(ts => ts.AssignmentId == assignmentId)
+                .OrderByDescending(ts => ts.ScheduledDate)
+                .ThenByDescending(ts => ts.SheetNumber)
+                .ToListAsync();
+
+            return sheets.Select(MapToDTO).ToList();
+        }
+
         public async Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId)
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);

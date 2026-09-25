@@ -676,6 +676,39 @@ namespace CarePro_Api.Controllers.Content
 
         #endregion
 
+        #region Self Profile
+
+        /// <summary>
+        /// Get the authenticated caregiver's own profile (name, photo, bio, location, availability, intro video, services,
+        /// pending-deletion status) for their dashboard. The caregiver ID is
+        /// always taken from the JWT, never from a route parameter, so a
+        /// caregiver can never fetch another caregiver's data through this
+        /// endpoint. Replaces the removed public GET {caregiverId} route.
+        /// </summary>
+        [HttpGet("me")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> GetMyProfile()
+        {
+            var caregiverId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? User.FindFirst("sub")?.Value
+                              ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(caregiverId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var profile = await careGiverService.GetMyProfileAsync(caregiverId);
+                return Ok(profile);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+        }
+
+        #endregion
+
         #region Account Deletion
 
         /// <summary>

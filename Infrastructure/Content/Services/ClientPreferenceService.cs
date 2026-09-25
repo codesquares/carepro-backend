@@ -136,6 +136,17 @@ namespace Infrastructure.Content.Services
             return clientPreferenceDTO;
         }
 
+        public async Task<string?> GetPreferenceOwnerIdAsync(string preferenceId)
+        {
+            if (!ObjectId.TryParse(preferenceId, out var objectId))
+            {
+                throw new ArgumentException("Invalid Preference ID format.");
+            }
+
+            var preference = await careProDbContext.ClientPreferences.FindAsync(objectId);
+            return preference?.ClientId;
+        }
+
         public async Task<string> UpdateClientPreferenceAsync(string preferenceId, UpdateClientPreferenceRequest updateClientPreferenceRequest)
         {
             logger.LogInformation($"UpdateClientPreferenceAsync called for preferenceId: {preferenceId}");

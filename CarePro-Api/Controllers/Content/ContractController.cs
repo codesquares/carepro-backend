@@ -30,6 +30,9 @@ namespace CarePro_Api.Controllers.Content
                 if (contract == null)
                     return NotFound("Contract not found");
 
+                if (!IsPartyToContractOrAdmin(contract.ClientId, contract.CaregiverId))
+                    return Forbid();
+
                 return Ok(contract);
             }
             catch (Exception ex)
@@ -45,6 +48,9 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                if (!IsSelfOrAdmin(clientId))
+                    return Forbid();
+
                 var contracts = await _contractService.GetContractsByClientIdAsync(clientId);
                 return Ok(contracts);
             }
@@ -60,6 +66,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var existing = await _contractService.GetContractByIdAsync(contractId);
+                if (existing == null)
+                    return NotFound("Contract not found");
+
+                if (!IsPartyToContractOrAdmin(existing.ClientId, existing.CaregiverId))
+                    return Forbid();
+
                 var success = await _contractService.ExpireContractAsync(contractId);
                 if (success)
                     return Ok(new { message = "Contract rescinded successfully" });
@@ -79,6 +92,9 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                if (!IsSelfOrAdmin(userId))
+                    return Forbid();
+
                 var history = await _contractService.GetContractHistoryAsync(userId);
                 return Ok(history);
             }
@@ -94,6 +110,9 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                if (!IsSelfOrAdmin(userId))
+                    return Forbid();
+
                 var stats = await _contractService.GetContractAnalyticsAsync(userId, userType);
                 return Ok(stats);
             }
@@ -110,6 +129,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var existing = await _contractService.GetContractByIdAsync(contractId);
+                if (existing == null)
+                    return NotFound("Contract not found");
+
+                if (!IsPartyToContractOrAdmin(existing.ClientId, existing.CaregiverId))
+                    return Forbid();
+
                 var success = await _contractService.CompleteContractAsync(contractId, completion.Rating);
                 if (success)
                     return Ok(new { message = "Contract completed successfully" });
@@ -128,6 +154,13 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var existing = await _contractService.GetContractByIdAsync(contractId);
+                if (existing == null)
+                    return NotFound("Contract not found");
+
+                if (!IsPartyToContractOrAdmin(existing.ClientId, existing.CaregiverId))
+                    return Forbid();
+
                 var success = await _contractService.TerminateContractAsync(contractId, termination.Reason);
                 if (success)
                     return Ok(new { message = "Contract terminated successfully" });
@@ -158,8 +191,8 @@ namespace CarePro_Api.Controllers.Content
                 if (pdfData == null)
                     return NotFound("Contract not found");
 
-                // Ensure requester is a party to this contract
-                if (pdfData.ClientId != userId && pdfData.CaregiverId != userId)
+                // Ensure requester is a party to this contract, or an admin
+                if (pdfData.ClientId != userId && pdfData.CaregiverId != userId && !IsAdmin())
                     return Forbid();
 
                 var pdfBytes = _pdfService.GeneratePdf(pdfData);
@@ -218,6 +251,29 @@ namespace CarePro_Api.Controllers.Content
         {
             var userIdClaim = User.FindFirst("userId") ?? User.FindFirst("sub") ?? User.FindFirst("id");
             return userIdClaim?.Value;
+        }
+
+        private bool IsAdmin() => User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+
+        /// <summary>
+        /// True if the caller is the given client, the given caregiver, or an admin.
+        /// Used to gate every route in this controller keyed by a bare contract ID,
+        /// none of which had an ownership check before this fix.
+        /// </summary>
+        private bool IsPartyToContractOrAdmin(string? clientId, string? caregiverId)
+        {
+            var userId = GetUserIdFromToken();
+            return (userId != null && (userId == clientId || userId == caregiverId)) || IsAdmin();
+        }
+
+        /// <summary>
+        /// True if the caller's own ID matches the target user ID, or the caller is an admin.
+        /// Used for routes keyed by a bare client/user ID (client/{clientId}, history/{userId}, stats/{userId}).
+        /// </summary>
+        private bool IsSelfOrAdmin(string targetUserId)
+        {
+            var userId = GetUserIdFromToken();
+            return userId == targetUserId || IsAdmin();
         }
     }
 

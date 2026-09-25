@@ -320,12 +320,70 @@ namespace Infrastructure.Content.Services
 
         // ─────────────────────────────── Caregiver ───────────────────────────────
 
-        public async Task<List<AssignmentDTO>> GetMyAssignmentsAsync(string caregiverId)
+        public async Task<List<CaregiverAssignmentDTO>> GetMyAssignmentsAsync(string caregiverId)
         {
             var items = await _db.Assignments
                 .Where(a => a.CaregiverId == caregiverId)
+                .OrderByDescending(a => a.AssignedAt)
                 .ToListAsync();
-            return items.OrderByDescending(a => a.AssignedAt).Select(Map).ToList();
+            return await BuildCaregiverAssignmentDtosAsync(items);
+        }
+
+        public async Task<CaregiverAssignmentDTO> GetMyAssignmentDetailAsync(string assignmentId, string caregiverId)
+        {
+            var assignment = await LoadOwnedAssignmentAsync(assignmentId, caregiverId);
+            var dtos = await BuildCaregiverAssignmentDtosAsync(new List<Assignment> { assignment });
+            return dtos[0];
+        }
+
+        /// <summary>
+        /// Enriches a batch of Assignments with client name and package category/tier/pay-type —
+        /// the same join pattern <see cref="GetAcceptedAsync"/> uses for the admin picker, scoped
+        /// to whichever assignments the caller passes in (one for detail, many for the list).
+        /// </summary>
+        private async Task<List<CaregiverAssignmentDTO>> BuildCaregiverAssignmentDtosAsync(List<Assignment> items)
+        {
+            if (items.Count == 0) return new List<CaregiverAssignmentDTO>();
+
+            var clientOids = items
+                .Select(a => ObjectId.TryParse(a.ClientId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var clients = await _db.Clients.Where(c => clientOids.Contains(c.Id)).ToListAsync();
+            var clientName = clients.ToDictionary(
+                c => c.Id.ToString(), c => $"{c.FirstName} {c.LastName}".Trim());
+
+            var requestOids = items
+                .Select(a => ObjectId.TryParse(a.PackageRequestId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var requests = await _db.PackageRequests.Where(p => requestOids.Contains(p.Id)).ToListAsync();
+            var requestById = requests.ToDictionary(p => p.Id.ToString());
+
+            var packageOids = requests
+                .Select(r => ObjectId.TryParse(r.PackageId, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var packages = await _db.Packages.Where(p => packageOids.Contains(p.Id)).ToListAsync();
+            var packageById = packages.ToDictionary(p => p.Id.ToString());
+
+            return items.Select(a =>
+            {
+                requestById.TryGetValue(a.PackageRequestId, out var req);
+                Domain.Entities.Package? pkg = null;
+                if (req != null) packageById.TryGetValue(req.PackageId, out pkg);
+                return new CaregiverAssignmentDTO
+                {
+                    Id = a.Id.ToString(),
+                    PackageRequestId = a.PackageRequestId,
+                    ClientId = a.ClientId,
+                    ClientName = clientName.GetValueOrDefault(a.ClientId, "(unknown)"),
+                    Status = a.Status,
+                    PackageCategory = req?.PackageCategory ?? string.Empty,
+                    PackageTierLabel = req?.PackageTierLabel ?? string.Empty,
+                    PayCalculationType = pkg?.PayCalculationType?.ToString() ?? string.Empty,
+                    AssignedAt = a.AssignedAt,
+                    RespondedAt = a.RespondedAt,
+                    DeclineReason = a.DeclineReason,
+                };
+            }).ToList();
         }
 
         public async Task<AssignmentActionResult> AcceptAsync(string assignmentId, string caregiverId)

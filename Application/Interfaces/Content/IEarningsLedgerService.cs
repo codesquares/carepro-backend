@@ -64,5 +64,12 @@ namespace Application.Interfaces.Content
         /// </summary>
         Task RecordOrderCancellationAsync(string caregiverId, decimal amount, string clientOrderId,
             string? subscriptionId, int? billingCycleNumber, string serviceType, string description);
+
+        /// <summary>
+        /// Records a PayrollCredit ledger entry when an admin-approved payroll is credited to
+        /// a caregiver's wallet. Idempotent per payrollId — safe to call even if invoked twice.
+        /// </summary>
+        Task RecordPayrollCreditAsync(string caregiverId, decimal amount, string payrollId,
+            DateTime payPeriod, string description);
     }
 }

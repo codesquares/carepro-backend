@@ -15,6 +15,9 @@ namespace Application.Interfaces.Content
 
         Task<string> UpdateClientPreferenceAsync(string preferenceId, UpdateClientPreferenceRequest updateClientPreferenceRequest);
 
+        /// <summary>Owning client id of a preference record, or null if there is no such record. Throws ArgumentException for a malformed id. Used to authorize writes by record id.</summary>
+        Task<string?> GetPreferenceOwnerIdAsync(string preferenceId);
+
         // Notification Preferences Methods
         Task<NotificationPreferencesDTO> GetNotificationPreferencesAsync(string clientId);
 

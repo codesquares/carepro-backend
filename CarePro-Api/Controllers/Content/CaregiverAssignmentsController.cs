@@ -20,13 +20,19 @@ namespace CarePro_Api.Controllers.Content
     public class CaregiverAssignmentsController : ControllerBase
     {
         private readonly IAssignmentService _assignmentService;
+        private readonly IPackageContractService _contractService;
+        private readonly ITaskSheetService _taskSheetService;
         private readonly ILogger<CaregiverAssignmentsController> _logger;
 
         public CaregiverAssignmentsController(
             IAssignmentService assignmentService,
+            IPackageContractService contractService,
+            ITaskSheetService taskSheetService,
             ILogger<CaregiverAssignmentsController> logger)
         {
             _assignmentService = assignmentService;
+            _contractService = contractService;
+            _taskSheetService = taskSheetService;
             _logger = logger;
         }
 
@@ -66,6 +72,89 @@ namespace CarePro_Api.Controllers.Content
                 return Ok(new { success = true, data = items, count = items.Count });
             }
             catch (Exception ex) { return HandleException(ex, "GetMine"); }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetDetail(string id)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                var dto = await _assignmentService.GetMyAssignmentDetailAsync(id, caregiverId);
+                return Ok(new { success = true, data = dto });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAssignmentDetail"); }
+        }
+
+        /// <summary>
+        /// The care agreement generated for this assignment's package request. Reuses the
+        /// exact same lookup (<see cref="IPackageContractService.GetByPackageRequestAsync"/>)
+        /// the client-facing <c>PackageRequestsController</c> route already uses — no
+        /// duplicated contract logic. Ownership is enforced by loading the assignment through
+        /// <see cref="IAssignmentService.GetMyAssignmentDetailAsync"/> first, which throws
+        /// unless the caller is the caregiver assigned to it.
+        /// </summary>
+        [HttpGet("{id}/contract")]
+        public async Task<IActionResult> GetContract(string id)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                var assignment = await _assignmentService.GetMyAssignmentDetailAsync(id, caregiverId);
+
+                var contract = await _contractService.GetByPackageRequestAsync(assignment.PackageRequestId);
+                if (contract == null)
+                    return NotFound(new { message = "No contract has been generated for this assignment yet." });
+
+                return Ok(new { success = true, data = contract });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAssignmentContract"); }
+        }
+
+        [HttpGet("{id}/contract/pdf")]
+        public async Task<IActionResult> GetContractPdf(string id)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                var assignment = await _assignmentService.GetMyAssignmentDetailAsync(id, caregiverId);
+
+                var contract = await _contractService.GetByPackageRequestAsync(assignment.PackageRequestId);
+                if (contract == null)
+                    return NotFound(new { message = "No contract has been generated for this assignment yet." });
+
+                var pdf = await _contractService.GeneratePdfAsync(contract.Id);
+                return File(pdf, "application/pdf", $"CarePro-Agreement-{contract.Id}.pdf");
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAssignmentContractPdf"); }
+        }
+
+        /// <summary>
+        /// TaskSheets for this assignment, most recent first — includes each visit's
+        /// ScheduledDate/StartTime/EndTime alongside its current status. Note: the package
+        /// model has no advance-scheduling mechanism today (see CaregiverAssignmentDTO's
+        /// doc comment) — a caregiver creates each day's TaskSheet themselves via
+        /// POST .../task-sheets/for-assignment/{id}, so this reflects today's-and-past
+        /// visits, not a forward-looking calendar, until that changes.
+        /// </summary>
+        [HttpGet("{id}/visits")]
+        public async Task<IActionResult> GetVisits(string id)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                var visits = await _taskSheetService.GetVisitsForAssignmentAsync(id, caregiverId);
+                return Ok(new { success = true, data = visits, count = visits.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAssignmentVisits"); }
         }
 
         [HttpPost("{id}/accept")]

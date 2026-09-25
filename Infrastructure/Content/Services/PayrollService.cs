@@ -26,6 +26,7 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _context;
         private readonly ITaskSheetService _taskSheetService;
         private readonly ICaregiverWalletService _walletService;
+        private readonly IEarningsLedgerService _ledgerService;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
         private readonly ILogger<PayrollService> _logger;
@@ -34,6 +35,7 @@ namespace Infrastructure.Content.Services
             CareProDbContext context,
             ITaskSheetService taskSheetService,
             ICaregiverWalletService walletService,
+            IEarningsLedgerService ledgerService,
             IMediator mediator,
             IEmailService emailService,
             ILogger<PayrollService> logger)
@@ -41,6 +43,7 @@ namespace Infrastructure.Content.Services
             _context = context;
             _taskSheetService = taskSheetService;
             _walletService = walletService;
+            _ledgerService = ledgerService;
             _mediator = mediator;
             _emailService = emailService;
             _logger = logger;
@@ -210,6 +213,17 @@ namespace Infrastructure.Content.Services
             // ceremony the way order-based earnings need one — so credit WithdrawableBalance
             // directly, the same mechanism used for recurring subscription payments.
             await _walletService.CreditRecurringPaymentAsync(entity.CaregiverId, entity.FinalAmount);
+
+            // Every other wallet credit in this app (order-received, funds-released,
+            // visit-approved, ...) is paired with a ledger entry so the caregiver's
+            // transaction history explains where the money came from — payroll was
+            // missing this pairing, so the balance moved with no visible line item.
+            await _ledgerService.RecordPayrollCreditAsync(
+                entity.CaregiverId,
+                entity.FinalAmount,
+                entity.Id.ToString(),
+                entity.PayPeriod,
+                $"Payroll approved for {entity.PayPeriod:MMMM yyyy}");
 
             entity.CreditedToWalletAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();

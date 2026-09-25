@@ -240,6 +240,7 @@ builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 // Contact pattern detection & chat compliance (off-platform leakage prevention)
 builder.Services.AddSingleton<IContactPatternDetector, ContactPatternDetector>();
 builder.Services.AddScoped<IChatComplianceService, ChatComplianceService>();
+builder.Services.AddScoped<IChatAccessService, ChatAccessService>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();

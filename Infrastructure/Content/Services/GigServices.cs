@@ -524,6 +524,21 @@ namespace Infrastructure.Content.Services
         }
 
 
+        public async Task<string?> GetGigOwnerIdAsync(string gigId)
+        {
+            if (!ObjectId.TryParse(gigId, out var objectId))
+            {
+                return null;
+            }
+
+            // IgnoreQueryFilters: a soft-deleted gig must still resolve to its owner so RestoreGig can be authorized.
+            var gig = await careProDbContext.Gigs
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(g => g.Id == objectId);
+
+            return gig?.CaregiverId;
+        }
+
         public async Task<GigDTO> GetGigAsync(string gigId)
         {
 

@@ -790,6 +790,39 @@ namespace Infrastructure.Content.Services
             return caregiverDTO;
         }
 
+        public async Task<CaregiverSelfProfileResponse> GetMyProfileAsync(string caregiverId)
+        {
+            var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == caregiverId);
+
+            if (caregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            return new CaregiverSelfProfileResponse
+            {
+                Id = caregiver.Id.ToString(),
+                FirstName = caregiver.FirstName,
+                LastName = caregiver.LastName,
+                Email = caregiver.Email,
+                ProfileImage = caregiver.ProfileImage,
+                AccountDeletionRequestedAt = caregiver.AccountDeletionRequestedAt,
+                AboutMe = caregiver.AboutMe,
+                Location = caregiver.Location,
+                ServiceCity = caregiver.ServiceCity,
+                ServiceState = caregiver.ServiceState,
+                ServiceAddress = caregiver.ServiceAddress,
+                HomeAddress = caregiver.HomeAddress,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
+                IsAvailable = caregiver.IsAvailable,
+                Status = caregiver.Status,
+                IntroVideo = caregiver.IntroVideo,
+                Services = GetDisplayedServices(caregiver),
+                CreatedAt = caregiver.CreatedAt,
+            };
+        }
+
         public async Task<string> SoftDeleteCaregiverAsync(string caregiverId)
         {
             if (!ObjectId.TryParse(caregiverId, out var objectId))

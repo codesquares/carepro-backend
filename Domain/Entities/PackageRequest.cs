@@ -43,9 +43,15 @@ namespace Domain.Entities
         /// Package-level one — the same Package can be bought either way. Recurring requests get a
         /// corresponding <see cref="PackageSubscription"/> record (created alongside this one, see
         /// PackagePaymentService.CompleteRecurringPackagePaymentAsync); OneTime requests never do.
-        /// Defaults to OneTime so pre-Phase-10 records (and the plain admin-payment path) are unaffected.
+        ///
+        /// Nullable so legacy MongoDB documents from before Phase 10 continue to deserialize (the
+        /// MongoDB EF Core provider rejects missing non-nullable properties — a C# property initializer
+        /// only applies to newly-constructed objects, it does not retroactively populate existing
+        /// documents). Every read site must treat null the same as OneTime, the only option that
+        /// existed before Recurring was introduced. New requests always set this explicitly
+        /// (see PackageRequestService.CreateAsync) — null only ever occurs on pre-Phase-10 records.
         /// </summary>
-        public string BillingType { get; set; } = PackageRequestBillingTypes.OneTime;
+        public string? BillingType { get; set; }
 
         /// <summary>
         /// "pending"   — awaiting assignment

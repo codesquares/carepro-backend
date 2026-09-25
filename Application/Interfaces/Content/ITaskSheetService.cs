@@ -1,4 +1,5 @@
 using Application.DTOs;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Application.Interfaces.Content
@@ -14,6 +15,14 @@ namespace Application.Interfaces.Content
         /// by an Accepted Assignment and its Generated Contract.
         /// </summary>
         Task<TaskSheetDTO> CreateTaskSheetForAssignmentAsync(string assignmentId, string caregiverId);
+
+        /// <summary>
+        /// TaskSheets for one package assignment, newest first, ownership-checked against
+        /// the caller. Surfaces each visit's ScheduledDate/StartTime/EndTime so a caregiver
+        /// can see visit-day info for existing sheets — not a forward-looking calendar, since
+        /// package-model sheets are created one at a time by the caregiver, not pre-scheduled.
+        /// </summary>
+        Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId);
 
         /// <summary>
         /// Sums VisitDurationMinutes across a caregiver's submitted task sheets for a

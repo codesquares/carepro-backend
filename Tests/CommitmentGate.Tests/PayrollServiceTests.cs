@@ -41,7 +41,7 @@ public class PayrollServiceTests
 
     private static PayrollService CreateService(CareProDbContext db, ITaskSheetService? taskSheetService = null,
         IMediator? mediator = null, IEmailService? emailService = null)
-        => new(db, taskSheetService ?? HoursStub(db), CreateWalletService(db),
+        => new(db, taskSheetService ?? HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(),
             mediator ?? Mock.Of<IMediator>(), emailService ?? Mock.Of<IEmailService>(),
             Mock.Of<ILogger<PayrollService>>());
 
@@ -63,6 +63,7 @@ public class PayrollServiceTests
         public System.Threading.Tasks.Task<TaskSheetListResponse> GetTaskSheetsByOrderAsync(string orderId, int? billingCycleNumber, string caregiverId, bool isAdmin) => _real.GetTaskSheetsByOrderAsync(orderId, billingCycleNumber, caregiverId, isAdmin);
         public System.Threading.Tasks.Task<TaskSheetDTO> CreateTaskSheetAsync(string orderId, string caregiverId) => _real.CreateTaskSheetAsync(orderId, caregiverId);
         public System.Threading.Tasks.Task<TaskSheetDTO> CreateTaskSheetForAssignmentAsync(string assignmentId, string caregiverId) => _real.CreateTaskSheetForAssignmentAsync(assignmentId, caregiverId);
+        public System.Threading.Tasks.Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId) => _real.GetVisitsForAssignmentAsync(assignmentId, caregiverId);
         public System.Threading.Tasks.Task<CaregiverMonthlyHoursDTO> GetMonthlyHoursForCaregiverAsync(string caregiverId, int year, int month, string? assignmentId = null) => _real.GetMonthlyHoursForCaregiverAsync(caregiverId, year, month, assignmentId);
         public System.Threading.Tasks.Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId) => _real.UpdateTaskSheetAsync(taskSheetId, request, caregiverId);
         public System.Threading.Tasks.Task<TaskSheetDTO> SubmitTaskSheetAsync(string taskSheetId, SubmitTaskSheetRequest request, string caregiverId) => _real.SubmitTaskSheetAsync(taskSheetId, request, caregiverId);
@@ -315,7 +316,7 @@ public class PayrollServiceTests
         var payroll = await CreateService(db).CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
 
         var walletService = CreateWalletService(db);
-        var payrollService = new PayrollService(db, HoursStub(db), walletService, Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
+        var payrollService = new PayrollService(db, HoursStub(db), walletService, Mock.Of<IEarningsLedgerService>(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
         var approved = await payrollService.ApprovePayrollAsync(payroll.Id, new ApprovePayrollRequest(), "admin1", "admin@carepro.example");
 
@@ -343,7 +344,7 @@ public class PayrollServiceTests
         var (assignmentId, _, _) = SeedAssignmentForPackage(db, FixedPackage(300000), CaregiverType.AuxiliaryNurse, ExperienceTier.Mid);
         var payroll = await CreateService(db).CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
 
-        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
+        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
         // Override without a reason is rejected.
         await Assert.ThrowsAsync<ArgumentException>(() => payrollService.ApprovePayrollAsync(
@@ -375,7 +376,7 @@ public class PayrollServiceTests
 
         var mediator = new Mock<IMediator>();
         var email = new Mock<IEmailService>();
-        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db),
+        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(),
             mediator.Object, email.Object, Mock.Of<ILogger<PayrollService>>());
 
         var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
@@ -413,7 +414,7 @@ public class PayrollServiceTests
         mediator.Setup(m => m.Send(It.IsAny<SendNotificationCommand>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("notification bus down"));
         var walletService = CreateWalletService(db);
-        var payrollService = new PayrollService(db, HoursStub(db), walletService,
+        var payrollService = new PayrollService(db, HoursStub(db), walletService, Mock.Of<IEarningsLedgerService>(),
             mediator.Object, Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
         var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
@@ -430,7 +431,7 @@ public class PayrollServiceTests
     {
         using var db = CreateDb(NewDbName());
         var (assignmentId, _, _) = SeedAssignmentForPackage(db, FixedPackage(100000), CaregiverType.AuxiliaryNurse, ExperienceTier.Mid);
-        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
+        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
 
         var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
         await payrollService.ApprovePayrollAsync(payroll.Id, new ApprovePayrollRequest(), "admin1", "admin@carepro.example");
@@ -446,7 +447,7 @@ public class PayrollServiceTests
     {
         using var db = CreateDb(NewDbName());
         var (assignmentId, _, _) = SeedAssignmentForPackage(db, FixedPackage(100000), CaregiverType.AuxiliaryNurse, ExperienceTier.Mid);
-        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
+        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
         var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => payrollService.MarkPayrollPaidAsync(payroll.Id));
@@ -463,7 +464,7 @@ public class PayrollServiceTests
     {
         using var db = CreateDb(NewDbName());
         var (assignmentId, _, _) = SeedAssignmentForPackage(db, FixedPackage(100000), CaregiverType.AuxiliaryNurse, ExperienceTier.Mid);
-        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
+        var payrollService = new PayrollService(db, HoursStub(db), CreateWalletService(db), Mock.Of<IEarningsLedgerService>(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(), Mock.Of<ILogger<PayrollService>>());
         var payroll = await payrollService.CreatePayrollAsync(new CreatePayrollRequest { AssignmentId = assignmentId, Year = 2026, Month = 3 });
 
         await payrollService.ApprovePayrollAsync(payroll.Id, new ApprovePayrollRequest(), "admin1", "admin@carepro.example");

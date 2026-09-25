@@ -321,5 +321,45 @@ namespace Infrastructure.Content.Services
             _logger.LogInformation("Ledger: OrderCancelled for caregiver {CaregiverId}, amount -{Amount}, order {OrderId}",
                 caregiverId, amount, clientOrderId);
         }
+
+        public async Task RecordPayrollCreditAsync(string caregiverId, decimal amount, string payrollId,
+            DateTime payPeriod, string description)
+        {
+            ValidateInput(caregiverId, amount);
+
+            if (string.IsNullOrWhiteSpace(payrollId))
+                throw new ArgumentException("PayrollId cannot be null or empty.");
+
+            // Idempotency: prevent double-credit if this is ever called twice for the same payroll
+            var alreadyCredited = await _dbContext.EarningsLedger
+                .AnyAsync(e => e.PayrollId == payrollId && e.Type == LedgerEntryType.PayrollCredit);
+            if (alreadyCredited)
+            {
+                _logger.LogWarning(
+                    "SECURITY: Duplicate PayrollCredit attempt for PayrollId {PayrollId}, CaregiverId {CaregiverId}. Blocked.",
+                    payrollId, caregiverId);
+                return;
+            }
+
+            var wallet = await _walletService.GetOrCreateWalletAsync(caregiverId);
+
+            var entry = new EarningsLedger
+            {
+                Id = ObjectId.GenerateNewId().ToString(),
+                CaregiverId = caregiverId,
+                Type = LedgerEntryType.PayrollCredit,
+                Amount = amount,
+                PayrollId = payrollId,
+                Description = description,
+                BalanceAfter = wallet.WithdrawableBalance,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.EarningsLedger.Add(entry);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Ledger: PayrollCredit for caregiver {CaregiverId}, payroll {PayrollId}, pay period {PayPeriod:yyyy-MM}, amount {Amount}",
+                caregiverId, payrollId, payPeriod, amount);
+        }
     }
 }

@@ -129,7 +129,7 @@ namespace Infrastructure.Content.Services
                 Location = e.Location,
                 Budget = e.Budget,
                 Status = e.Status,
-                BillingType = e.BillingType,
+                BillingType = e.BillingType ?? PackageRequestBillingTypes.OneTime,
                 CreatedAt = e.CreatedAt,
             }).ToList();
         }
@@ -172,7 +172,7 @@ namespace Infrastructure.Content.Services
                 Budget = e.Budget,
                 Notes = e.Notes,
                 Status = e.Status,
-                BillingType = e.BillingType,
+                BillingType = e.BillingType ?? PackageRequestBillingTypes.OneTime,
                 ConfirmedCaregiver = confirmed,
                 CreatedAt = e.CreatedAt,
             };

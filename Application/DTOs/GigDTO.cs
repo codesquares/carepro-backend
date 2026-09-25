@@ -24,10 +24,17 @@ namespace Application.DTOs
         public int Price { get; set; }
         public string? Image1 { get; set; }
 
+        // VideoURL is the caregiver's intro video and CaregiverId identifies them; like CaregiverName below,
+        // GET /Gigs/{id} omits both (and the professional-history arrays) for anyone but the owner/admin.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? VideoURL { get; set; }
         public string Status { get; set; }
 
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string CaregiverId { get; set; }
+        // Omitted from the JSON (not just null) unless the controller deliberately populates it for the
+        // owning caregiver/admin — clients must not see who is behind a gig.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string CaregiverName { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedOn { get; set; }
@@ -48,8 +55,11 @@ namespace Application.DTOs
         // ── Public Professional Profile Enrichment ──
         // Always returned as arrays — never null. Empty array if the caregiver
         // has not submitted any records.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public List<CaregiverEducationResponse> CaregiverEducation { get; set; } = new();
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public List<CaregiverQualificationResponse> CaregiverCertifications { get; set; } = new();
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public List<CaregiverWorkExperienceResponse> CaregiverWorkExperience { get; set; } = new();
 
     }
