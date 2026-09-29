@@ -230,6 +230,79 @@ public class PackageAssignmentCheckinAndTaskSheetTests
         }, otherCaregiverId));
     }
 
+    // ───────────────────── GPS proximity: flag for review, never block ─────────────────────
+
+    [Fact]
+    public async Task Checkin_ClientVerifiedGps_FarAway_SucceedsAndFlagsForReview_DoesNotThrow()
+    {
+        var dbName = NewDbName();
+        var caregiverId = ObjectId.GenerateNewId().ToString();
+        var clientId = ObjectId.GenerateNewId().ToString();
+        using var db = CreateDb(dbName);
+        var (assignmentId, packageRequestId) = SeedAcceptedAssignmentAndContract(db, caregiverId, clientId);
+
+        var contract = await db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+        // Lagos-ish coordinates, real client-set GPS.
+        contract.ServiceLatitude = 6.5244;
+        contract.ServiceLongitude = 3.3792;
+        contract.ServiceLocationSetByClient = true;
+        db.Contracts.Update(contract);
+        await db.SaveChangesAsync();
+
+        var taskSheet = await CreateTaskSheetService(db).CreateTaskSheetForAssignmentAsync(assignmentId, caregiverId);
+
+        // ~30km away — well past both the legacy 1500m hard-limit and the 3000m flag threshold.
+        var response = await CreateCheckinService(db).CheckinAsync(new VisitCheckinRequest
+        {
+            TaskSheetId = taskSheet.Id,
+            OrderId = null,
+            Latitude = 6.7,
+            Longitude = 3.5,
+            Accuracy = 15,
+            CheckinTimestamp = DateTime.UtcNow
+        }, caregiverId);
+
+        Assert.True(response.Success);
+        Assert.True(response.IsFlaggedForDistanceReview);
+        Assert.True(response.DistanceFromServiceAddress > 3000);
+
+        var raw = await db.VisitCheckins.FirstAsync(c => c.TaskSheetId == taskSheet.Id);
+        Assert.True(raw.IsFlaggedForDistanceReview);
+    }
+
+    [Fact]
+    public async Task Checkin_ClientVerifiedGps_WithinFlagThreshold_SucceedsNotFlagged()
+    {
+        var dbName = NewDbName();
+        var caregiverId = ObjectId.GenerateNewId().ToString();
+        var clientId = ObjectId.GenerateNewId().ToString();
+        using var db = CreateDb(dbName);
+        var (assignmentId, packageRequestId) = SeedAcceptedAssignmentAndContract(db, caregiverId, clientId);
+
+        var contract = await db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+        contract.ServiceLatitude = 6.5244;
+        contract.ServiceLongitude = 3.3792;
+        contract.ServiceLocationSetByClient = true;
+        db.Contracts.Update(contract);
+        await db.SaveChangesAsync();
+
+        var taskSheet = await CreateTaskSheetService(db).CreateTaskSheetForAssignmentAsync(assignmentId, caregiverId);
+
+        // A few hundred meters away — realistic GPS drift, should NOT be flagged.
+        var response = await CreateCheckinService(db).CheckinAsync(new VisitCheckinRequest
+        {
+            TaskSheetId = taskSheet.Id,
+            OrderId = null,
+            Latitude = 6.526,
+            Longitude = 3.381,
+            Accuracy = 15,
+            CheckinTimestamp = DateTime.UtcNow
+        }, caregiverId);
+
+        Assert.True(response.Success);
+        Assert.False(response.IsFlaggedForDistanceReview);
+    }
+
     // ───────────────────── End-to-end: check-in → submit → real VisitDurationMinutes ─────────────────────
 
     [Fact]

@@ -64,6 +64,7 @@ public class PayrollServiceTests
         public System.Threading.Tasks.Task<TaskSheetDTO> CreateTaskSheetAsync(string orderId, string caregiverId) => _real.CreateTaskSheetAsync(orderId, caregiverId);
         public System.Threading.Tasks.Task<TaskSheetDTO> CreateTaskSheetForAssignmentAsync(string assignmentId, string caregiverId) => _real.CreateTaskSheetForAssignmentAsync(assignmentId, caregiverId);
         public System.Threading.Tasks.Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId) => _real.GetVisitsForAssignmentAsync(assignmentId, caregiverId);
+        public System.Threading.Tasks.Task<List<TaskSheetDTO>> GetVisitsForPackageRequestAsClientAsync(string packageRequestId, string clientId) => _real.GetVisitsForPackageRequestAsClientAsync(packageRequestId, clientId);
         public System.Threading.Tasks.Task<CaregiverMonthlyHoursDTO> GetMonthlyHoursForCaregiverAsync(string caregiverId, int year, int month, string? assignmentId = null) => _real.GetMonthlyHoursForCaregiverAsync(caregiverId, year, month, assignmentId);
         public System.Threading.Tasks.Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId) => _real.UpdateTaskSheetAsync(taskSheetId, request, caregiverId);
         public System.Threading.Tasks.Task<TaskSheetDTO> SubmitTaskSheetAsync(string taskSheetId, SubmitTaskSheetRequest request, string caregiverId) => _real.SubmitTaskSheetAsync(taskSheetId, request, caregiverId);
@@ -230,6 +231,103 @@ public class PayrollServiceTests
         Assert.Equal(2000m, result.RateApplied);
         Assert.Equal(20000m, result.CalculatedAmount);
         Assert.Equal(20000m, result.FinalAmount);
+    }
+
+    /// <summary>
+    /// A disputed visit's hours are held out of payroll until the dispute resolves —
+    /// client approval itself doesn't gate pay (see the other Approved-sheet visit,
+    /// which counts normally), but an open dispute does.
+    /// </summary>
+    [Fact]
+    public async Task Create_HourlyPackage_DisputedVisitUnresolved_HoursExcluded()
+    {
+        var dbName = NewDbName();
+        using var db = CreateDb(dbName);
+        var (assignmentId, caregiverId, _) = SeedAssignmentForPackage(db, HourlyPackage(), CaregiverType.AuxiliaryNurse, ExperienceTier.Senior);
+
+        db.CaregiverPayRates.Add(new CaregiverPayRate
+        {
+            Id = ObjectId.GenerateNewId(),
+            CaregiverType = CaregiverType.AuxiliaryNurse,
+            ExperienceTier = ExperienceTier.Senior,
+            HourlyRate = 2000,
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        // Visit 1: approved, 6 hours (360 min) — should count.
+        var approvedSheetId = ObjectId.GenerateNewId();
+        db.TaskSheets.Add(new TaskSheet
+        {
+            Id = approvedSheetId,
+            OrderId = string.Empty,
+            AssignmentId = assignmentId,
+            CaregiverId = caregiverId,
+            SheetNumber = 1,
+            Status = "submitted",
+            ClientReviewStatus = "Approved",
+            ScheduledDate = new DateTime(2026, 3, 5),
+            SubmittedAt = new DateTime(2026, 3, 5, 14, 0, 0),
+            VisitDurationMinutes = 360,
+            CreatedAt = new DateTime(2026, 3, 5),
+            UpdatedAt = new DateTime(2026, 3, 5)
+        });
+
+        // Visit 2: disputed and still unresolved, 4 hours (240 min) — should be held out.
+        var disputedSheetId = ObjectId.GenerateNewId();
+        db.TaskSheets.Add(new TaskSheet
+        {
+            Id = disputedSheetId,
+            OrderId = string.Empty,
+            AssignmentId = assignmentId,
+            CaregiverId = caregiverId,
+            SheetNumber = 2,
+            Status = "submitted",
+            ClientReviewStatus = "Disputed",
+            ScheduledDate = new DateTime(2026, 3, 12),
+            SubmittedAt = new DateTime(2026, 3, 12, 14, 0, 0),
+            VisitDurationMinutes = 240,
+            CreatedAt = new DateTime(2026, 3, 12),
+            UpdatedAt = new DateTime(2026, 3, 12)
+        });
+        await db.SaveChangesAsync();
+
+        db.Disputes.Add(new Dispute
+        {
+            Id = ObjectId.GenerateNewId(),
+            AssignmentId = assignmentId,
+            TaskSheetId = disputedSheetId.ToString(),
+            DisputeType = DisputeType.Visit,
+            Category = "TasksNotCompleted",
+            Reason = "test dispute — unresolved",
+            RaisedBy = "client-test",
+            ClientId = "client-test",
+            CaregiverId = caregiverId,
+            Status = DisputeStatus.Open,
+        });
+        await db.SaveChangesAsync();
+
+        var hours = await HoursStub(db).GetMonthlyHoursForCaregiverAsync(caregiverId, 2026, 3, assignmentId);
+        Assert.Equal(360.0, hours.TotalMinutes);
+        Assert.Equal(6.0, hours.TotalHours);
+        Assert.Equal(1, hours.TaskSheetCount);
+
+        var result = await CreateService(db).CreatePayrollAsync(new CreatePayrollRequest
+        { AssignmentId = assignmentId, Year = 2026, Month = 3 });
+
+        Assert.Equal(6.0, result.HoursWorked);
+        Assert.Equal(12000m, result.CalculatedAmount);
+
+        // Now resolve the dispute — the visit's hours should count again.
+        var dispute = await db.Disputes.FirstAsync(d => d.TaskSheetId == disputedSheetId.ToString());
+        dispute.Status = DisputeStatus.Resolved;
+        dispute.ResolvedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        var hoursAfterResolution = await HoursStub(db).GetMonthlyHoursForCaregiverAsync(caregiverId, 2026, 3, assignmentId);
+        Assert.Equal(600.0, hoursAfterResolution.TotalMinutes);
+        Assert.Equal(10.0, hoursAfterResolution.TotalHours);
+        Assert.Equal(2, hoursAfterResolution.TaskSheetCount);
     }
 
     [Fact]

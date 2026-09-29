@@ -62,7 +62,8 @@ namespace Infrastructure.Content.Services
                     AlreadyCheckedIn = true,
                     IsLateCheckin = existing.IsLateCheckin,
                     MinutesLate = existing.MinutesLate,
-                    HasTimestampDiscrepancy = existing.HasTimestampDiscrepancy
+                    HasTimestampDiscrepancy = existing.HasTimestampDiscrepancy,
+                    IsFlaggedForDistanceReview = existing.IsFlaggedForDistanceReview ?? false
                 };
             }
 
@@ -175,10 +176,20 @@ namespace Infrastructure.Content.Services
             // check is skipped for that path — allowMissingSchedule only relaxes that, not the date check.
             var (isLateCheckin, minutesLate) = ValidateSchedule(approvedContract, taskSheet, allowMissingSchedule: assignment != null);
 
-            // GPS proximity validation
-            double? distanceMeters = order != null
-                ? await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId)
-                : await ValidateProximityForPackageAsync(request.Latitude, request.Longitude, approvedContract, caregiverId);
+            // GPS proximity validation. Legacy order path still hard-blocks (unchanged,
+            // out of this scope); the package path never blocks — see
+            // ValidateProximityForPackageAsync for why.
+            double? distanceMeters;
+            bool isFlaggedForDistanceReview = false;
+            if (order != null)
+            {
+                distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
+            }
+            else
+            {
+                (distanceMeters, isFlaggedForDistanceReview) = await ValidateProximityForPackageAsync(
+                    request.Latitude, request.Longitude, approvedContract, caregiverId);
+            }
 
             var thresholdSeconds = _configuration.GetValue<int>("VisitCheckin:TimestampDiscrepancyThresholdSeconds", 300);
             var discrepancySeconds = Math.Round(Math.Abs((request.CheckinTimestamp - serverReceivedAt).TotalSeconds), 1);
@@ -210,6 +221,7 @@ namespace Infrastructure.Content.Services
                 TimestampDiscrepancySeconds = discrepancySeconds,
                 IsLateCheckin = isLateCheckin,
                 MinutesLate = minutesLate,
+                IsFlaggedForDistanceReview = isFlaggedForDistanceReview,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -224,13 +236,20 @@ namespace Infrastructure.Content.Services
             {
                 if (!string.IsNullOrEmpty(notifyClientId))
                 {
+                    // Package visit: carry the PackageRequestId, not the bare TaskSheetId —
+                    // nothing client-reachable can resolve a request from a TaskSheetId
+                    // (same fix as VisitSubmitted/VisitApproved).
+                    string checkinRelatedEntityId = taskSheet.AssignmentId != null
+                        ? (taskSheet.PackageRequestId ?? request.TaskSheetId)
+                        : request.TaskSheetId;
+
                     await _mediator.Send(new SendNotificationCommand(
                         RecipientId: notifyClientId,
                         SenderId: caregiverId,
                         Type: NotificationTypes.CaregiverCheckedIn,
                         Content: $"Your caregiver has arrived and checked in for Visit #{taskSheet.SheetNumber}.",
                         Title: "Caregiver Checked In",
-                        RelatedEntityId: request.TaskSheetId,
+                        RelatedEntityId: checkinRelatedEntityId,
                         OrderId: order?.Id.ToString()));
                 }
             }
@@ -248,7 +267,8 @@ namespace Infrastructure.Content.Services
                 AlreadyCheckedIn = false,
                 IsLateCheckin = isLateCheckin,
                 MinutesLate = minutesLate,
-                HasTimestampDiscrepancy = hasTimestampDiscrepancy
+                HasTimestampDiscrepancy = hasTimestampDiscrepancy,
+                IsFlaggedForDistanceReview = isFlaggedForDistanceReview
             };
         }
 
@@ -273,7 +293,8 @@ namespace Infrastructure.Content.Services
                 HasTimestampDiscrepancy = checkin.HasTimestampDiscrepancy,
                 TimestampDiscrepancySeconds = checkin.TimestampDiscrepancySeconds,
                 IsLateCheckin = checkin.IsLateCheckin,
-                MinutesLate = checkin.MinutesLate
+                MinutesLate = checkin.MinutesLate,
+                IsFlaggedForDistanceReview = checkin.IsFlaggedForDistanceReview ?? false
             };
         }
 
@@ -511,9 +532,21 @@ namespace Infrastructure.Content.Services
         /// and location capture — is still deferred), but it's built out fully for when
         /// that lands rather than silently skipping proximity forever.
         /// </summary>
-        private async Task<double?> ValidateProximityForPackageAsync(double caregiverLat, double caregiverLng, Contract contract, string caregiverId)
+        /// <summary>
+        /// Package-flow proximity check never blocks check-in (real device GPS drift is a
+        /// known problem for caregivers in the field — a hard distance limit would punish
+        /// them for their phone's location accuracy, not for actually being in the wrong
+        /// place). Instead, when the comparison point is a client-verified GPS location (not
+        /// just a geocoded address — see the informational branch below), a distance beyond
+        /// VisitCheckin:PackageFlagDistanceMeters is flagged for admin review while check-in
+        /// still succeeds normally. That threshold defaults wider than the legacy hard-limit
+        /// (VisitCheckin:MaxDistanceMeters, 1500m) specifically because it has to tolerate
+        /// real GPS drift rather than gate access — 1500m is tight enough to bounce a
+        /// caregiver standing at the right address with a noisy signal.
+        /// </summary>
+        private async Task<(double? distanceMeters, bool isFlaggedForReview)> ValidateProximityForPackageAsync(double caregiverLat, double caregiverLng, Contract contract, string caregiverId)
         {
-            int maxDistanceMeters = _configuration.GetValue<int>("VisitCheckin:MaxDistanceMeters", 1500);
+            int flagDistanceMeters = _configuration.GetValue<int>("VisitCheckin:PackageFlagDistanceMeters", 3000);
 
             double? serviceLat = null;
             double? serviceLng = null;
@@ -555,7 +588,7 @@ namespace Infrastructure.Content.Services
                     "No service coordinates on contract for package assignment (PackageRequestId {PackageRequestId}). " +
                     "Caregiver {CaregiverId} check-in allowed without proximity validation.",
                     contract.PackageRequestId, caregiverId);
-                return null;
+                return (null, false);
             }
 
             double distanceKm = CalculateHaversineDistance(caregiverLat, caregiverLng, serviceLat.Value, serviceLng.Value);
@@ -588,28 +621,20 @@ namespace Infrastructure.Content.Services
                     }
                 }
 
-                return Math.Round(distanceMeters, 1);
+                return (Math.Round(distanceMeters, 1), false);
             }
 
-            if (distanceMeters > maxDistanceMeters)
+            bool isFlaggedForReview = distanceMeters > flagDistanceMeters;
+            if (isFlaggedForReview)
             {
-                if (_environment.IsDevelopment())
-                {
-                    _logger.LogWarning(
-                        "[DEV] Proximity check SKIPPED for caregiver {CaregiverId} on package assignment. " +
-                        "Distance: {Distance:F0}m (limit: {Limit}m). Allowing check-in in Development.",
-                        caregiverId, distanceMeters, maxDistanceMeters);
-                }
-                else
-                {
-                    throw CheckinValidationException.Proximity(
-                        $"You are approximately {distanceMeters:F0}m away from the service address. " +
-                        $"You must be within {maxDistanceMeters}m to check in.",
-                        distanceMeters, maxDistanceMeters);
-                }
+                _logger.LogWarning(
+                    "Check-in distance flagged for admin review (not blocked) for caregiver {CaregiverId} " +
+                    "on package assignment (PackageRequestId {PackageRequestId}). Distance: {Distance:F0}m " +
+                    "(flag threshold: {Limit}m, client-verified GPS).",
+                    caregiverId, contract.PackageRequestId, distanceMeters, flagDistanceMeters);
             }
 
-            return Math.Round(distanceMeters, 1);
+            return (Math.Round(distanceMeters, 1), isFlaggedForReview);
         }
 
         private static double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)

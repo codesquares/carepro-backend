@@ -206,6 +206,35 @@ namespace Infrastructure.Content.Services
             return true;
         }
 
+        public async Task<int> SeedPackagesAsync(List<Package> packages)
+        {
+            if (packages == null || packages.Count == 0)
+                return 0;
+
+            var existingKeys = (await _context.Packages
+                .Select(p => new { p.Category, p.TierLabel })
+                .ToListAsync())
+                .Select(k => (k.Category, k.TierLabel))
+                .ToHashSet();
+
+            var toInsert = packages
+                .Where(p => !existingKeys.Contains((p.Category, p.TierLabel)))
+                .ToList();
+
+            if (toInsert.Count == 0)
+            {
+                _logger.LogInformation("Package seed: all {Count} rows already present. Skipping.", packages.Count);
+                return 0;
+            }
+
+            await _context.Packages.AddRangeAsync(toInsert);
+            await _context.SaveChangesAsync();
+            _logger.LogInformation(
+                "Package seed: inserted {InsertedCount} new row(s), skipped {SkippedCount} already-present row(s)",
+                toInsert.Count, packages.Count - toInsert.Count);
+            return toInsert.Count;
+        }
+
         // ── Helpers ──
 
         private static string NormaliseCategory(string category)

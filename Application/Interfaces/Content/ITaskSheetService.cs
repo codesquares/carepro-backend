@@ -25,6 +25,14 @@ namespace Application.Interfaces.Content
         Task<List<TaskSheetDTO>> GetVisitsForAssignmentAsync(string assignmentId, string caregiverId);
 
         /// <summary>
+        /// Client-facing counterpart of <see cref="GetVisitsForAssignmentAsync"/> — the client's
+        /// own view of visits under one of their package requests, ownership-checked against
+        /// PackageRequest.ClientId (not the Assignment, so this still works if an assignment is
+        /// ever reassigned to a new caregiver mid-request).
+        /// </summary>
+        Task<List<TaskSheetDTO>> GetVisitsForPackageRequestAsClientAsync(string packageRequestId, string clientId);
+
+        /// <summary>
         /// Sums VisitDurationMinutes across a caregiver's submitted task sheets for a
         /// calendar month (Phase 9.6) — feeds Payroll creation (Phase 9.7) for Hourly
         /// packages. Pass assignmentId to scope to one package assignment; omit to sum

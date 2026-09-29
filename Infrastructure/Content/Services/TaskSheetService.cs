@@ -76,43 +76,7 @@ namespace Infrastructure.Content.Services
             var sheetDtos = new List<TaskSheetDTO>();
             foreach (var sheet in sheets)
             {
-                var dto = MapToDTO(sheet);
-
-                var sheetIdStr = sheet.Id.ToString();
-
-                // Check-in data
-                var checkin = await _dbContext.VisitCheckins
-                    .FirstOrDefaultAsync(vc => vc.TaskSheetId == sheetIdStr);
-                if (checkin != null)
-                {
-                    dto.Checkin = new VisitCheckinDTO
-                    {
-                        CheckinId = checkin.Id.ToString(),
-                        Latitude = checkin.Latitude,
-                        Longitude = checkin.Longitude,
-                        Accuracy = checkin.Accuracy,
-                        DistanceFromServiceAddress = checkin.DistanceFromServiceAddress,
-                        CheckinTimestamp = checkin.CheckinTimestamp
-                    };
-                }
-
-                // Client signature data
-                if (sheet.ClientSignatureUrl != null)
-                {
-                    dto.ClientSignature = new ClientSignatureDTO
-                    {
-                        SignatureUrl = sheet.ClientSignatureUrl,
-                        SignedAt = sheet.ClientSignatureSignedAt ?? sheet.SubmittedAt ?? DateTime.UtcNow
-                    };
-                }
-
-                // Report counts for UI badges
-                dto.ObservationReportCount = await _dbContext.ObservationReports
-                    .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
-                dto.IncidentReportCount = await _dbContext.IncidentReports
-                    .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
-
-                sheetDtos.Add(dto);
+                sheetDtos.Add(await EnrichTaskSheetDtoAsync(sheet));
             }
 
             return new TaskSheetListResponse
@@ -386,23 +350,57 @@ namespace Infrastructure.Content.Services
                 .ThenByDescending(ts => ts.SheetNumber)
                 .ToListAsync();
 
-            return sheets.Select(MapToDTO).ToList();
+            var dtos = new List<TaskSheetDTO>();
+            foreach (var sheet in sheets)
+            {
+                dtos.Add(await EnrichTaskSheetDtoAsync(sheet));
+            }
+            return dtos;
+        }
+
+        public async Task<List<TaskSheetDTO>> GetVisitsForPackageRequestAsClientAsync(string packageRequestId, string clientId)
+        {
+            if (!ObjectId.TryParse(packageRequestId, out var packageRequestObjectId))
+                throw new ArgumentException("Invalid package request ID format.");
+
+            var packageRequest = await _dbContext.PackageRequests.FirstOrDefaultAsync(pr => pr.Id == packageRequestObjectId)
+                ?? throw new KeyNotFoundException($"Package request '{packageRequestId}' not found.");
+
+            if (packageRequest.ClientId != clientId)
+                throw new UnauthorizedAccessException("This package request doesn't belong to you.");
+
+            var sheets = await _dbContext.TaskSheets
+                .Where(ts => ts.PackageRequestId == packageRequestId)
+                .OrderByDescending(ts => ts.ScheduledDate)
+                .ThenByDescending(ts => ts.SheetNumber)
+                .ToListAsync();
+
+            var dtos = new List<TaskSheetDTO>();
+            foreach (var sheet in sheets)
+            {
+                dtos.Add(await EnrichTaskSheetDtoAsync(sheet));
+            }
+            return dtos;
         }
 
         public async Task<TaskSheetDTO> UpdateTaskSheetAsync(string taskSheetId, UpdateTaskSheetRequest request, string caregiverId)
         {
             var taskSheet = await GetTaskSheetOrThrow(taskSheetId);
 
-            // Block completed orders
-            var order = await GetOrderOrThrow(taskSheet.OrderId);
-            _logger.LogInformation("UpdateTaskSheet - Order {OrderId} has ClientOrderStatus: '{Status}', TaskSheet {TaskSheetId} has Status: '{SheetStatus}'",
-                taskSheet.OrderId, order.ClientOrderStatus ?? "(null)", taskSheetId, taskSheet.Status);
-
-            if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            // Phase 9.5: a package-assignment task sheet has no ClientOrder — skip the
+            // order-completed check entirely (mirrors SubmitTaskSheetAsync's branch above).
+            if (string.IsNullOrEmpty(taskSheet.AssignmentId))
             {
-                _logger.LogWarning("UpdateTaskSheet blocked - Order {OrderId} is completed (status: '{Status}')",
-                    taskSheet.OrderId, order.ClientOrderStatus);
-                throw new InvalidOperationException("This order has been completed. Task sheets can no longer be updated.");
+                var order = await GetOrderOrThrow(taskSheet.OrderId);
+                _logger.LogInformation("UpdateTaskSheet - Order {OrderId} has ClientOrderStatus: '{Status}', TaskSheet {TaskSheetId} has Status: '{SheetStatus}'",
+                    taskSheet.OrderId, order.ClientOrderStatus ?? "(null)", taskSheetId, taskSheet.Status);
+
+                if (string.Equals(order.ClientOrderStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning("UpdateTaskSheet blocked - Order {OrderId} is completed (status: '{Status}')",
+                        taskSheet.OrderId, order.ClientOrderStatus);
+                    throw new InvalidOperationException("This order has been completed. Task sheets can no longer be updated.");
+                }
             }
 
             // Verify ownership
@@ -607,6 +605,14 @@ namespace Infrastructure.Content.Services
                     ? $" Duration: {taskSheet.VisitDurationMinutes:F0} minutes."
                     : "";
 
+                // A package visit's notification carries the AssignmentId/PackageRequestId
+                // instead of the bare TaskSheetId — nothing client- or caregiver-reachable
+                // can resolve an assignment/request from a TaskSheetId (same reasoning as
+                // PackageContractGenerated's earlier RelatedEntityId fix).
+                bool isPackageSheet = !string.IsNullOrEmpty(taskSheet.AssignmentId);
+                string clientRelatedEntityId = isPackageSheet ? taskSheet.PackageRequestId ?? taskSheetId : taskSheetId;
+                string caregiverRelatedEntityId = isPackageSheet ? taskSheet.AssignmentId! : taskSheetId;
+
                 // Notify client
                 await _mediator.Send(new SendNotificationCommand(
                     RecipientId: notifyClientId,
@@ -614,7 +620,7 @@ namespace Infrastructure.Content.Services
                     Type: NotificationTypes.VisitSubmitted,
                     Content: $"{caregiverName} has completed and submitted visit #{taskSheet.SheetNumber}.{durationText} Please review and approve the visit.",
                     Title: "Visit Submitted for Review",
-                    RelatedEntityId: taskSheetId,
+                    RelatedEntityId: clientRelatedEntityId,
                     OrderId: taskSheet.OrderId
                 ));
 
@@ -635,7 +641,7 @@ namespace Infrastructure.Content.Services
                     Type: NotificationTypes.VisitSubmitted,
                     Content: $"Your visit #{taskSheet.SheetNumber} for {clientName} has been submitted successfully.{durationText} Waiting for client approval.",
                     Title: "Visit Submitted Successfully",
-                    RelatedEntityId: taskSheetId,
+                    RelatedEntityId: caregiverRelatedEntityId,
                     OrderId: taskSheet.OrderId
                 ));
 
@@ -654,7 +660,7 @@ namespace Infrastructure.Content.Services
                 _logger.LogWarning(ex, "Failed to send submission notifications for TaskSheet {TaskSheetId}", taskSheetId);
             }
 
-            return MapToDTO(taskSheet);
+            return await EnrichTaskSheetDtoAsync(taskSheet);
         }
 
         /// <summary>
@@ -662,6 +668,10 @@ namespace Infrastructure.Content.Services
         /// calendar date the visit was actually for), not SubmittedAt, so a visit worked
         /// on the last day of a month and submitted the next day still counts toward the
         /// month it was worked. Only "submitted" sheets have a final VisitDurationMinutes.
+        /// A visit under an unresolved dispute (ClientReviewStatus == "Disputed" and its
+        /// linked Dispute isn't yet Resolved/Dismissed) is held out of the sum until the
+        /// dispute is resolved one way or the other — client approval itself doesn't gate
+        /// pay, but an open dispute does.
         /// </summary>
         public async Task<CaregiverMonthlyHoursDTO> GetMonthlyHoursForCaregiverAsync(
             string caregiverId, int year, int month, string? assignmentId = null)
@@ -684,7 +694,27 @@ namespace Infrastructure.Content.Services
                 query = query.Where(ts => ts.AssignmentId == assignmentId);
 
             var sheets = await query.ToListAsync();
-            var totalMinutes = sheets.Sum(ts => ts.VisitDurationMinutes!.Value);
+
+            var disputedSheetIds = sheets
+                .Where(ts => ts.ClientReviewStatus == "Disputed")
+                .Select(ts => ts.Id.ToString())
+                .ToList();
+
+            var unresolvedDisputedSheetIds = disputedSheetIds.Count == 0
+                ? new HashSet<string>()
+                : (await _dbContext.Disputes
+                    .Where(d => d.TaskSheetId != null
+                        && disputedSheetIds.Contains(d.TaskSheetId)
+                        && d.Status != DisputeStatus.Resolved
+                        && d.Status != DisputeStatus.Dismissed)
+                    .Select(d => d.TaskSheetId!)
+                    .ToListAsync())
+                    .ToHashSet();
+
+            var payableSheets = sheets
+                .Where(ts => !unresolvedDisputedSheetIds.Contains(ts.Id.ToString()))
+                .ToList();
+            var totalMinutes = payableSheets.Sum(ts => ts.VisitDurationMinutes!.Value);
 
             return new CaregiverMonthlyHoursDTO
             {
@@ -694,7 +724,7 @@ namespace Infrastructure.Content.Services
                 Month = month,
                 TotalMinutes = Math.Round(totalMinutes, 1),
                 TotalHours = Math.Round(totalMinutes / 60.0, 2),
-                TaskSheetCount = sheets.Count
+                TaskSheetCount = payableSheets.Count
             };
         }
 
@@ -776,6 +806,48 @@ namespace Infrastructure.Content.Services
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt
             };
+        }
+
+        // Joins check-in, client-signature, and report-count data onto a mapped DTO.
+        // Used by both the order-based and assignment-based visit lists so a viewer
+        // (client or caregiver) always sees the real check-in distance/time rather
+        // than a blank Checkin field.
+        private async Task<TaskSheetDTO> EnrichTaskSheetDtoAsync(TaskSheet entity)
+        {
+            var dto = MapToDTO(entity);
+            var sheetIdStr = entity.Id.ToString();
+
+            var checkin = await _dbContext.VisitCheckins
+                .FirstOrDefaultAsync(vc => vc.TaskSheetId == sheetIdStr);
+            if (checkin != null)
+            {
+                dto.Checkin = new VisitCheckinDTO
+                {
+                    CheckinId = checkin.Id.ToString(),
+                    Latitude = checkin.Latitude,
+                    Longitude = checkin.Longitude,
+                    Accuracy = checkin.Accuracy,
+                    DistanceFromServiceAddress = checkin.DistanceFromServiceAddress,
+                    CheckinTimestamp = checkin.CheckinTimestamp,
+                    IsFlaggedForDistanceReview = checkin.IsFlaggedForDistanceReview ?? false
+                };
+            }
+
+            if (entity.ClientSignatureUrl != null)
+            {
+                dto.ClientSignature = new ClientSignatureDTO
+                {
+                    SignatureUrl = entity.ClientSignatureUrl,
+                    SignedAt = entity.ClientSignatureSignedAt ?? entity.SubmittedAt ?? DateTime.UtcNow
+                };
+            }
+
+            dto.ObservationReportCount = await _dbContext.ObservationReports
+                .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
+            dto.IncidentReportCount = await _dbContext.IncidentReports
+                .Where(r => r.TaskSheetId == sheetIdStr).CountAsync();
+
+            return dto;
         }
 
         /// <summary>

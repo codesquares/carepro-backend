@@ -29,5 +29,12 @@ namespace Application.DTOs
 
         /// <summary>True when this call created the contract; false when it already existed (idempotent).</summary>
         public bool NewlyGenerated { get; set; }
+
+        public string? ServiceAddress { get; set; }
+        /// <summary>True once the client has stamped their real device GPS via
+        /// POST /contracts/{id}/service-location — before that, any coordinates on the
+        /// contract are only a geocoded address, not real GPS.</summary>
+        public bool? ServiceLocationSetByClient { get; set; }
+        public DateTime? ServiceLocationSetAt { get; set; }
     }
 }

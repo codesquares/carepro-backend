@@ -771,13 +771,16 @@ namespace Infrastructure.Content.Services
                     // Package visits carry no per-visit wallet credit — the caregiver is
                     // paid through admin-approved payroll. Approval just confirms the visit
                     // and lets the caregiver start the next one.
+                    // RelatedEntityId carries the assignment/request id, not the bare
+                    // TaskSheetId — nothing reachable on either side can resolve an
+                    // assignment/request from a TaskSheetId (same fix as VisitSubmitted).
                     await _mediator.Send(new SendNotificationCommand(
                         RecipientId: taskSheet.CaregiverId,
                         SenderId: clientUserId,
                         Type: NotificationTypes.VisitApproved,
                         Content: $"Visit #{taskSheet.SheetNumber} has been approved by the client. You can now start the next visit.",
                         Title: "Visit Approved",
-                        RelatedEntityId: taskSheetId,
+                        RelatedEntityId: taskSheet.AssignmentId ?? taskSheetId,
                         OrderId: string.Empty));
 
                     await _mediator.Send(new SendNotificationCommand(
@@ -786,7 +789,7 @@ namespace Infrastructure.Content.Services
                         Type: NotificationTypes.VisitApproved,
                         Content: $"You have approved Visit #{taskSheet.SheetNumber}.",
                         Title: "Visit Approved",
-                        RelatedEntityId: taskSheetId,
+                        RelatedEntityId: taskSheet.PackageRequestId ?? taskSheetId,
                         OrderId: string.Empty));
                 }
             }
