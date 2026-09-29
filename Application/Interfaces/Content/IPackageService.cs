@@ -23,5 +23,13 @@ namespace Application.Interfaces.Content
         Task<bool> UpdatePackageAsync(UpdatePackageRequest request);
         Task<bool> DeletePackageAsync(string id);
         Task<bool> ToggleActiveStatusAsync(string id, bool isActive);
+
+        /// <summary>
+        /// One-time real-pricing seed (see <see cref="Infrastructure.Content.Data.PackageSeedData"/>).
+        /// Idempotent per row, matched on (Category, TierLabel) rather than an
+        /// all-or-nothing "collection is empty" check — so re-running it never
+        /// duplicates a row, and never overwrites a row an admin has since edited.
+        /// </summary>
+        Task<int> SeedPackagesAsync(List<Domain.Entities.Package> packages);
     }
 }

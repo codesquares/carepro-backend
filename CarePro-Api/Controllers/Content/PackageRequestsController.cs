@@ -26,15 +26,18 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IPackageRequestService _service;
         private readonly IPackageContractService _contractService;
+        private readonly ITaskSheetService _taskSheetService;
         private readonly ILogger<PackageRequestsController> _logger;
 
         public PackageRequestsController(
             IPackageRequestService service,
             IPackageContractService contractService,
+            ITaskSheetService taskSheetService,
             ILogger<PackageRequestsController> logger)
         {
             _service = service;
             _contractService = contractService;
+            _taskSheetService = taskSheetService;
             _logger = logger;
         }
 
@@ -129,6 +132,21 @@ namespace CarePro_Api.Controllers.Content
                 return File(pdf, "application/pdf", $"CarePro-Agreement-{contract.Id}.pdf");
             }
             catch (Exception ex) { return HandleException(ex, "GetPackageRequestContractPdf"); }
+        }
+
+        /// <summary>The client's own view of visits (task sheets) submitted under this request, newest first.</summary>
+        [HttpGet("{id}/visits")]
+        public async Task<IActionResult> GetVisits(string id)
+        {
+            var clientId = CurrentClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Unauthorized(new { message = "Client identity not found in token." });
+            try
+            {
+                var visits = await _taskSheetService.GetVisitsForPackageRequestAsClientAsync(id, clientId);
+                return Ok(new { success = true, data = visits, count = visits.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetPackageRequestVisits"); }
         }
     }
 }

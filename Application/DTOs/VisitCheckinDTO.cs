@@ -47,6 +47,9 @@ namespace Application.DTOs
         /// <summary>True when the device and server clocks disagreed by more than the
         /// configured threshold — flagged for admin review (Phase 9.4).</summary>
         public bool HasTimestampDiscrepancy { get; set; }
+        /// <summary>True when this check-in's distance from a client-verified GPS service
+        /// location exceeds the flag threshold — flagged for admin review, never blocked.</summary>
+        public bool IsFlaggedForDistanceReview { get; set; }
     }
 
     /// <summary>
@@ -79,5 +82,6 @@ namespace Application.DTOs
         public double? TimestampDiscrepancySeconds { get; set; }
         public bool IsLateCheckin { get; set; }
         public double MinutesLate { get; set; }
+        public bool IsFlaggedForDistanceReview { get; set; }
     }
 }

@@ -123,6 +123,10 @@ namespace Infrastructure.Content.Services
                 contract.Id, packageRequestId, package.Category, package.TierLabel);
 
             // Inform both parties (informational — no action required, so no reminder loop).
+            // RelatedEntityId is the package request id, not the contract id: the client's
+            // request-detail page (/app/client/requests/:id) is keyed by request id, and
+            // nothing client-reachable can resolve a request from a bare contract id — there's
+            // no "get request by contract" lookup, so a contract id here would be a dead link.
             foreach (var recipient in new[] { request.ClientId, request.ConfirmedCaregiverId })
             {
                 await _mediator.Send(new SendNotificationCommand(
@@ -131,7 +135,7 @@ namespace Infrastructure.Content.Services
                     Type: NotificationTypes.PackageContractGenerated,
                     Content: $"Your care agreement for the {package.Category} ({package.TierLabel}) package is ready to view.",
                     Title: "Care agreement ready",
-                    RelatedEntityId: contract.Id));
+                    RelatedEntityId: request.Id.ToString()));
             }
 
             // Deliver the agreement PDF by email to both parties — same as the negotiated-
@@ -297,6 +301,9 @@ namespace Infrastructure.Content.Services
             ContractEndDate = c.ContractEndDate,
             CreatedAt = c.CreatedAt,
             NewlyGenerated = newlyGenerated,
+            ServiceAddress = c.ServiceAddress,
+            ServiceLocationSetByClient = c.ServiceLocationSetByClient,
+            ServiceLocationSetAt = c.ServiceLocationSetAt,
         };
     }
 }

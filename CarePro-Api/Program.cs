@@ -729,6 +729,25 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Seed real Package pricing data from CarePro Subscription Plans.doc (one-time,
+// per environment; idempotent per row on Category+TierLabel — see PackageService.SeedPackagesAsync)
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var packageService = scope.ServiceProvider.GetRequiredService<IPackageService>();
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var seedData = PackageSeedData.GetSeedData();
+        var insertedCount = await packageService.SeedPackagesAsync(seedData);
+        seedLogger.LogInformation("Package seed check completed: {InsertedCount} row(s) inserted", insertedCount);
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        seedLogger.LogError(ex, "Package seeding failed - app will continue normally");
+    }
+}
+
 app.Run();
 
 public partial class Program

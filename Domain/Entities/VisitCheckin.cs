@@ -47,6 +47,20 @@ namespace Domain.Entities
 
         public bool IsLateCheckin { get; set; }
         public double MinutesLate { get; set; }
+
+        /// <summary>
+        /// True when the check-in distance from a client-verified GPS service location
+        /// exceeds VisitCheckin:PackageFlagDistanceMeters (package-assignment visits only).
+        /// Flagged for admin review, not blocked — device GPS drift is a known real-world
+        /// problem, so this never prevents a genuine visit from being recorded. Always false
+        /// when the comparison point is a geocoded address rather than real client GPS
+        /// (that comparison isn't precise enough to be worth flagging on). Nullable for the
+        /// same reason as ServerReceivedAt above — real VisitCheckin documents created before
+        /// this field existed predate it, and the MongoDB EF Core provider rejects missing
+        /// non-nullable properties on read; treat a missing value as false (not flagged).
+        /// </summary>
+        public bool? IsFlaggedForDistanceReview { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }
