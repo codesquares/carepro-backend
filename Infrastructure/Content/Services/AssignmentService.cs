@@ -87,8 +87,14 @@ namespace Infrastructure.Content.Services
                 throw new InvalidOperationException(
                     $"This package requires the '{request.RequiredSpecialty}' specialty.");
 
-            // Readiness gate — same check the competitive hire flow uses.
-            var readiness = await _readinessService.GetReadinessAsync(caregiverId, request.ServiceCategory);
+            // Readiness gate: identity, guarantors, address history, caregiver type, and the category's
+            // assessment/certificates. Gigs are deliberately NOT part of it for package assignment —
+            // matching and ranking already ignore them, and the requirement could never be met anyway
+            // (gigs use a different category vocabulary than packages, and "Published" gigs never count as
+            // "Active"). `knownHasActiveGig: true` tells the readiness service the gig condition is already
+            // settled, so it neither queries gigs nor adds no_active_gig. Other readiness callers are unchanged.
+            var readiness = await _readinessService.GetReadinessAsync(
+                caregiverId, request.ServiceCategory, knownHasActiveGig: true);
             if (!readiness.IsReady)
                 throw new CaregiverNotReadyException(
                     "This caregiver isn't ready to be assigned right now.", readiness.IneligibilityReasons);
