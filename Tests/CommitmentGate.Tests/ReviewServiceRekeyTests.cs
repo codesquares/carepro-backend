@@ -124,7 +124,7 @@ public class ReviewServiceRekeyTests
         var matchingService = new CareRequestMatchingService(
             db,
             Mock.Of<IGeocodingService>(),
-            new EligibilityService(db, Mock.Of<ILogger<EligibilityService>>()),
+            new CaregiverReadinessService(db, new EligibilityService(db, Mock.Of<ILogger<EligibilityService>>()), Mock.Of<ILogger<CaregiverReadinessService>>()),
             Mock.Of<ILogger<CareRequestMatchingService>>());
 
         var matches = await matchingService.FindCandidatesForPackageAsync(new PackageAssignmentMatchQuery

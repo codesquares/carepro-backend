@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Application.DTOs;
+using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
@@ -33,7 +34,7 @@ public class PackageRequestServiceTests
     private static string NewDbName() => $"carepro_pkgreq_tests_{Guid.NewGuid():N}";
 
     private static PackageRequestService CreateService(CareProDbContext db)
-        => new(db, Mock.Of<ILogger<PackageRequestService>>());
+        => new(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>());
 
     private static PackageRequest NewRequest(
         string clientId, string status, DateTime createdAt,

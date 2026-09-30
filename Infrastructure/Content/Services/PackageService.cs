@@ -106,6 +106,26 @@ namespace Infrastructure.Content.Services
                 .ToList();
         }
 
+        public async Task<List<PublicPackageSummaryDTO>> GetActivePackagesPublicAsync()
+        {
+            var packages = await _context.Packages
+                .Where(p => p.IsActive)
+                .ToListAsync();
+
+            return packages
+                .OrderBy(p => p.Category)
+                .ThenBy(p => p.BasePrice) // ordering only — the price itself is never projected
+                .ThenBy(p => p.TierLabel)
+                .Select(p => new PublicPackageSummaryDTO
+                {
+                    Category = p.Category,
+                    TierLabel = p.TierLabel,
+                    Description = p.Description,
+                    RequiredCaregiverType = p.RequiredCaregiverType.ToString(),
+                })
+                .ToList();
+        }
+
         public async Task<bool> UpdatePackageAsync(UpdatePackageRequest request)
         {
             if (request == null) throw new ArgumentException("Request body is required");

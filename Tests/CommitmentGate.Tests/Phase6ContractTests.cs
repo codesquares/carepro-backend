@@ -35,13 +35,14 @@ public class Phase6ContractTests
 
     // Real ContractTemplateService + real ContractPdfService — used unmodified.
     private static PackageContractService CreateContractService(CareProDbContext db,
-        Mock<IMediator>? mediator = null, IEmailService? emailService = null)
+        Mock<IMediator>? mediator = null, IEmailService? emailService = null, IOpsAlertService? opsAlerts = null)
         => new(
             db,
             new ContractTemplateService(),
             new ContractPdfService(),
             (mediator ?? new Mock<IMediator>()).Object,
             emailService ?? Mock.Of<IEmailService>(),
+            opsAlerts ?? Mock.Of<IOpsAlertService>(),
             Mock.Of<ILogger<PackageContractService>>());
 
     private static AssignmentService CreateAssignmentService(
@@ -52,7 +53,7 @@ public class Phase6ContractTests
             .ReturnsAsync(new CaregiverReadinessResult { IsReady = true });
         return new AssignmentService(
             db, mediator.Object, Mock.Of<IEmailService>(), readiness.Object,
-            contractService, Mock.Of<ILogger<AssignmentService>>());
+            contractService, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<AssignmentService>>());
     }
 
     private static (Client client, Package pkg, Caregiver cg) Seed(
@@ -128,7 +129,7 @@ public class Phase6ContractTests
             var mediator = new Mock<IMediator>();
             var contractSvc = CreateContractService(db, mediator);
             var assignmentSvc = CreateAssignmentService(db, contractSvc, mediator);
-            var requestSvc = new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>());
+            var requestSvc = new PackageRequestService(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>());
 
             var pr = await requestSvc.CreateAsync(clientId, new Application.DTOs.CreatePackageRequestRequest
             {

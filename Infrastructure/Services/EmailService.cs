@@ -430,6 +430,57 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendPackagePaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string packageLabel, string transactionId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Payment received & request submitted - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>✅ Payment Confirmed &amp; Request Submitted</h4>
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <p><strong>Package:</strong> {packageLabel}</p>
+                        <p><strong>Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Transaction ID:</strong> {transactionId}</p>
+                        <p><strong>Status:</strong> <span style='color: #28a745;'>Confirmed</span></p>
+                    </div>
+                    <p>Your payment has been successfully processed and your care request has been created.</p>
+                    <p>Our team will now match you with a suitable caregiver. We'll email you as soon as your caregiver is confirmed.</p>
+                    <p>You can follow progress in your CarePro dashboard.</p>
+                    <p>Thanks for choosing CarePro!<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendPackagePaymentIssueEmailAsync(string toEmail, string firstName, decimal amount, string transactionId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "We received your payment - action by our team in progress - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>We received your payment of <strong>₦{amount:N2}</strong> (Transaction ID: {transactionId}), but something went wrong while creating your care request.</p>
+                    <p><strong>Your payment is safe and has been recorded.</strong> Our team has been alerted and will follow up with you shortly to complete your request — you don't need to pay again.</p>
+                    <p>If you'd like to reach us sooner, contact <a href='mailto:support@oncarepro.com'>support@oncarepro.com</a> and quote the transaction ID above.</p>
+                    <p>We're sorry for the inconvenience.<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         public async Task SendEarningsNotificationEmailAsync(string toEmail, string firstName, decimal amount, string clientName, string serviceType)
         {
             var message = new MimeMessage();

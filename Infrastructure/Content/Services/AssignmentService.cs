@@ -27,6 +27,7 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly ICaregiverReadinessService _readinessService;
         private readonly IPackageContractService _packageContractService;
+        private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<AssignmentService> _logger;
 
         private static readonly string[] ActiveAssignmentStatuses =
@@ -38,6 +39,7 @@ namespace Infrastructure.Content.Services
             IEmailService emailService,
             ICaregiverReadinessService readinessService,
             IPackageContractService packageContractService,
+            IOpsAlertService opsAlerts,
             ILogger<AssignmentService> logger)
         {
             _db = db;
@@ -45,6 +47,7 @@ namespace Infrastructure.Content.Services
             _emailService = emailService;
             _readinessService = readinessService;
             _packageContractService = packageContractService;
+            _opsAlerts = opsAlerts;
             _logger = logger;
         }
 
@@ -454,6 +457,30 @@ namespace Infrastructure.Content.Services
                 _logger.LogWarning(ex, "Failed to send acceptance email to client for assignment {AssignmentId}", assignment.Id);
             }
 
+            // Dedicated "you're confirmed" email to the caregiver — sent in addition to (not instead of)
+            // the contract PDF email delivered by GenerateForConfirmedRequestAsync below.
+            try
+            {
+                if (caregiver != null && !string.IsNullOrEmpty(caregiver.Email))
+                {
+                    var subject = $"You're confirmed — {request.PackageCategory} ({request.PackageTierLabel})";
+                    var html = $@"
+                        <h3>Hi {caregiver.FirstName},</h3>
+                        <p>Thank you for accepting. You are now the <strong>confirmed caregiver</strong> for the
+                           <strong>{request.PackageCategory}</strong> ({request.PackageTierLabel}) package request.</p>
+                        <p>The care agreement is being prepared and will be emailed to you separately.
+                           Log in to see the details and your next steps.</p>
+                        <p>— The CarePro Team</p>";
+                    // Always-Send: a transactional confirmation of an action the caregiver just took.
+                    await _emailService.SendGenericNotificationEmailAsync(
+                        caregiver.Email, caregiver.FirstName, subject, html);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send acceptance confirmation email to caregiver for assignment {AssignmentId}", assignment.Id);
+            }
+
             _logger.LogInformation("Caregiver {CaregiverId} accepted assignment {AssignmentId}; request {RequestId} confirmed",
                 caregiverId, assignment.Id, request.Id);
 
@@ -470,6 +497,13 @@ namespace Infrastructure.Content.Services
                 _logger.LogError(ex,
                     "Auto contract generation failed for confirmed request {RequestId} — acceptance stands; retry available",
                     request.Id);
+                await _opsAlerts.NotifyAdminsAsync(
+                    NotificationTypes.PackageContractDeliveryFailed,
+                    "Package contract was not generated",
+                    $"Caregiver accepted request {request.Id} ({request.PackageCategory}, {request.PackageTierLabel}) but the care agreement " +
+                    $"could not be generated ({ex.GetType().Name}: {ex.Message}). Neither party has received a contract — follow up manually.",
+                    request.Id.ToString(),
+                    alsoEmail: true);
             }
 
             // Phase 7.1's automatic pending-balance credit at confirmation was removed in
@@ -543,15 +577,8 @@ namespace Infrastructure.Content.Services
             return assignment;
         }
 
-        private async Task NotifyOpsAdminsAsync(string type, string content, string title, string relatedEntityId)
-        {
-            var admins = await _db.AdminUsers.Where(a => !a.IsDeleted).ToListAsync();
-            foreach (var admin in admins)
-            {
-                await _mediator.Send(new SendNotificationCommand(
-                    admin.Id.ToString(), "system", type, content, title, relatedEntityId));
-            }
-        }
+        private Task NotifyOpsAdminsAsync(string type, string content, string title, string relatedEntityId)
+            => _opsAlerts.NotifyAdminsAsync(type, title, content, relatedEntityId);
 
         private static string HumanizeDuration(TimeSpan d)
         {

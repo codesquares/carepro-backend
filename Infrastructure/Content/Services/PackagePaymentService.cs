@@ -1,5 +1,6 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,8 @@ namespace Infrastructure.Content.Services
         private readonly IPackageSubscriptionService _packageSubscriptionService;
         private readonly FlutterwaveService _flutterwaveService;
         private readonly IConfiguration _configuration;
+        private readonly IEmailService _emailService;
+        private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<PackagePaymentService> _logger;
 
         public PackagePaymentService(
@@ -38,6 +41,8 @@ namespace Infrastructure.Content.Services
             IPackageSubscriptionService packageSubscriptionService,
             FlutterwaveService flutterwaveService,
             IConfiguration configuration,
+            IEmailService emailService,
+            IOpsAlertService opsAlerts,
             ILogger<PackagePaymentService> logger)
         {
             _dbContext = dbContext;
@@ -46,6 +51,8 @@ namespace Infrastructure.Content.Services
             _packageSubscriptionService = packageSubscriptionService;
             _flutterwaveService = flutterwaveService;
             _configuration = configuration;
+            _emailService = emailService;
+            _opsAlerts = opsAlerts;
             _logger = logger;
         }
 
@@ -288,6 +295,8 @@ namespace Infrastructure.Content.Services
                     "Package payment completed. TxRef: {TxRef}, FlwTxId: {FlwTxId}, PackageRequestId: {PackageRequestId}",
                     transactionReference, flutterwaveTransactionId, packageRequest.Id);
 
+                await SendPaymentAndRequestConfirmationAsync(pendingPayment, packageRequest);
+
                 return Result<PendingPackagePayment>.Success(pendingPayment);
             }
             catch (Exception ex)
@@ -295,6 +304,10 @@ namespace Infrastructure.Content.Services
                 _logger.LogError(ex,
                     "Failed to create PackageRequest for TxRef: {TxRef}. Payment was received but no PackageRequest exists — needs manual follow-up.",
                     transactionReference);
+
+                // Alert first: if the failure is the database itself, the save below can throw too,
+                // and the client/ops must still hear about a charged-but-unfulfilled payment.
+                await SendRequestCreationFailedAlertsAsync(pendingPayment, ex);
 
                 pendingPayment.Status = PendingPackagePaymentStatus.Failed;
                 pendingPayment.ErrorMessage = "Payment received but failed to create the package request. Please contact support.";
@@ -423,6 +436,8 @@ namespace Infrastructure.Content.Services
                     "Recurring package payment completed. TxRef: {TxRef}, FlwTxId: {FlwTxId}, PackageRequestId: {PackageRequestId}, PackageSubscriptionId: {PackageSubscriptionId}, HasToken: {HasToken}",
                     transactionReference, flutterwaveTransactionId, packageRequest.Id, subscription.Id, !string.IsNullOrWhiteSpace(paymentToken));
 
+                await SendPaymentAndRequestConfirmationAsync(pendingPayment, packageRequest);
+
                 return Result<PendingPackagePayment>.Success(pendingPayment);
             }
             catch (Exception ex)
@@ -431,12 +446,71 @@ namespace Infrastructure.Content.Services
                     "Failed to create PackageRequest/PackageSubscription for TxRef: {TxRef}. Payment was received but no PackageRequest exists — needs manual follow-up.",
                     transactionReference);
 
+                // Alert first: if the failure is the database itself, the save below can throw too,
+                // and the client/ops must still hear about a charged-but-unfulfilled payment.
+                await SendRequestCreationFailedAlertsAsync(pendingPayment, ex);
+
                 pendingPayment.Status = PendingPackagePaymentStatus.Failed;
                 pendingPayment.ErrorMessage = "Payment received but failed to create the package request. Please contact support.";
                 await _dbContext.SaveChangesAsync();
 
                 return Result<PendingPackagePayment>.Failure(new List<string> { "Failed to create package request after payment." });
             }
+        }
+
+        /// <summary>
+        /// The single combined "payment received + request created" client email (Always-Send).
+        /// Best-effort: called only after the Completed status is saved, and never throws, so a mail
+        /// failure can neither fail the webhook nor flip a completed payment back to Failed.
+        /// </summary>
+        private async Task SendPaymentAndRequestConfirmationAsync(PendingPackagePayment payment, PackageRequestDTO request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(payment.Email)) return;
+                var firstName = await GetClientFirstNameAsync(payment.ClientId);
+                await _emailService.SendPackagePaymentConfirmationEmailAsync(
+                    payment.Email, firstName, payment.TotalAmount,
+                    $"{request.PackageCategory} ({request.PackageTierLabel})", payment.TransactionReference);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send combined payment/request confirmation email for TxRef {TxRef}",
+                    payment.TransactionReference);
+            }
+        }
+
+        /// <summary>Charged but no request exists: tell the client, and alert ops in-app and by email.</summary>
+        private async Task SendRequestCreationFailedAlertsAsync(PendingPackagePayment payment, Exception cause)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(payment.Email))
+                {
+                    var firstName = await GetClientFirstNameAsync(payment.ClientId);
+                    await _emailService.SendPackagePaymentIssueEmailAsync(
+                        payment.Email, firstName, payment.TotalAmount, payment.TransactionReference);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send payment-issue email to client for TxRef {TxRef}", payment.TransactionReference);
+            }
+
+            await _opsAlerts.NotifyAdminsAsync(
+                NotificationTypes.PackagePaymentRequestFailed,
+                "Client paid but request creation failed",
+                $"Client {payment.ClientId} paid ₦{payment.TotalAmount:N2} (TxRef {payment.TransactionReference}) but the package " +
+                $"request could not be created ({cause.GetType().Name}: {cause.Message}). Follow up manually.",
+                payment.ClientId,
+                alsoEmail: true);
+        }
+
+        private async Task<string> GetClientFirstNameAsync(string clientId)
+        {
+            if (!ObjectId.TryParse(clientId, out var oid)) return "there";
+            var client = await _dbContext.Clients.FirstOrDefaultAsync(c => c.Id == oid);
+            return string.IsNullOrWhiteSpace(client?.FirstName) ? "there" : client!.FirstName;
         }
 
         private string BuildRedirectUrl(string transactionReference)

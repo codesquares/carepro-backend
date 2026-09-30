@@ -26,6 +26,10 @@ namespace Application.Interfaces.Email
         
         // Payment-related notification methods
         Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId);
+        /// <summary>One combined email: payment received AND package request created (Always-Send).</summary>
+        Task SendPackagePaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string packageLabel, string transactionId);
+        /// <summary>Payment received but the package request could not be created; staff will follow up (Always-Send).</summary>
+        Task SendPackagePaymentIssueEmailAsync(string toEmail, string firstName, decimal amount, string transactionId);
         Task SendEarningsNotificationEmailAsync(string toEmail, string firstName, decimal amount, string clientName, string serviceType);
         Task SendWithdrawalRequestEmailAsync(string toEmail, string firstName, decimal amount, string status);
         Task SendPaymentFailedEmailAsync(string toEmail, string firstName, decimal amount, string reason);

@@ -28,6 +28,7 @@ namespace Infrastructure.Content.Services
         private readonly IContractPdfService _pdfService;
         private readonly IMediator _mediator;
         private readonly IEmailService _emailService;
+        private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<PackageContractService> _logger;
 
         /// <summary>Nominal contract period when the package itself defines no fixed duration.</summary>
@@ -39,6 +40,7 @@ namespace Infrastructure.Content.Services
             IContractPdfService pdfService,
             IMediator mediator,
             IEmailService emailService,
+            IOpsAlertService opsAlerts,
             ILogger<PackageContractService> logger)
         {
             _db = db;
@@ -46,6 +48,7 @@ namespace Infrastructure.Content.Services
             _pdfService = pdfService;
             _mediator = mediator;
             _emailService = emailService;
+            _opsAlerts = opsAlerts;
             _logger = logger;
         }
 
@@ -200,6 +203,7 @@ namespace Infrastructure.Content.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to render package contract PDF for contract {ContractId} — email skipped", contractId);
+                await AlertContractDeliveryFailedAsync(contractId, agreementTitle, "the PDF could not be rendered, so neither party was emailed the agreement");
                 return;
             }
 
@@ -220,9 +224,18 @@ namespace Infrastructure.Content.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to email package contract PDF {ContractId} to {Email}", contractId, email);
+                    await AlertContractDeliveryFailedAsync(contractId, agreementTitle, $"the agreement email to {email} failed");
                 }
             }
         }
+
+        private Task AlertContractDeliveryFailedAsync(string contractId, string agreementTitle, string reason)
+            => _opsAlerts.NotifyAdminsAsync(
+                NotificationTypes.PackageContractDeliveryFailed,
+                "Package contract email not delivered",
+                $"Contract {contractId} ({agreementTitle}) was generated but {reason}. Re-send it manually.",
+                contractId,
+                alsoEmail: true);
 
         // ─────────────────────── Adapter: Package → ContractGenerationDataDTO ───────────────────────
 

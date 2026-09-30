@@ -58,7 +58,7 @@ public class Phase9EndToEndPayrollTests
     // Real ContractTemplateService + real ContractPdfService — no external deps, same as Phase6ContractTests.
     private static PackageContractService CreateContractService(CareProDbContext db) =>
         new(db, new ContractTemplateService(), new ContractPdfService(), Mock.Of<IMediator>(),
-            Mock.Of<IEmailService>(), Mock.Of<ILogger<PackageContractService>>());
+            Mock.Of<IEmailService>(), Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageContractService>>());
 
     private static AssignmentService CreateAssignmentService(CareProDbContext db, PackageContractService contractService)
     {
@@ -67,7 +67,7 @@ public class Phase9EndToEndPayrollTests
             .ReturnsAsync(new CaregiverReadinessResult { IsReady = true });
         return new AssignmentService(
             db, Mock.Of<IMediator>(), Mock.Of<IEmailService>(), readiness.Object,
-            contractService, Mock.Of<ILogger<AssignmentService>>());
+            contractService, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<AssignmentService>>());
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class Phase9EndToEndPayrollTests
             // ── Phase 4: request → assign → accept ──
             var contractService = CreateContractService(db);
             var assignmentService = CreateAssignmentService(db, contractService);
-            var requestService = new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>());
+            var requestService = new PackageRequestService(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>());
 
             var packageRequest = await requestService.CreateAsync(client.Id.ToString(), new CreatePackageRequestRequest
             { PackageId = package.Id.ToString(), ServiceCategory = package.Category });
