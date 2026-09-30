@@ -20,6 +20,13 @@ namespace Application.Interfaces.Content
         /// operational/payroll internals). Ordered by category, then price ascending.
         /// </summary>
         Task<List<ClientPackageDTO>> GetActivePackagesForClientAsync();
+
+        /// <summary>
+        /// Anonymous-safe catalog: every active package as a price-free
+        /// <see cref="PublicPackageSummaryDTO"/> (category, tier, description, caregiver type only).
+        /// Same ordering as the client catalog.
+        /// </summary>
+        Task<List<PublicPackageSummaryDTO>> GetActivePackagesPublicAsync();
         Task<bool> UpdatePackageAsync(UpdatePackageRequest request);
         Task<bool> DeletePackageAsync(string id);
         Task<bool> ToggleActiveStatusAsync(string id, bool isActive);

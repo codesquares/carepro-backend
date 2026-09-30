@@ -8,7 +8,6 @@ using MongoDB.Bson;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
@@ -17,17 +16,14 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _dbContext;
         private readonly IGeocodingService _geocodingService;
-        private readonly IEligibilityService _eligibilityService;
+        private readonly ICaregiverReadinessService _readinessService;
         private readonly ILogger<CareRequestMatchingService> _logger;
 
-        // Scoring weights (sum = 100)
-        private const double WeightCategory = 25;
-        private const double WeightProximity = 25;
-        private const double WeightBudget = 15;
-        private const double WeightRating = 15;
-        private const double WeightPreference = 10;
-        private const double WeightEngagement = 5;
-        private const double WeightProfile = 5;
+        // Scoring weights (sum = 100). Proximity, experience and vetting-completeness only —
+        // gigs, budget, rating, preferences, engagement and profile do not influence ranking.
+        private const double WeightProximity = 45;
+        private const double WeightExperience = 30;
+        private const double WeightVetting = 25;
 
         private const double StrongMatchThreshold = 60;
         private const int MaxResults = 10;
@@ -37,21 +33,23 @@ namespace Infrastructure.Content.Services
         public CareRequestMatchingService(
             CareProDbContext dbContext,
             IGeocodingService geocodingService,
-            IEligibilityService eligibilityService,
+            ICaregiverReadinessService readinessService,
             ILogger<CareRequestMatchingService> logger)
         {
             _dbContext = dbContext;
             _geocodingService = geocodingService;
-            _eligibilityService = eligibilityService;
+            _readinessService = readinessService;
             _logger = logger;
         }
 
         // ─────────────────────────────────────────────────────────────
         //  Phase 4: internal assignment entry point
         //
-        //  Reuses the exact scoring pipeline (RunMatchingPipelineAsync) and the
-        //  existing IEligibilityService checks — no changes to either. Adds only a
-        //  hard filter on the package's RequiredCaregiverType / RequiredSpecialty.
+        //  Hard-filters only on availability/active status and the package's
+        //  RequiredCaregiverType / RequiredSpecialty (plus a distance cap when both sides
+        //  have coordinates). Gig existence never excludes a caregiver, and unmet
+        //  assessment/certificate requirements are surfaced on the result
+        //  (AssessmentReady / ReadinessGaps), not used to hide the caregiver.
         //  Internal assignment picks a single caregiver — no persistence beyond the
         //  ranked candidate list, no competitive-flow notifications.
         // ─────────────────────────────────────────────────────────────
@@ -149,11 +147,8 @@ namespace Infrastructure.Content.Services
             TransientMatchRequest careRequest, double? requestLat, double? requestLng, double maxDistanceKm,
             Func<Caregiver, bool>? extraHardFilter = null)
         {
-            // Phase 1: Hard Filters — get candidate caregivers
+            // Hard filters: available, non-deleted, active caregivers of the required type/specialty.
             var candidates = await GetCandidateCaregivers(careRequest.ServiceCategory);
-
-            // Phase 4: internal package assignment adds a hard filter on the package's
-            // RequiredCaregiverType / RequiredSpecialty. Scoring and eligibility below are unchanged.
             if (extraHardFilter != null)
                 candidates = candidates.Where(extraHardFilter).ToList();
 
@@ -163,74 +158,41 @@ namespace Infrastructure.Content.Services
             if (candidates.Count == 0)
                 return new List<CaregiverMatchDTO>();
 
-            // Load supporting data in batch
             var candidateIds = candidates.Select(c => c.Id.ToString()).ToList();
-            var allGigs = await _dbContext.Gigs
-                .Where(g => candidateIds.Contains(g.CaregiverId)
-                            && (g.IsDeleted == null || g.IsDeleted == false)
-                            && g.Status == "Active")
-                .ToListAsync();
 
+            // Reviews are display-only (shown to staff); they do not affect the score.
             var allReviews = await _dbContext.Reviews
                 .Where(r => candidateIds.Contains(r.CaregiverId))
                 .ToListAsync();
 
-            var clientPreferences = await _dbContext.ClientPreferences
-                .Where(p => p.ClientId == careRequest.ClientId)
-                .FirstOrDefaultAsync();
+            // Readiness is used twice, from this one batched read: as a visible flag on the result,
+            // and (via vetting completeness) as a ranking input. It never excludes a candidate.
+            var readiness = await _readinessService.GetReadinessBulkAsync(candidates, careRequest.ServiceCategory);
 
-            var recentOrders = await _dbContext.ClientOrders
-                .Where(o => candidateIds.Contains(o.CaregiverId))
-                .Select(o => new { o.CaregiverId, o.OrderCreatedAt })
-                .ToListAsync();
-
-            var parsedBudget = ParseBudget(careRequest.Budget);
-
-            // Phase 2: Score each candidate
             var scoredMatches = new List<CaregiverMatchDTO>();
 
             foreach (var caregiver in candidates)
             {
                 var cgId = caregiver.Id.ToString();
-                var caregiverGigs = allGigs.Where(g => g.CaregiverId == cgId).ToList();
-                var caregiverReviews = allReviews.Where(r => r.CaregiverId == cgId).ToList();
-                var caregiverOrders = recentOrders.Where(o => o.CaregiverId == cgId).ToList();
 
-                // Must have at least one gig in the category
-                var matchingGigs = caregiverGigs
-                    .Where(g => string.Equals(g.Category, careRequest.ServiceCategory, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (matchingGigs.Count == 0) continue;
-
-                // Check eligibility
-                var eligibilityError = await _eligibilityService.ValidateGigEligibilityAsync(cgId, careRequest.ServiceCategory);
-                if (eligibilityError != null) continue;
-
-                // Calculate each score factor
-                var categoryScore = CalculateCategoryScore(careRequest, matchingGigs);
                 var proximityResult = CalculateProximityScore(caregiver, requestLat, requestLng, maxDistanceKm);
-                if (proximityResult == null) continue; // Outside max distance or no coordinates
+                if (proximityResult == null) continue; // Outside max distance
 
-                var budgetScore = CalculateBudgetScore(matchingGigs, parsedBudget);
-                var ratingScore = CalculateRatingScore(caregiverReviews);
-                var preferenceScore = CalculatePreferenceScore(caregiverGigs, clientPreferences);
-                var engagementScore = CalculateEngagementScore(caregiverGigs, caregiverOrders.Select(o => o.OrderCreatedAt).ToList());
-                var profileScore = CalculateProfileScore(caregiver, caregiverGigs);
+                var experienceScore = CalculateExperienceScore(caregiver.ExperienceTier);
+                var r = readiness[cgId];
+                var vettingScore = CalculateVettingScore(r);
 
-                var totalScore = (categoryScore * WeightCategory / 100)
-                    + (proximityResult.Value.score * WeightProximity / 100)
-                    + (budgetScore * WeightBudget / 100)
-                    + (ratingScore * WeightRating / 100)
-                    + (preferenceScore * WeightPreference / 100)
-                    + (engagementScore * WeightEngagement / 100)
-                    + (profileScore * WeightProfile / 100);
+                var finalScore = Math.Round(
+                    (proximityResult.Value.score * WeightProximity
+                     + experienceScore * WeightExperience
+                     + vettingScore * WeightVetting), 1);
 
-                // Normalize to 0-100
-                var finalScore = Math.Round(totalScore * 100, 1);
+                var caregiverReviews = allReviews.Where(x => x.CaregiverId == cgId).ToList();
+                var avgRating = caregiverReviews.Count > 0 ? Math.Round(caregiverReviews.Average(x => x.Rating), 1) : 0;
 
-                var bestGig = matchingGigs.OrderBy(g => g.Price).First();
-                var avgRating = caregiverReviews.Count > 0 ? Math.Round(caregiverReviews.Average(r => r.Rating), 1) : 0;
+                var gaps = new List<string>();
+                if (!r.AssessmentPassed) gaps.Add("assessment");
+                if (r.IneligibilityReasons.Contains(CaregiverReadinessReasons.CertificateMissing)) gaps.Add("certificate");
 
                 scoredMatches.Add(new CaregiverMatchDTO
                 {
@@ -242,20 +204,19 @@ namespace Infrastructure.Content.Services
                     Location = caregiver.ServiceAddress ?? caregiver.ServiceCity,
                     MatchScore = finalScore,
                     MatchedServiceCategory = careRequest.ServiceCategory,
-                    GigTitle = bestGig.Title,
-                    GigPrice = bestGig.Price,
+                    AssessmentReady = gaps.Count == 0,
+                    ReadinessGaps = gaps,
+                    ReadinessMessage = gaps.Count == 0
+                        ? null
+                        : $"{careRequest.ServiceCategory}: {string.Join(" and ", gaps)} not yet completed",
                     DistanceKm = proximityResult.Value.distance,
                     AverageRating = avgRating,
                     ReviewCount = caregiverReviews.Count,
                     ScoreBreakdown = new MatchScoreBreakdownDTO
                     {
-                        CategoryScore = Math.Round(categoryScore * WeightCategory, 1),
                         ProximityScore = Math.Round(proximityResult.Value.score * WeightProximity, 1),
-                        BudgetScore = Math.Round(budgetScore * WeightBudget, 1),
-                        RatingScore = Math.Round(ratingScore * WeightRating, 1),
-                        PreferenceScore = Math.Round(preferenceScore * WeightPreference, 1),
-                        EngagementScore = Math.Round(engagementScore * WeightEngagement, 1),
-                        ProfileScore = Math.Round(profileScore * WeightProfile, 1)
+                        ExperienceScore = Math.Round(experienceScore * WeightExperience, 1),
+                        VettingScore = Math.Round(vettingScore * WeightVetting, 1)
                     }
                 });
             }
@@ -274,27 +235,6 @@ namespace Infrastructure.Content.Services
         #endregion
 
         #region Scoring Factors
-
-        private double CalculateCategoryScore(TransientMatchRequest request, List<Gig> matchingGigs)
-        {
-            // Base: has matching category = 0.7
-            double score = 0.7;
-
-            // Bonus for subcategory/tag keyword overlap with request title/description
-            var requestKeywords = ExtractKeywords(request.ServiceCategory + " " + (request.Notes ?? string.Empty));
-            foreach (var gig in matchingGigs)
-            {
-                var gigKeywords = ExtractKeywords(gig.SubCategory + " " + gig.Tags + " " + gig.Title);
-                var overlap = requestKeywords.Intersect(gigKeywords, StringComparer.OrdinalIgnoreCase).Count();
-                if (overlap > 0)
-                {
-                    score += Math.Min(0.3, overlap * 0.1);
-                    break;
-                }
-            }
-
-            return Math.Min(1.0, score);
-        }
 
         private (double score, double distance)? CalculateProximityScore(
             Caregiver caregiver, double? requestLat, double? requestLng, double maxDistanceKm)
@@ -320,101 +260,33 @@ namespace Infrastructure.Content.Services
             return (score, Math.Round(distance, 2));
         }
 
-        private double CalculateBudgetScore(List<Gig> matchingGigs, decimal? parsedBudget)
+        /// <summary>Senior 1.0, Mid 0.6, Junior 0.3. An unset tier is missing information, not a
+        /// confirmed status, so it gets no benefit of the doubt: it scores as the lowest known tier.</summary>
+        private static double CalculateExperienceScore(ExperienceTier? tier) => tier switch
         {
-            if (!parsedBudget.HasValue) return 0.7; // Neutral if no budget specified
+            ExperienceTier.Senior => 1.0,
+            ExperienceTier.Mid => 0.6,
+            ExperienceTier.Junior => 0.3,
+            _ => 0.3
+        };
 
-            var lowestPrice = matchingGigs.Min(g => g.Price);
-            if (lowestPrice <= (double)parsedBudget.Value)
-                return 1.0; // Within budget
-
-            var overPercentage = ((double)lowestPrice - (double)parsedBudget.Value) / (double)parsedBudget.Value;
-            if (overPercentage <= 0.2) return 0.5; // Up to 20% over
-            return 0.1; // More than 20% over
-        }
-
-        private double CalculateRatingScore(List<Review> reviews)
+        /// <summary>Fraction of the five vetting criteria satisfied (identity, two confirmed guarantors,
+        /// address history, category assessment, category certificates). Active-gig existence is
+        /// deliberately not counted. Proportional so "nearly there" outranks "barely started".</summary>
+        private static double CalculateVettingScore(CaregiverReadinessResult r)
         {
-            if (reviews.Count == 0) return 0.4; // Neutral for new caregivers
-
-            var avgRating = reviews.Average(r => r.Rating);
-            var ratingNormalized = avgRating / 5.0;
-            var volumeFactor = Math.Min(1.0, reviews.Count / 10.0);
-
-            return 0.7 * ratingNormalized + 0.3 * volumeFactor;
-        }
-
-        private double CalculatePreferenceScore(List<Gig> allCaregiverGigs, ClientPreference? preferences)
-        {
-            if (preferences == null || preferences.Data == null || preferences.Data.Count == 0)
-                return 0.5; // Neutral
-
-            var gigCategories = allCaregiverGigs
-                .SelectMany(g => new[] { g.Category, g.SubCategory })
-                .Where(s => !string.IsNullOrEmpty(s))
-                .Select(s => s.ToLower())
-                .Distinct()
-                .ToHashSet();
-
-            var prefTags = preferences.Data.Select(d => d.ToLower()).ToHashSet();
-
-            var intersection = gigCategories.Intersect(prefTags).Count();
-            var union = gigCategories.Union(prefTags).Count();
-
-            if (union == 0) return 0.5;
-            return (double)intersection / union;
-        }
-
-        private double CalculateEngagementScore(List<Gig> gigs, List<DateTime> orderDates)
-        {
-            // Most recent activity
-            var latestGigUpdate = gigs.Where(g => g.UpdatedOn.HasValue).Max(g => (DateTime?)g.UpdatedOn);
-            var latestOrder = orderDates.Count > 0 ? (DateTime?)orderDates.Max() : null;
-
-            var lastActivity = new[] { latestGigUpdate, latestOrder }
-                .Where(d => d.HasValue)
-                .Select(d => d!.Value)
-                .DefaultIfEmpty(DateTime.MinValue)
-                .Max();
-
-            if (lastActivity == DateTime.MinValue) return 0.3; // No activity
-
-            var daysSince = (DateTime.UtcNow - lastActivity).TotalDays;
-            return Math.Max(0, 1.0 - daysSince / 90.0);
-        }
-
-        private double CalculateProfileScore(Caregiver caregiver, List<Gig> gigs)
-        {
-            double score = 0;
-            if (!string.IsNullOrEmpty(caregiver.ProfileImage)) score += 0.2;
-            if (!string.IsNullOrEmpty(caregiver.AboutMe)) score += 0.2;
-            if (!string.IsNullOrEmpty(caregiver.IntroVideo)) score += 0.2;
-            if (caregiver.Latitude.HasValue && caregiver.Longitude.HasValue) score += 0.2;
-            if (gigs.Count > 0) score += 0.2;
-            return score;
+            int met = 0;
+            if (r.IsIdentityVerified) met++;
+            if (r.HasTwoConfirmedGuarantors) met++;
+            if (r.AddressHistoryComplete) met++;
+            if (r.AssessmentPassed) met++;
+            if (!r.IneligibilityReasons.Contains(CaregiverReadinessReasons.CertificateMissing)) met++;
+            return met / 5.0;
         }
 
         #endregion
 
         #region Helpers
-
-        private static decimal? ParseBudget(string? budget)
-        {
-            if (string.IsNullOrEmpty(budget)) return null;
-            var match = Regex.Match(budget, @"[\d,]+\.?\d*");
-            if (match.Success && decimal.TryParse(match.Value.Replace(",", ""), out var value))
-                return value;
-            return null;
-        }
-
-        private static HashSet<string> ExtractKeywords(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return new HashSet<string>();
-            return text.Split(new[] { ' ', ',', ';', '-', '/', '&', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(w => w.Length > 2)
-                .Select(w => w.ToLower())
-                .ToHashSet();
-        }
 
         private static double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
         {

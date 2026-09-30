@@ -68,10 +68,12 @@ public class PackageSubscriptionTests
         return new PackagePaymentService(
             db,
             packageService,
-            new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>()),
+            new PackageRequestService(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>()),
             CreateSubscriptionService(db),
             CreateFakeFlutterwave(),
             config,
+            Mock.Of<IEmailService>(),
+            Mock.Of<IOpsAlertService>(),
             Mock.Of<ILogger<PackagePaymentService>>());
     }
 
@@ -490,8 +492,8 @@ public class PackageSubscriptionTests
 
         var assignmentService = new AssignmentService(
             db, Mock.Of<IMediator>(), Mock.Of<IEmailService>(), readiness.Object,
-            Mock.Of<IPackageContractService>(), Mock.Of<ILogger<AssignmentService>>());
-        var requestService = new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>());
+            Mock.Of<IPackageContractService>(), Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<AssignmentService>>());
+        var requestService = new PackageRequestService(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>());
 
         var assignment = await assignmentService.AssignAsync(packageRequestId, caregiver.Id.ToString(), "admin-1", "ops@carepro.test", "staff", 88.0);
         Assert.Equal(AssignmentStatuses.PendingAcceptance, assignment.Status);

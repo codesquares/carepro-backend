@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Infrastructure.Content.Services;
@@ -73,10 +74,12 @@ public class PackagePaymentTests
         return new PackagePaymentService(
             db,
             packageServiceMock.Object,
-            packageRequestService ?? new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>()),
+            packageRequestService ?? new PackageRequestService(db, Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageRequestService>>()),
             packageSubscriptionService ?? new PackageSubscriptionService(db, CreateFakeFlutterwave(), Mock.Of<MediatR.IMediator>(), Mock.Of<ILogger<PackageSubscriptionService>>()),
             CreateFakeFlutterwave(),
             config,
+            Mock.Of<IEmailService>(),
+            Mock.Of<IOpsAlertService>(),
             Mock.Of<ILogger<PackagePaymentService>>());
     }
 

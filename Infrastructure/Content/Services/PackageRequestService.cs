@@ -15,11 +15,13 @@ namespace Infrastructure.Content.Services
     public class PackageRequestService : IPackageRequestService
     {
         private readonly CareProDbContext _db;
+        private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<PackageRequestService> _logger;
 
-        public PackageRequestService(CareProDbContext db, ILogger<PackageRequestService> logger)
+        public PackageRequestService(CareProDbContext db, IOpsAlertService opsAlerts, ILogger<PackageRequestService> logger)
         {
             _db = db;
+            _opsAlerts = opsAlerts;
             _logger = logger;
         }
 
@@ -68,6 +70,14 @@ namespace Infrastructure.Content.Services
             await _db.SaveChangesAsync();
             _logger.LogInformation("PackageRequest {Id} created by client {ClientId} for package {PackageId}",
                 entity.Id, clientId, entity.PackageId);
+
+            // Staff need a real signal that a request is waiting for a caregiver (in-app; never throws).
+            await _opsAlerts.NotifyAdminsAsync(
+                NotificationTypes.PackageRequestReceived,
+                "New package request awaiting assignment",
+                $"A new {entity.PackageCategory} ({entity.PackageTierLabel}) package request is pending and needs a caregiver assigned.",
+                entity.Id.ToString());
+
             return await MapAsync(entity);
         }
 

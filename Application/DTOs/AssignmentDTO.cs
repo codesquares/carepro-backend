@@ -32,23 +32,23 @@ namespace Application.DTOs
         public string? Location { get; set; }
         public double MatchScore { get; set; }
         public string MatchedServiceCategory { get; set; } = string.Empty;
-        public string? GigTitle { get; set; }
-        public int? GigPrice { get; set; }
+        /// <summary>False when the category requires an assessment/certificate the caregiver hasn't completed. Informational — never hides the candidate.</summary>
+        public bool AssessmentReady { get; set; } = true;
+        /// <summary>Which requirements are unmet, e.g. "assessment", "certificate".</summary>
+        public List<string> ReadinessGaps { get; set; } = new();
+        public string? ReadinessMessage { get; set; }
         public double? DistanceKm { get; set; }
         public double AverageRating { get; set; }
         public int ReviewCount { get; set; }
         public MatchScoreBreakdownDTO ScoreBreakdown { get; set; } = new();
     }
 
+    /// <summary>Points contributed by each factor; they sum to MatchScore (0-100).</summary>
     public class MatchScoreBreakdownDTO
     {
-        public double CategoryScore { get; set; }
-        public double ProximityScore { get; set; }
-        public double BudgetScore { get; set; }
-        public double RatingScore { get; set; }
-        public double PreferenceScore { get; set; }
-        public double EngagementScore { get; set; }
-        public double ProfileScore { get; set; }
+        public double ProximityScore { get; set; }   // max 45
+        public double ExperienceScore { get; set; }  // max 30
+        public double VettingScore { get; set; }     // max 25
     }
 
     // ─────────────────── 4.2  Package request ───────────────────

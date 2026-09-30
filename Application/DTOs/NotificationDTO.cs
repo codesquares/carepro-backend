@@ -209,6 +209,14 @@ namespace Application.DTOs
         /// <summary>To the caregiver: staff withdrew the assignment.</summary>
         public const string PackageAssignmentCancelled = "package_assignment_cancelled";
 
+        // ── Ops alerts (to admins) ──
+        /// <summary>To ops staff: a new package request is pending and needs a caregiver assigned.</summary>
+        public const string PackageRequestReceived = "package_request_received";
+        /// <summary>To ops staff: a client's payment succeeded but the package request could not be created — manual follow-up.</summary>
+        public const string PackagePaymentRequestFailed = "package_payment_request_failed";
+        /// <summary>To ops staff: a confirmed package's contract was not generated or delivered — manual follow-up.</summary>
+        public const string PackageContractDeliveryFailed = "package_contract_delivery_failed";
+
         // ── Phase 6: Auto-generated package contract ──
         /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
         public const string PackageContractGenerated = "package_contract_generated";

@@ -93,7 +93,7 @@ public class Phase4AssignmentTests
         => new(
             db,
             Mock.Of<IGeocodingService>(),
-            new EligibilityService(db, Mock.Of<ILogger<EligibilityService>>()),
+            new CaregiverReadinessService(db, new EligibilityService(db, Mock.Of<ILogger<EligibilityService>>()), Mock.Of<ILogger<CaregiverReadinessService>>()),
             Mock.Of<ILogger<CareRequestMatchingService>>());
 
     [Fact]
@@ -172,11 +172,13 @@ public class Phase4AssignmentTests
                 ? new CaregiverReadinessResult { IsReady = true }
                 : new CaregiverReadinessResult { IsReady = false, IneligibilityReasons = { CaregiverReadinessReasons.NotIdentityVerified } });
 
+        var opsAlerts = new OpsAlertService(db, mediator.Object, email.Object, Mock.Of<ILogger<OpsAlertService>>());
         var assignments = new AssignmentService(
             db, mediator.Object, email.Object, readiness.Object,
             Mock.Of<IPackageContractService>(),
+            opsAlerts,
             Mock.Of<ILogger<AssignmentService>>());
-        var requests = new PackageRequestService(db, Mock.Of<ILogger<PackageRequestService>>());
+        var requests = new PackageRequestService(db, opsAlerts, Mock.Of<ILogger<PackageRequestService>>());
 
         return new AssignHarness { Assignments = assignments, Requests = requests, Mediator = mediator, Email = email };
     }
@@ -283,10 +285,10 @@ public class Phase4AssignmentTests
             var h = CreateAssignHarness(db);
             await h.Assignments.AcceptAsync(assignmentId, cgId);
 
-            // The client confirmation email is likewise Always-Send.
+            // The client confirmation email and the caregiver confirmation email are likewise Always-Send.
             h.Email.Verify(e => e.SendGenericNotificationEmailAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                false, null, null), Times.Once);
+                false, null, null), Times.Exactly(2));
             h.Email.VerifyNoOtherCalls();
         }
     }

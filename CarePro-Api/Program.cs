@@ -213,6 +213,7 @@ builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 builder.Services.AddScoped<IPackageService, PackageService>();
 builder.Services.AddScoped<ICaregiverPayRateService, CaregiverPayRateService>();
 builder.Services.AddScoped<IPayrollService, PayrollService>();
+builder.Services.AddScoped<IOpsAlertService, OpsAlertService>();
 builder.Services.AddScoped<IPackageRequestService, PackageRequestService>();
 builder.Services.AddScoped<IPackageContractService, PackageContractService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();

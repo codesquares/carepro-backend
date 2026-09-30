@@ -44,6 +44,22 @@ namespace Application.DTOs
         public decimal? AdditionalDayPrice { get; set; }
     }
 
+    /// <summary>
+    /// Anonymous-safe, price-free projection of an active <see cref="Domain.Entities.Package"/> for the
+    /// public homepage. Contains ONLY these four informational fields — deliberately no id, no
+    /// <c>BasePrice</c>/<c>AdditionalDayPrice</c> (pricing is signed-in only) and no payroll internals
+    /// (<c>FixedCaregiverPay</c>, <c>PayCalculationType</c>). Kept a separate type from
+    /// <see cref="ClientPackageDTO"/> so a price can never leak through a shared shape.
+    /// </summary>
+    public class PublicPackageSummaryDTO
+    {
+        public string Category { get; set; } = string.Empty;
+        public string TierLabel { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        /// <summary>Informational only. "AuxiliaryNurse" | "CHEW" | "RegisteredNurse".</summary>
+        public string RequiredCaregiverType { get; set; } = string.Empty;
+    }
+
     public class AddPackageRequest
     {
         [Required]
