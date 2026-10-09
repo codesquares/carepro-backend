@@ -95,6 +95,12 @@ namespace Infrastructure.Content.Services
                 if (assignment.Status != AssignmentStatuses.Accepted)
                     throw new InvalidOperationException("This assignment has not been accepted yet.");
 
+                // Care can't begin while the client's cancellation window is open (or after a cancel). Checked HERE —
+                // before auto-activation, the schedule guard and any GPS/proximity work — so a blocked caregiver gets
+                // the window message rather than a location error, and nothing is mutated.
+                var windowContract = await _dbContext.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == assignment.PackageRequestId);
+                if (windowContract != null) CancellationWindowGuard.EnsureCareMayBegin(windowContract, DateTime.UtcNow);
+
                 notifyClientId = assignment.ClientId;
             }
             else

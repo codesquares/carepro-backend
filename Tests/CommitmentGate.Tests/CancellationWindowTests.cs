@@ -234,6 +234,66 @@ public class CancellationWindowTests
         }
     }
 
+    // ───────────── Check-in guard ─────────────
+
+    private static VisitCheckinService CheckIn(CareProDbContext db) => new(db, Mock.Of<IGeocodingService>(),
+        new ConfigurationBuilder().Build(), Mock.Of<Microsoft.Extensions.Hosting.IHostEnvironment>(), Mock.Of<IMediator>(), Mock.Of<ILogger<VisitCheckinService>>());
+
+    private static VisitCheckinRequest BadGps(string sheetId) => new()
+    {
+        TaskSheetId = sheetId, OrderId = null,
+        Latitude = -33.0, Longitude = 151.0,          // other side of the world
+        Accuracy = 9000,                              // terrible accuracy
+        CheckinTimestamp = DateTime.UtcNow
+    };
+
+    [Fact]
+    public async Task CheckIn_InsideWindow_ReturnsWindowError_NotALocationError_AndMutatesNothing()
+    {
+        var (db, _, _, cgId) = await Generated();
+        using (db)
+        {
+            var c = await db.Contracts.FirstAsync();
+            var ends = c.CancellationWindowEndsAt!.Value;
+            // A sheet that exists while the window is open (e.g. created under an older policy): move the window
+            // back just long enough to create it, then restore it.
+            c.CancellationWindowEndsAt = DateTime.UtcNow.AddMinutes(-1); await db.SaveChangesAsync();
+            var a = await db.Assignments.FirstAsync();
+            var sheet = await TaskSheets(db).CreateTaskSheetForAssignmentAsync(a.Id.ToString(), cgId);
+            c.CancellationWindowEndsAt = ends; await db.SaveChangesAsync();
+
+            var ex = await Assert.ThrowsAsync<CancellationWindowOpenException>(() => CheckIn(db).CheckinAsync(BadGps(sheet.Id), cgId));
+            Assert.Equal("cancellation_window_open", ex.ErrorCode);
+            Assert.Equal(ends, ex.WindowEndsAt);
+            Assert.Contains("WAT", ex.Message);
+            Assert.Empty(await db.VisitCheckins.ToListAsync());                       // nothing recorded
+            Assert.Equal("in-progress", (await db.TaskSheets.AsNoTracking().FirstAsync()).Status);
+
+            // After the window end passes the same caller proceeds. GPS accuracy handling is untouched: bad
+            // accuracy is measured and flagged by the existing logic, not blocked by this guard.
+            c.CancellationWindowEndsAt = DateTime.UtcNow.AddMinutes(-1); await db.SaveChangesAsync();
+            var ok = await CheckIn(db).CheckinAsync(new VisitCheckinRequest { TaskSheetId = sheet.Id, OrderId = null, Latitude = 6.5, Longitude = 3.3, Accuracy = 10, CheckinTimestamp = DateTime.UtcNow }, cgId);
+            Assert.True(ok.Success);
+        }
+    }
+
+    [Fact]
+    public async Task CheckIn_CancelledContract_IsBlocked()
+    {
+        var (db, prId, clientId, cgId) = await Generated();
+        using (db)
+        {
+            var c = await db.Contracts.FirstAsync();
+            c.CancellationWindowEndsAt = DateTime.UtcNow.AddMinutes(-1); await db.SaveChangesAsync();
+            var a = await db.Assignments.FirstAsync();
+            var sheet = await TaskSheets(db).CreateTaskSheetForAssignmentAsync(a.Id.ToString(), cgId);
+            c.CancellationWindowEndsAt = DateTime.UtcNow.AddHours(1); await db.SaveChangesAsync();   // window open again so cancel is allowed
+            await Svc(db).CancelByClientAsync(prId, clientId);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => CheckIn(db).CheckinAsync(BadGps(sheet.Id), cgId));
+            Assert.Empty(await db.VisitCheckins.ToListAsync());
+        }
+    }
+
     // ───────────── Explicit "I agree" tick ─────────────
 
     [Fact]
@@ -388,6 +448,36 @@ public class CancellationWindowTests
             Assert.Contains("onboarding and vetting process", dto.GeneratedTermsHtml);
         }
     }
+
+    [Fact]
+    public async Task ClosesLine_IsInHtml_EqualsWindowEndInWat_AndIsAbsentWhenWindowIsZero()
+    {
+        var (db, prId, _, _) = await Generated();
+        using (db)
+        {
+            var dto = (await Svc(db).GetByPackageRequestAsync(prId))!;
+            var expected = $"The cancellation period closes on {Application.Content.LagosTime.Format(dto.CancellationWindowEndsAt!.Value)}.";
+            Assert.Equal(expected, dto.CancellationClosesLine);
+            Assert.Contains(expected, dto.GeneratedTermsHtml);
+            Assert.Contains("WAT", expected);
+            // the stored UTC instant is unchanged; WAT is exactly +1h
+            Assert.Equal(dto.CancellationWindowEndsAt.Value.AddHours(1), Application.Content.LagosTime.FromUtc(dto.CancellationWindowEndsAt.Value));
+        }
+        var (db0, prId0, _, _) = await Generated(hours: 0);
+        using (db0)
+        {
+            var dto0 = (await Svc(db0, hours: 0).GetByPackageRequestAsync(prId0))!;
+            Assert.Null(dto0.CancellationClosesLine);
+            Assert.DoesNotContain("cancellation period closes", dto0.GeneratedTermsHtml);
+        }
+    }
+
+    [Fact]
+    public void LagosTime_FormatsWatRegardlessOfServerZone()
+    {
+        Assert.Equal("Friday, 9 October 2026 at 8:51 AM WAT", Application.Content.LagosTime.Format(new DateTime(2026, 10, 9, 7, 51, 0, DateTimeKind.Utc)));
+        Assert.Equal("Saturday, 10 October 2026 at 12:30 AM WAT", Application.Content.LagosTime.Format(new DateTime(2026, 10, 9, 23, 30, 0, DateTimeKind.Utc)));
+    }
 }
 
 /// <summary>Writes the real rendered HTML contract, PDF and client email body to EVIDENCE_DIR (skipped when unset).</summary>
@@ -405,7 +495,13 @@ public class ContractEvidenceDump
         {
             var (client, pkg, cg) = Phase6ContractTests.Seed(db);
             var pr = Phase6ContractTests.AddConfirmedRequest(db, client, pkg, cg);
-            var svc = new PackageContractService(db, new ContractTemplateService(), new ContractPdfService(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(),
+            // Capture exactly what the real send path hands to the email service for the client.
+            string? sentAck = null;
+            var emailMock = new Mock<IEmailService>();
+            emailMock.Setup(e => e.SendContractPdfEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<string?>()))
+                .Callback<string, string, string, string, byte[], string?>((to, _, _, _, _, ack) => { if (to.StartsWith("client-")) sentAck = ack; })
+                .Returns(Task.CompletedTask);
+            var svc = new PackageContractService(db, new ContractTemplateService(), new ContractPdfService(), Mock.Of<IMediator>(), emailMock.Object,
                 Mock.Of<IOpsAlertService>(), Mock.Of<ILogger<PackageContractService>>());
             var dto = await svc.GenerateForConfirmedRequestAsync(pr.Id.ToString());
             await File.WriteAllTextAsync(Path.Combine(dir, "contract.html"), dto.GeneratedTermsHtml);
@@ -415,7 +511,7 @@ public class ContractEvidenceDump
                 Options.Create(new MailSettings { FromEmail = "noreply@x.com", FromName = "CarePro", SmtpServer = "x", SmtpPort = 1, AppPassword = "x" }), // pragma: allowlist-secret
                 db, Mock.Of<Application.Interfaces.Authentication.ITokenHandler>(), Mock.Of<ILogger<Infrastructure.Services.EmailService>>(),
                 Mock.Of<Application.Interfaces.Email.IEmailNotificationTrackingService>());
-            var msg = mail.BuildContractPdfEmailMessage("client@x.com", "Amara", dto.Id, "Post-Partum Care (Premium) Package", new byte[] { 1, 2, 3 }, dto.CancellationAcknowledgement);
+            var msg = mail.BuildContractPdfEmailMessage("client@x.com", "Amara", dto.Id, "Post-Partum Care (Premium) Package", new byte[] { 1, 2, 3 }, sentAck);
             await File.WriteAllTextAsync(Path.Combine(dir, "client-email.html"), msg.HtmlBody ?? "");
             var cgMsg = mail.BuildContractPdfEmailMessage("cg@x.com", "Ngozi", dto.Id, "Post-Partum Care (Premium) Package", new byte[] { 1, 2, 3 }, null);
             await File.WriteAllTextAsync(Path.Combine(dir, "caregiver-email.html"), cgMsg.HtmlBody ?? "");
