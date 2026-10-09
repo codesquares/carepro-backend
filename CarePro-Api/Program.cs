@@ -217,6 +217,7 @@ builder.Services.AddScoped<IOpsAlertService, OpsAlertService>();
 builder.Services.AddScoped<IPackageRequestService, PackageRequestService>();
 builder.Services.AddScoped<IPackageContractService, PackageContractService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<IPackageVisitAdminService, PackageVisitAdminService>();
 
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
