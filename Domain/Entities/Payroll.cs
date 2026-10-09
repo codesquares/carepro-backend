@@ -52,6 +52,9 @@ namespace Domain.Entities
         public string? ApprovedByAdminEmail { get; set; }
         public DateTime? ApprovedAt { get; set; }
 
+        /// <summary>How many uncleared HARD-flagged visits the approving admin explicitly confirmed approving over (null/0 = none).</summary>
+        public int? ApprovedWithUnclearedFlags { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

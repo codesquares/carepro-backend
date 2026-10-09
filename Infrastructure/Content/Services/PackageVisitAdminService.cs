@@ -47,12 +47,13 @@ namespace Infrastructure.Content.Services
             c.FlagClearedAt == null && CheckinFlagReasons.HasHard(c.FlagReasons) ? 0
             : c.FlagClearedAt == null && (c.FlagReasons?.Count ?? 0) > 0 ? 1 : 2;
 
-        public async Task<List<PackageVisitAdminRowDTO>> GetUnclearedHardFlagsAsync(string caregiverId, int year, int month)
+        public async Task<List<PackageVisitAdminRowDTO>> GetUnclearedHardFlagsAsync(string caregiverId, int year, int month, string? assignmentId = null)
         {
             var start = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
             var end = start.AddMonths(1);
             var list = (await _db.VisitCheckins.Where(c => c.CaregiverId == caregiverId && c.AssignmentId != null && c.AssignmentId != "").ToListAsync())
-                .Where(c => c.CheckinTimestamp >= start && c.CheckinTimestamp < end
+                .Where(c => (assignmentId == null || c.AssignmentId == assignmentId)
+                            && c.CheckinTimestamp >= start && c.CheckinTimestamp < end
                             && c.FlagClearedAt == null && CheckinFlagReasons.HasHard(c.FlagReasons))
                 .OrderBy(c => c.CheckinTimestamp).ToList();
             return await BuildRowsAsync(list);

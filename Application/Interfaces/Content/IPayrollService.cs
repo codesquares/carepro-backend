@@ -21,6 +21,9 @@ namespace Application.Interfaces.Content
         /// approval is itself the finality/release event, unlike order-based earnings
         /// which need a separate per-visit release.
         /// </summary>
+        /// <summary>Uncleared HARD-flagged visits behind a payroll record (this assignment, this pay month).</summary>
+        Task<List<PackageVisitAdminRowDTO>> GetUnclearedFlaggedVisitsAsync(string id);
+
         Task<PayrollDTO> ApprovePayrollAsync(string id, ApprovePayrollRequest request, string adminId, string adminEmail);
 
         /// <summary>Marks an Approved payroll record Paid — a reconciliation status only;

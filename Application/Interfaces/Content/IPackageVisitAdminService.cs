@@ -12,6 +12,6 @@ namespace Application.Interfaces.Content
         Task<PackageVisitAdminRowDTO> ClearFlagAsync(string checkinId, string adminId, string? adminEmail, string note);
 
         /// <summary>Uncleared HARD-flagged visits for one caregiver in one calendar month (payroll soft gate).</summary>
-        Task<List<PackageVisitAdminRowDTO>> GetUnclearedHardFlagsAsync(string caregiverId, int year, int month);
+        Task<List<PackageVisitAdminRowDTO>> GetUnclearedHardFlagsAsync(string caregiverId, int year, int month, string? assignmentId = null);
     }
 }
