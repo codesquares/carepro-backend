@@ -29,7 +29,7 @@ namespace Infrastructure.Content.Services
                     {
                         col.Item().AlignCenter().Text("CAREPRO CARE SERVICE AGREEMENT")
                             .Bold().FontSize(16).FontColor(Colors.Blue.Darken2);
-                        col.Item().AlignCenter().Text("Facilitated through the CarePro Platform")
+                        col.Item().AlignCenter().Text(Application.Content.ContractWording.Subtitle)
                             .FontSize(9).FontColor(Colors.Grey.Darken1);
                         col.Item().PaddingTop(6).LineHorizontal(1).LineColor(Colors.Blue.Darken2);
                     });
@@ -58,6 +58,7 @@ namespace Infrastructure.Content.Services
 
                         // Section 1: Parties
                         SectionHeader(col, "Section 1: Parties to This Agreement");
+                        col.Item().Text(Application.Content.ContractWording.PartiesIntro).FontSize(10);
                         col.Item().Table(table =>
                         {
                             table.ColumnsDefinition(columns =>
@@ -68,8 +69,8 @@ namespace Infrastructure.Content.Services
                             });
 
                             HeaderCell(table, "");
-                            HeaderCell(table, "Client (Care Recipient)");
-                            HeaderCell(table, "Caregiver (Service Provider)");
+                            HeaderCell(table, Application.Content.ContractWording.ClientColumnHeading);
+                            HeaderCell(table, Application.Content.ContractWording.CaregiverColumnHeading);
 
                             BodyCell(table, "Full Name", true);
                             BodyCell(table, data.ClientFullName);
@@ -338,12 +339,12 @@ namespace Infrastructure.Content.Services
                         // Section 13: Limitation of Liability
                         SectionHeader(col, "Section 13: Limitation of Liability");
                         BulletList(col,
-                            "CarePro operates as a marketplace platform and is not liable for the actions or omissions of either party.",
-                            "The Caregiver operates as an independent contractor and is solely responsible for the quality of care provided.");
+                            Application.Content.ContractWording.LiabilityLine1,
+                            Application.Content.ContractWording.LiabilityLine2);
 
                         // Section 14: Acknowledgment
                         SectionHeader(col, "Section 14: Acknowledgment");
-                        col.Item().Text("Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement.");
+                        col.Item().Text(Application.Content.ContractWording.AcknowledgmentText);
                         if (data.CancellationWindowHours > 0 && data.ContractSentAt.HasValue)
                         {
                             col.Item().PaddingTop(4).Text(Application.Content.ContractWording.CancellationHeading).Bold().FontSize(10);
@@ -371,7 +372,7 @@ namespace Infrastructure.Content.Services
                                 sig.Item().LineHorizontal(0.5f);
                                 sig.Item().PaddingTop(2).Text(t =>
                                 {
-                                    t.Span("Caregiver: ").Bold();
+                                    t.Span(Application.Content.ContractWording.CaregiverSignatureLabel + ": ").Bold();
                                     t.Span(data.CaregiverFullName);
                                 });
                                 sig.Item().Text($"Date: {data.GeneratedAt:MMMM dd, yyyy}").FontSize(9);
