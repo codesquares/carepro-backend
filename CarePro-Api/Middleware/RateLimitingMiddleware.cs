@@ -23,11 +23,12 @@ namespace CarePro_Api.Middleware
         // Restricting to specific (method, path) pairs prevents read endpoints under the
         // same controller (e.g. GET /api/admins/certificates/pendingreview) from being
         // throttled as if they were registration POSTs.
-        private static readonly HashSet<string> _authPostEndpoints = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "/api/authentications/userlogin",
-            "/api/authentications/refreshtoken"
-        };
+        // RETIRED as a single shared bucket: login and refresh used to share Auth (5 requests/min per IP, 300 s block,
+        // successes counted), so users behind one carrier IP locked each other out. Now: login = per-IP ceiling +
+        // per-email FAILURE limit (HandleLoginAsync); refresh = its own bucket. Kept for reference:
+        // private static readonly HashSet<string> _authPostEndpoints = { "/api/authentications/userlogin", "/api/authentications/refreshtoken" };
+        private const string LoginPath = "/api/authentications/userlogin";
+        private const string RefreshPath = "/api/authentications/refreshtoken";
 
         private static readonly HashSet<string> _passwordResetPostEndpoints = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -70,6 +71,12 @@ namespace CarePro_Api.Middleware
             var method = context.Request.Method;
             var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
 
+            if (HttpMethods.IsPost(method) && string.Equals(path, LoginPath, StringComparison.OrdinalIgnoreCase))
+            {
+                await HandleLoginAsync(context);
+                return;
+            }
+
             var (category, bucket) = Classify(method, path, context);
             var clientKey = BuildClientKey(context, category);
             var rateLimitKey = $"rl:{category}:{clientKey}";
@@ -100,12 +107,94 @@ namespace CarePro_Api.Middleware
             await _next(context);
         }
 
+        /// <summary>
+        /// Login limiting:
+        ///  1. per-IP ceiling (all attempts, generous — shared carrier IPs are normal);
+        ///  2. per-EMAIL failure limit: N failed logins within the window block THAT email only; a successful login resets it.
+        /// The block response is identical for every email, whether or not an account exists, so it reveals nothing.
+        /// The email comes from the request body (buffered and rewound so the controller still reads it).
+        /// </summary>
+        private async Task HandleLoginAsync(HttpContext context)
+        {
+            var ip = GetClientIp(context);
+            var (ipLimited, ipRetry) = await _store.CheckAndRecordAsync($"rl:login-ip:ip:{ip}", _options.LoginIp, context.RequestAborted);
+            if (ipLimited)
+            {
+                _logger.LogWarning("Login IP ceiling exceeded. Client={Client}, RetryAfter={RetryAfter}s", MaskKey($"ip:{ip}"), ipRetry);
+                await WriteLimitedAsync(context, ipRetry);
+                return;
+            }
+
+            var emailKey = await ReadEmailKeyAsync(context);
+            if (emailKey != null)
+            {
+                var (blocked, retry) = await _store.CheckBlockedAsync(emailKey, context.RequestAborted);
+                if (blocked)
+                {
+                    _logger.LogWarning("Login blocked for an email after repeated failures (RetryAfter={RetryAfter}s)", retry);
+                    await WriteLimitedAsync(context, retry);
+                    return;
+                }
+            }
+
+            await _next(context);
+
+            if (emailKey == null) return;
+            var status = context.Response.StatusCode;
+            if (status >= 200 && status < 300)
+                await _store.ResetAsync(emailKey, context.RequestAborted);
+            else if (status is 400 or 401 or 403 or 404)
+                await _store.RecordFailureAsync(emailKey, _options.LoginFailures, context.RequestAborted);
+        }
+
+        private static async Task WriteLimitedAsync(HttpContext context, int retryAfter)
+        {
+            context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
+            context.Response.ContentType = "application/json";
+            context.Response.Headers["Retry-After"] = retryAfter.ToString();
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new
+            {
+                success = false,
+                message = "Too many requests. Please try again later.",
+                retryAfterSeconds = retryAfter
+            }));
+        }
+
+        /// <summary>"rl:login-email:&lt;sha256 prefix of the lower-cased email&gt;" or null when no email can be read. Raw emails are never stored.</summary>
+        private static async Task<string?> ReadEmailKeyAsync(HttpContext context)
+        {
+            try
+            {
+                context.Request.EnableBuffering();
+                using var reader = new StreamReader(context.Request.Body, System.Text.Encoding.UTF8, false, 1024, leaveOpen: true);
+                var buffer = new char[8192];
+                var read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+                context.Request.Body.Position = 0;
+                if (read == 0) return null;
+                using var doc = JsonDocument.Parse(new string(buffer, 0, read));
+                string? email = null;
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    if (string.Equals(prop.Name, "email", StringComparison.OrdinalIgnoreCase) && prop.Value.ValueKind == JsonValueKind.String)
+                        email = prop.Value.GetString();
+                if (string.IsNullOrWhiteSpace(email)) return null;
+                var norm = email.Trim().ToLowerInvariant();
+                if (norm.Length > 254) norm = norm[..254];
+                var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(norm)))[..16];
+                return $"rl:login-email:{hash}";
+            }
+            catch
+            {
+                try { context.Request.Body.Position = 0; } catch { /* body not seekable */ }
+                return null; // unreadable/oversized/invalid JSON: fall back to the IP ceiling only
+            }
+        }
+
         private (string category, RateLimitBucket bucket) Classify(string method, string path, HttpContext ctx)
         {
             if (HttpMethods.IsPost(method))
             {
-                if (_authPostEndpoints.Contains(path))
-                    return ("auth", _options.Auth);
+                if (string.Equals(path, RefreshPath, StringComparison.OrdinalIgnoreCase))
+                    return ("refresh", _options.Refresh);
                 if (_passwordResetPostEndpoints.Contains(path))
                     return ("password-reset", _options.PasswordReset);
                 if (_registrationPostEndpoints.Contains(path))
