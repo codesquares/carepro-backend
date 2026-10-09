@@ -100,6 +100,8 @@ namespace Application.DTOs
         public string BillingType { get; set; } = string.Empty;
         /// <summary>Non-null only once a caregiver has accepted — this is all the client sees before then.</summary>
         public ConfirmedCaregiverDTO? ConfirmedCaregiver { get; set; }
+        /// <summary>True once confirmed, with a contract whose service location the client has not confirmed (drives the client's "confirm your precise location" prompt). Never gates care.</summary>
+        public bool ServiceLocationNeeded { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -189,6 +191,10 @@ namespace Application.DTOs
 
         /// <summary>Optional care brief shown to the caregiver before acceptance.</summary>
         public CareBriefDTO? CareBrief { get; set; }
+
+        /// <summary>Optional FULL service address (staff-entered). Shared with the caregiver only after they accept.</summary>
+        [StringLength(300)]
+        public string? ServiceAddress { get; set; }
     }
 
     public class DeclineAssignmentRequest
@@ -218,6 +224,7 @@ namespace Application.DTOs
         public DateTime? RespondedAt { get; set; }
         public string? DeclineReason { get; set; }
         public CareBriefDTO? CareBrief { get; set; }
+        public string? ServiceAddress { get; set; }
     }
 
     /// <summary>Row in the admin "Pending Acceptance" view — longest-pending first.</summary>
@@ -289,6 +296,8 @@ namespace Application.DTOs
         /// <see cref="ClientName"/> is then the FIRST NAME only and <see cref="ClientId"/> is empty.
         /// </summary>
         public bool ClientDetailsReleased { get; set; }
+        /// <summary>Full service address — populated ONLY once <see cref="ClientDetailsReleased"/> (after acceptance); null before.</summary>
+        public string? ServiceAddress { get; set; }
     }
 
     public class AssignmentActionResult

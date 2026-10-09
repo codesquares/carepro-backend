@@ -48,6 +48,7 @@ public class CareBriefPrivacyTests
             Id = ObjectId.GenerateNewId(), PackageRequestId = pr.Id.ToString(), CaregiverId = cg, ClientId = client.Id.ToString(),
             Status = status, AssignedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow,
             RespondedAt = status == AssignmentStatuses.Accepted ? DateTime.UtcNow : null,
+            ServiceAddress = "9 Secret Road, Ikoyi",
         };
         if (withBrief) { a.BriefCareNeeds = "Wound care"; a.BriefSchedule = "Mon-Fri"; a.BriefArea = "Lekki, Lagos"; a.BriefDuration = "4 weeks"; a.BriefStartDate = DateTime.UtcNow.AddDays(7); }
         db.Assignments.Add(a);
@@ -55,7 +56,7 @@ public class CareBriefPrivacyTests
         return (a.Id.ToString(), cg, a);
     }
 
-    private static readonly string[] Forbidden = { "Okonkwo", "08012345678", "Admiralty", "4471", "Notes", "Location", "gate code" };
+    private static readonly string[] Forbidden = { "Secret Road", "Okonkwo", "08012345678", "Admiralty", "4471", "Notes", "Location", "gate code" };
 
     [Fact]
     public async Task Pending_ReturnsFirstNameAndBrief_AndNothingElseAboutTheClient()
@@ -93,6 +94,7 @@ public class CareBriefPrivacyTests
         Assert.Equal("Adaeze Okonkwo", dto.ClientName);
         Assert.True(dto.ClientDetailsReleased);
         foreach (var f in new[] { "08012345678", "Admiralty", "4471", "Notes" }) Assert.DoesNotContain(f, json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("9 Secret Road, Ikoyi", dto.ServiceAddress);   // the staff-entered service address IS released after acceptance
     }
 
     [Fact]

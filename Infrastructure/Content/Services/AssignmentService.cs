@@ -56,7 +56,7 @@ namespace Infrastructure.Content.Services
         public async Task<AssignmentDTO> AssignAsync(
             string packageRequestId, string caregiverId,
             string adminId, string? adminEmail, string assignedBy, double? matchScore,
-            CareBriefDTO? careBrief = null)
+            CareBriefDTO? careBrief = null, string? serviceAddress = null)
         {
             if (string.IsNullOrWhiteSpace(adminId)) throw new ArgumentException("Admin identity is required.");
             if (!ObjectId.TryParse(packageRequestId, out var prOid)) throw new ArgumentException("Invalid package request id.");
@@ -119,6 +119,7 @@ namespace Infrastructure.Content.Services
                 BriefStartDate = careBrief?.StartDate,
                 BriefDuration = Clean(careBrief?.Duration),
                 BriefArea = Clean(careBrief?.Area),
+                ServiceAddress = Clean(serviceAddress),
             };
             _db.Assignments.Add(assignment);
 
@@ -396,6 +397,8 @@ namespace Infrastructure.Content.Services
                         ? clientName.GetValueOrDefault(a.ClientId, "(unknown)")
                         : FirstNameOf(clientName.GetValueOrDefault(a.ClientId)),
                     CareBrief = ToBrief(a),
+                    // Full address: only after acceptance (same rule as the client's surname/id).
+                    ServiceAddress = ClientDetailsReleased(a) ? a.ServiceAddress : null,
                     Status = a.Status,
                     PackageCategory = req?.PackageCategory ?? string.Empty,
                     PackageTierLabel = req?.PackageTierLabel ?? string.Empty,
@@ -619,6 +622,7 @@ namespace Infrastructure.Content.Services
             RespondedAt = a.RespondedAt,
             DeclineReason = a.DeclineReason,
             CareBrief = ToBrief(a),
+            ServiceAddress = a.ServiceAddress,
         };
 
         private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

@@ -198,8 +198,17 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            var locationNeeded = false;
+            if (string.Equals(e.Status, PackageRequestStatuses.Confirmed, StringComparison.Ordinal))
+            {
+                var loc = await _db.Contracts.Where(c => c.PackageRequestId == e.Id.ToString())
+                    .Select(c => new { c.ServiceLocationSetByClient, c.CancelledAt }).FirstOrDefaultAsync();
+                locationNeeded = loc != null && loc.CancelledAt == null && loc.ServiceLocationSetByClient != true;
+            }
+
             return new PackageRequestDTO
             {
+                ServiceLocationNeeded = locationNeeded,
                 Id = e.Id.ToString(),
                 ClientId = e.ClientId,
                 PackageId = e.PackageId,

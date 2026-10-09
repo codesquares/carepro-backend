@@ -31,6 +31,7 @@ namespace Infrastructure.Content.Services
         private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<PackageContractService> _logger;
         private readonly int _cancellationWindowHours;
+        private readonly IGeocodingService? _geocoding;
 
         /// <summary>Nominal contract period when the package itself defines no fixed duration.</summary>
         private const int DefaultContractWeeks = 4;
@@ -43,8 +44,10 @@ namespace Infrastructure.Content.Services
             IEmailService emailService,
             IOpsAlertService opsAlerts,
             ILogger<PackageContractService> logger,
-            Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
+            Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+            IGeocodingService? geocoding = null)
         {
+            _geocoding = geocoding;
             // Client cancellation window — configurable (PackageContract:CancellationWindowHours), default 48.
             _cancellationWindowHours =
                 int.TryParse(configuration?["PackageContract:CancellationWindowHours"], out var configured) && configured >= 0 ? configured : 48; // 0 = no window
@@ -100,6 +103,19 @@ namespace Infrastructure.Content.Services
 
             var data = BuildGenerationData(contractId, request, package, client, caregiver, start, end);
 
+            // Service address: the staff-entered full address from the accepted assignment wins over anything else
+            // (paid-flow requests usually have no Location at all). Geocoded now (best effort) so check-ins can be
+            // compared against it from the first visit; client confirmation of precise GPS is still encouraged.
+            var staffAddress = (await _db.Assignments.FirstOrDefaultAsync(a => a.PackageRequestId == packageRequestId && a.Status == AssignmentStatuses.Accepted))?.ServiceAddress;
+            var serviceAddress = !string.IsNullOrWhiteSpace(staffAddress) ? staffAddress : request.Location;
+            double? geoLat = null, geoLng = null;
+            if (!string.IsNullOrWhiteSpace(staffAddress)) data.ServiceAddress = staffAddress;
+            if (!string.IsNullOrWhiteSpace(serviceAddress) && _geocoding != null)
+            {
+                try { var g = await _geocoding.GeocodeAsync(serviceAddress); geoLat = g.Latitude; geoLng = g.Longitude; }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not geocode service address for package request {RequestId}; will retry at first check-in", packageRequestId); }
+            }
+
             // Cancellation window starts when the contract is sent (now) and runs for the configured hours.
             data.CancellationWindowHours = _cancellationWindowHours;
             data.ContractSentAt = sentAt;
@@ -120,7 +136,10 @@ namespace Infrastructure.Content.Services
                 SelectedPackage = data.Package,
                 Tasks = new List<ClientTask>(),
                 Schedule = new List<ScheduledVisit>(),
-                ServiceAddress = request.Location,
+                ServiceAddress = serviceAddress,
+                ServiceLatitude = geoLat,
+                ServiceLongitude = geoLng,
+                ServiceLocationSetByClient = geoLat.HasValue ? false : null,
                 GeneratedTerms = termsHtml,
                 TotalAmount = package.BasePrice,
                 Status = ContractStatus.Generated,   // exists & active; no approval/negotiation step

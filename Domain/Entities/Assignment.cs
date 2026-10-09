@@ -54,6 +54,12 @@ namespace Domain.Entities
         /// <summary>General area only (city / neighborhood) — never a street address.</summary>
         public string? BriefArea { get; set; }
 
+        /// <summary>
+        /// FULL service address, staff-entered at assignment time. Released to the caregiver only after acceptance
+        /// (never in the pre-acceptance DTO) and copied onto the contract so it can be geocoded for check-in verification.
+        /// </summary>
+        public string? ServiceAddress { get; set; }
+
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
