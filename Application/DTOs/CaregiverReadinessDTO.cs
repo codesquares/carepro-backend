@@ -25,7 +25,9 @@ namespace Application.DTOs
     {
         public const string NotIdentityVerified = "not_identity_verified";
         public const string AssessmentNotPassed = "assessment_not_passed";
+        /// <summary>RETIRED — no longer emitted (gigs are retired for caregivers). Constant kept for old tests/data.</summary>
         public const string NoActiveGig = "no_active_gig";
+        public const string CaregiverNotFound = "caregiver_not_found";
         public const string CertificateMissing = "certificate_missing";
 
         // ── Phase 2 vetting gates ──

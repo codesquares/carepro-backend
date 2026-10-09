@@ -118,7 +118,7 @@ public class CaregiverReadinessAndSafeguardsTests
 
         Assert.False(result.IsReady);
         Assert.Contains(CaregiverReadinessReasons.NotIdentityVerified, result.IneligibilityReasons);
-        Assert.Contains(CaregiverReadinessReasons.NoActiveGig, result.IneligibilityReasons);
+        Assert.DoesNotContain(CaregiverReadinessReasons.NoActiveGig, result.IneligibilityReasons); // gigs retired
     }
 
     [Fact]

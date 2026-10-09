@@ -36,7 +36,7 @@ namespace Infrastructure.Content.Services
                 return new CaregiverReadinessResult
                 {
                     IsReady = false,
-                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                 };
             }
 
@@ -46,7 +46,7 @@ namespace Infrastructure.Content.Services
                 return new CaregiverReadinessResult
                 {
                     IsReady = false,
-                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                 };
             }
 
@@ -84,7 +84,8 @@ namespace Infrastructure.Content.Services
 
             var reasons = new List<string>();
             if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
-            if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
+            // RETIRED — gigs are retired for caregivers; having no active gig is no longer a readiness blocker.
+            // if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
             if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
             if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
             if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
@@ -166,7 +167,7 @@ namespace Infrastructure.Content.Services
                     result[id] = new CaregiverReadinessResult
                     {
                         IsReady = false,
-                        IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                        IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                     };
                     continue;
                 }
@@ -196,7 +197,8 @@ namespace Infrastructure.Content.Services
 
                 var reasons = new List<string>();
                 if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
-                if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
+                // RETIRED — gigs are retired for caregivers; having no active gig is no longer a readiness blocker.
+            // if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
                 if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
                 if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
                 if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
