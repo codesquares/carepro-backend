@@ -305,6 +305,7 @@ builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationT
 builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
+builder.Services.AddHostedService<ContractCancellationWindowProcessor>();
 
 // GDPR: Hard-delete gigs past 30-day grace period (runs daily)
 builder.Services.AddHostedService<GigHardDeleteProcessor>();

@@ -114,6 +114,24 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex) { return HandleException(ex, "GetPackageRequestContract"); }
         }
 
+        /// <summary>
+        /// Cancel this order. Only allowed inside the contract's cancellation window (default 48h from the
+        /// contract being sent). Does not refund automatically — staff are alerted to review.
+        /// </summary>
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> Cancel(string id)
+        {
+            var clientId = CurrentClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Unauthorized(new { message = "Client identity not found in token." });
+            try
+            {
+                var contract = await _contractService.CancelByClientAsync(id, clientId);
+                return Ok(new { success = true, data = contract });
+            }
+            catch (Exception ex) { return HandleException(ex, "CancelPackageRequest"); }
+        }
+
         [HttpGet("{id}/contract/pdf")]
         public async Task<IActionResult> GetContractPdf(string id)
         {

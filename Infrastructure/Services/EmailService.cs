@@ -742,7 +742,7 @@ namespace Infrastructure.Services
             await SendEmailAsync(emailMessage);
         }
 
-        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes)
+        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
         {
             var emailMessage = new MimeMessage();
             emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
@@ -761,6 +761,7 @@ namespace Infrastructure.Services
                             <p><strong>Service:</strong> {gigTitle}</p>
                             <p><strong>Contract ID:</strong> {contractId}</p>
                         </div>
+                        {(string.IsNullOrWhiteSpace(acknowledgementText) ? "" : $"<div style='background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f59e0b;'><p><strong>{Application.Content.ContractWording.CancellationHeading}</strong></p><p>{System.Net.WebUtility.HtmlEncode(acknowledgementText)}</p></div>")}
                         <p>You can also view and download the contract anytime from your CarePro dashboard.</p>
                         <p>Thanks,<br />The CarePro Team</p>
                     </div>"

@@ -52,7 +52,7 @@ namespace Application.Interfaces.Email
             ContractDetails? contractDetails, EmailType reminderLevel);
 
         // Contract PDF email
-        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes);
+        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null);
 
         // Payment receipt PDF email
         Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes);

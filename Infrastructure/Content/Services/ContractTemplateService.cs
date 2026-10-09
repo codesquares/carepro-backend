@@ -51,11 +51,9 @@ namespace Infrastructure.Content.Services
             sb.AppendLine("</table>");
 
             // Section 2: Platform Relationship
-            sb.AppendLine("<h2>Section 2: Platform Relationship</h2>");
-            sb.AppendLine("<p>CarePro is a technology platform that connects clients seeking care services with independent caregivers. " +
-                "Caregivers are independent contractors and market participants offering their services on the CarePro platform. " +
-                "CarePro does not employ caregivers and is not a party to the care relationship between client and caregiver. " +
-                "CarePro facilitates the matching, payment processing, and contract management only.</p>");
+            // Wording comes from the single shared source (Application.Content.ContractWording).
+            sb.AppendLine($"<h2>{Application.Content.ContractWording.PlatformRelationshipHeading}</h2>");
+            sb.AppendLine($"<p>{Application.Content.ContractWording.PlatformRelationshipText}</p>");
 
             // Section 3: Service Details
             sb.AppendLine("<h2>Section 3: Service Details</h2>");
@@ -189,7 +187,7 @@ namespace Infrastructure.Content.Services
 
             sb.AppendLine("<h3>11.1 Safety</h3>");
             sb.AppendLine("<ul>");
-            sb.AppendLine("<li>The Caregiver has been verified through CarePro's onboarding and background check process.</li>");
+            sb.AppendLine($"<li>{Application.Content.ContractWording.CaregiverVettingClaim}</li>");
             sb.AppendLine("<li>Both parties must maintain a safe environment for care delivery.</li>");
             sb.AppendLine("<li>Emergency situations should be handled by contacting emergency services first, then reporting through CarePro.</li>");
             sb.AppendLine("</ul>");
@@ -230,6 +228,11 @@ namespace Infrastructure.Content.Services
             // Section 14: Acknowledgment
             sb.AppendLine("<h2>Section 14: Acknowledgment</h2>");
             sb.AppendLine("<p>Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement.</p>");
+            if (data.CancellationWindowHours > 0 && data.ContractSentAt.HasValue)
+            {
+                sb.AppendLine($"<h3>{Application.Content.ContractWording.CancellationHeading}</h3>");
+                sb.AppendLine($"<p>{Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value)}</p>");
+            }
 
             sb.AppendLine("<div class='signature-block'>");
             sb.AppendLine($"<div class='signature-line'><strong>Client:</strong> {Sanitize(data.ClientFullName)}<br/>Date: {data.GeneratedAt:MMMM dd, yyyy}</div>");

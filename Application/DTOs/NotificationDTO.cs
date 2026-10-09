@@ -216,6 +216,8 @@ namespace Application.DTOs
         public const string PackagePaymentRequestFailed = "package_payment_request_failed";
         /// <summary>To ops staff: a confirmed package's contract was not generated or delivered — manual follow-up.</summary>
         public const string PackageContractDeliveryFailed = "package_contract_delivery_failed";
+        /// <summary>To ops staff: a client cancelled within the cancellation window — a manual refund decision is needed.</summary>
+        public const string PackageRequestCancelledByClient = "package_request_cancelled_by_client";
 
         // ── Phase 6: Auto-generated package contract ──
         /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>

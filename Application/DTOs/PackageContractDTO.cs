@@ -36,5 +36,17 @@ namespace Application.DTOs
         /// contract are only a geocoded address, not real GPS.</summary>
         public bool? ServiceLocationSetByClient { get; set; }
         public DateTime? ServiceLocationSetAt { get; set; }
+
+        // ── Cancellation window ──
+        public DateTime? ContractSentAt { get; set; }
+        public DateTime? CancellationWindowEndsAt { get; set; }
+        public int CancellationWindowHours { get; set; }
+        /// <summary>True while the client may still cancel (window not ended, not already cancelled).</summary>
+        public bool CancellationWindowOpen { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        public string? CancelledBy { get; set; }
+        public DateTime? AcceptedByNonCancellationAt { get; set; }
+        /// <summary>The acknowledgement text shown in the contract, email and client view (null when there is no window).</summary>
+        public string? CancellationAcknowledgement { get; set; }
     }
 }

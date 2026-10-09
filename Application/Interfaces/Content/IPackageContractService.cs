@@ -19,6 +19,12 @@ namespace Application.Interfaces.Content
 
         Task<PackageContractDTO?> GetByPackageRequestAsync(string packageRequestId);
 
+        /// <summary>Client cancels within the cancellation window (records who/when; cancels the assignment; alerts admins).</summary>
+        Task<PackageContractDTO> CancelByClientAsync(string packageRequestId, string clientId);
+
+        /// <summary>Records agreement-by-non-cancellation for every contract whose window has ended. Returns how many were recorded.</summary>
+        Task<int> FinalizeExpiredWindowsAsync();
+
         /// <summary>Renders the contract PDF via the reused ContractPdfService.</summary>
         Task<byte[]> GeneratePdfAsync(string contractId);
     }

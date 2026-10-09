@@ -92,11 +92,9 @@ namespace Infrastructure.Content.Services
                         });
 
                         // Section 2: Platform Relationship
-                        SectionHeader(col, "Section 2: Platform Relationship");
-                        col.Item().Text("CarePro is a technology platform that connects clients seeking care services with independent caregivers. " +
-                            "Caregivers are independent contractors and market participants offering their services on the CarePro platform. " +
-                            "CarePro does not employ caregivers and is not a party to the care relationship between client and caregiver. " +
-                            "CarePro facilitates the matching, payment processing, and contract management only.").FontSize(10);
+                        // Wording comes from the single shared source (Application.Content.ContractWording).
+                        SectionHeader(col, Application.Content.ContractWording.PlatformRelationshipHeading);
+                        col.Item().Text(Application.Content.ContractWording.PlatformRelationshipText).FontSize(10);
 
                         // Section 3: Service Details
                         SectionHeader(col, "Section 3: Service Details");
@@ -311,7 +309,7 @@ namespace Infrastructure.Content.Services
                         SectionHeader(col, "Section 11: Safety & Confidentiality");
                         col.Item().Text("11.1 Safety").Bold().FontSize(10);
                         BulletList(col,
-                            "The Caregiver has been verified through CarePro's onboarding and background check process.",
+                            Application.Content.ContractWording.CaregiverVettingClaim,
                             "Both parties must maintain a safe environment for care delivery.",
                             "Emergency situations should be handled by contacting emergency services first, then reporting through CarePro.");
 
@@ -346,6 +344,11 @@ namespace Infrastructure.Content.Services
                         // Section 14: Acknowledgment
                         SectionHeader(col, "Section 14: Acknowledgment");
                         col.Item().Text("Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement.");
+                        if (data.CancellationWindowHours > 0 && data.ContractSentAt.HasValue)
+                        {
+                            col.Item().PaddingTop(4).Text(Application.Content.ContractWording.CancellationHeading).Bold().FontSize(10);
+                            col.Item().Text(Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value));
+                        }
 
                         // Signature block
                         col.Item().PaddingTop(30).Row(row =>
