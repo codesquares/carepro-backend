@@ -29,7 +29,7 @@ namespace CommitmentGate.Tests;
 /// </summary>
 public class PackageAssignmentCheckinAndTaskSheetTests
 {
-    private static CareProDbContext CreateDb(string databaseName)
+    internal static CareProDbContext CreateDb(string databaseName)
     {
         var options = new DbContextOptionsBuilder<CareProDbContext>()
             .UseMongoDB("mongodb://127.0.0.1:27018", databaseName)
@@ -37,7 +37,7 @@ public class PackageAssignmentCheckinAndTaskSheetTests
         return new TestCareProDbContext(options);
     }
 
-    private static string NewDbName() => $"carepro_pkg_checkin_tests_{Guid.NewGuid():N}";
+    internal static string NewDbName() => $"carepro_pkg_checkin_tests_{Guid.NewGuid():N}";
 
     private static VisitCheckinService CreateCheckinService(CareProDbContext db)
         => new(db, Mock.Of<IGeocodingService>(), new ConfigurationBuilder().Build(), Mock.Of<IHostEnvironment>(),
@@ -55,7 +55,7 @@ public class PackageAssignmentCheckinAndTaskSheetTests
         return new CloudinaryService(cloudinary, options);
     }
 
-    private static TaskSheetService CreateTaskSheetService(CareProDbContext db)
+    internal static TaskSheetService CreateTaskSheetService(CareProDbContext db)
         => new(db, CreateCloudinaryService(), Mock.Of<IMediator>(), Mock.Of<IEmailService>(),
             Mock.Of<ILogger<TaskSheetService>>());
 
@@ -64,7 +64,7 @@ public class PackageAssignmentCheckinAndTaskSheetTests
             Mock.Of<IEarningsLedgerService>(), Mock.Of<ICaregiverWalletService>(),
             Mock.Of<IClientWalletService>(), Mock.Of<ILogger<DisputeService>>(), Mock.Of<IEmailService>());
 
-    private static (string assignmentId, string packageRequestId) SeedAcceptedAssignmentAndContract(
+    internal static (string assignmentId, string packageRequestId) SeedAcceptedAssignmentAndContract(
         CareProDbContext db, string caregiverId, string clientId)
     {
         var packageRequestId = ObjectId.GenerateNewId().ToString();

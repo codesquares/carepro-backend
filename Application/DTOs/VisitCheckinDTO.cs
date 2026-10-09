@@ -50,6 +50,8 @@ namespace Application.DTOs
         /// <summary>True when this check-in's distance from a client-verified GPS service
         /// location exceeds the flag threshold — flagged for admin review, never blocked.</summary>
         public bool IsFlaggedForDistanceReview { get; set; }
+        /// <summary>Why the check-in was flagged (see CheckinFlagReasons). Empty = none.</summary>
+        public List<string> FlagReasons { get; set; } = new();
     }
 
     /// <summary>
@@ -83,5 +85,6 @@ namespace Application.DTOs
         public bool IsLateCheckin { get; set; }
         public double MinutesLate { get; set; }
         public bool IsFlaggedForDistanceReview { get; set; }
+        public List<string> FlagReasons { get; set; } = new();
     }
 }

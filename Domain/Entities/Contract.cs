@@ -109,6 +109,8 @@ namespace Domain.Entities
 
         // ── Explicit client agreement ("I agree" tick). Optional: care never depends on it. ──
         public DateTime? ClientAgreedAt { get; set; }
+        /// <summary>When the "confirm your service location" nudge was sent (once per contract).</summary>
+        public DateTime? LocationNudgeSentAt { get; set; }
         /// <summary>Client id taken from the JWT at the time of the tick (never from the request body).</summary>
         public string? ClientAgreedBy { get; set; }
 

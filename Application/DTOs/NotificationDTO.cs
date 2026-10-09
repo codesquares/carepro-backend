@@ -218,6 +218,8 @@ namespace Application.DTOs
         public const string PackageContractDeliveryFailed = "package_contract_delivery_failed";
         /// <summary>To ops staff: a client cancelled within the cancellation window — a manual refund decision is needed.</summary>
         public const string PackageRequestCancelledByClient = "package_request_cancelled_by_client";
+        /// <summary>To ops staff: a package-visit check-in was flagged with a HARD reason (far from service location) — review it.</summary>
+        public const string PackageVisitFlagged = "package_visit_flagged";
 
         // ── Phase 6: Auto-generated package contract ──
         /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
