@@ -768,7 +768,7 @@ namespace Infrastructure.Services
                             <p><strong>Service:</strong> {gigTitle}</p>
                             <p><strong>Contract ID:</strong> {contractId}</p>
                         </div>
-                        {(string.IsNullOrWhiteSpace(acknowledgementText) ? "" : $"<div style='background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f59e0b;'><p><strong>{Application.Content.ContractWording.CancellationHeading}</strong></p><p>{System.Net.WebUtility.HtmlEncode(acknowledgementText)}</p></div>")}
+                        {(string.IsNullOrWhiteSpace(acknowledgementText) ? "" : $"<div style='background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f59e0b;'><p><strong>{Application.Content.ContractWording.CancellationHeading}</strong></p>{string.Concat(acknowledgementText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => $"<p>{System.Net.WebUtility.HtmlEncode(l)}</p>"))}</div>")}
                         <p>You can also view and download the contract anytime from your CarePro dashboard.</p>
                         <p>Thanks,<br />The CarePro Team</p>
                     </div>"

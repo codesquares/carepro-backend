@@ -51,5 +51,7 @@ namespace Application.DTOs
         public string? ClientAgreedBy { get; set; }
         /// <summary>The acknowledgement text shown in the contract, email and client view (null when there is no window).</summary>
         public string? CancellationAcknowledgement { get; set; }
+        /// <summary>"The cancellation period closes on …" (WAT) — shown under the acknowledgement; null when there is no window.</summary>
+        public string? CancellationClosesLine { get; set; }
     }
 }

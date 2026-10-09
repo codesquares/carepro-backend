@@ -52,7 +52,7 @@ namespace Infrastructure.Content.Services
                             meta.Item().Text(t =>
                             {
                                 t.Span("Date: ").Bold();
-                                t.Span(data.GeneratedAt.ToString("dddd, MMMM dd, yyyy 'at' HH:mm") + " UTC");
+                                t.Span(Application.Content.LagosTime.Format(data.GeneratedAt));
                             });
                         });
 
@@ -349,6 +349,8 @@ namespace Infrastructure.Content.Services
                         {
                             col.Item().PaddingTop(4).Text(Application.Content.ContractWording.CancellationHeading).Bold().FontSize(10);
                             col.Item().Text(Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value));
+                            if (data.CancellationWindowEndsAt.HasValue)
+                                col.Item().Text(Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value));
                         }
 
                         // Signature block
@@ -362,7 +364,7 @@ namespace Infrastructure.Content.Services
                                     t.Span("Client: ").Bold();
                                     t.Span(data.ClientFullName);
                                 });
-                                sig.Item().Text($"Date: {data.GeneratedAt:MMMM dd, yyyy}").FontSize(9);
+                                sig.Item().Text($"Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}").FontSize(9);
                             });
 
                             row.ConstantItem(40); // spacer
@@ -375,7 +377,7 @@ namespace Infrastructure.Content.Services
                                     t.Span(Application.Content.ContractWording.CaregiverSignatureLabel + ": ").Bold();
                                     t.Span(data.CaregiverFullName);
                                 });
-                                sig.Item().Text($"Date: {data.GeneratedAt:MMMM dd, yyyy}").FontSize(9);
+                                sig.Item().Text($"Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}").FontSize(9);
                             });
                         });
                     });

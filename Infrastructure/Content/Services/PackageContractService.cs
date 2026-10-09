@@ -103,6 +103,7 @@ namespace Infrastructure.Content.Services
             // Cancellation window starts when the contract is sent (now) and runs for the configured hours.
             data.CancellationWindowHours = _cancellationWindowHours;
             data.ContractSentAt = sentAt;
+            data.CancellationWindowEndsAt = windowEnd;
 
             // Reused, unmodified — renders CarePro's standard terms + the package details.
             var termsHtml = _templateService.RenderContract(data);
@@ -211,6 +212,7 @@ namespace Infrastructure.Content.Services
             if (contract.ContractSentAt.HasValue && contract.CancellationWindowEndsAt.HasValue)
             {
                 data.ContractSentAt = contract.ContractSentAt;
+                data.CancellationWindowEndsAt = contract.CancellationWindowEndsAt;
                 data.CancellationWindowHours = (int)Math.Round((contract.CancellationWindowEndsAt.Value - contract.ContractSentAt.Value).TotalHours);
             }
 
@@ -255,6 +257,7 @@ namespace Infrastructure.Content.Services
                         email, firstName ?? "there", contractId, agreementTitle, pdfBytes,
                         string.Equals(email, client?.Email, StringComparison.OrdinalIgnoreCase) && data.ContractSentAt.HasValue && data.CancellationWindowHours > 0
                             ? Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value)
+                              + (data.CancellationWindowEndsAt.HasValue ? "\n" + Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value) : "")
                             : null);
                 }
                 catch (Exception ex)
@@ -317,6 +320,14 @@ namespace Infrastructure.Content.Services
 
             var now = DateTime.UtcNow;
             var wonTheGate = false;
+
+            // Snapshot BEFORE contending for the gate: if this call wins, it must notify these caregivers even when a
+            // concurrent (losing) call has already flipped the assignments to Cancelled by the time we get to step 2.
+            var toNotify = await _db.Assignments
+                .Where(a => a.PackageRequestId == packageRequestId
+                            && (a.Status == AssignmentStatuses.Accepted || a.Status == AssignmentStatuses.PendingAcceptance))
+                .Select(a => new { a.Id, a.CaregiverId })
+                .ToListAsync();
 
             if (contract.CancelledAt == null)
             {
@@ -398,7 +409,7 @@ namespace Infrastructure.Content.Services
 
             // Notifications — caregiver in-app only (no new email type). Only the call that won the contract gate
             // notifies; concurrent/duplicate calls reconcile state silently, so there is exactly one notification.
-            foreach (var a in wonTheGate ? assignments : new List<Assignment>())
+            foreach (var a in wonTheGate ? toNotify : new())
             {
                 await _mediator.Send(new SendNotificationCommand(
                     RecipientId: a.CaregiverId,
@@ -562,6 +573,10 @@ namespace Infrastructure.Content.Services
                 && (c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalMinutes >= 30
                 ? Application.Content.ContractWording.CancellationAcknowledgement(
                     (int)Math.Round((c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalHours), c.ContractSentAt.Value)
+                : null,
+            CancellationClosesLine = c.ContractSentAt.HasValue && c.CancellationWindowEndsAt.HasValue
+                && (c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalMinutes >= 30
+                ? Application.Content.ContractWording.CancellationClosesLine(c.CancellationWindowEndsAt.Value)
                 : null,
         };
     }

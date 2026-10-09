@@ -36,7 +36,7 @@ namespace Infrastructure.Content.Services
             sb.AppendLine("<div class='meta'>");
             sb.AppendLine($"<strong>Contract Reference:</strong> {Sanitize(data.ContractId)}<br/>");
             sb.AppendLine($"<strong>Order Reference:</strong> {Sanitize(data.OrderId)}<br/>");
-            sb.AppendLine($"<strong>Date:</strong> {data.GeneratedAt:dddd, MMMM dd, yyyy 'at' HH:mm} UTC");
+            sb.AppendLine($"<strong>Date:</strong> {Application.Content.LagosTime.Format(data.GeneratedAt)}");
             sb.AppendLine("</div>");
 
             // Section 1: Parties
@@ -233,11 +233,13 @@ namespace Infrastructure.Content.Services
             {
                 sb.AppendLine($"<h3>{Application.Content.ContractWording.CancellationHeading}</h3>");
                 sb.AppendLine($"<p>{Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value)}</p>");
+                if (data.CancellationWindowEndsAt.HasValue)
+                    sb.AppendLine($"<p>{Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value)}</p>");
             }
 
             sb.AppendLine("<div class='signature-block'>");
-            sb.AppendLine($"<div class='signature-line'><strong>Client:</strong> {Sanitize(data.ClientFullName)}<br/>Date: {data.GeneratedAt:MMMM dd, yyyy}</div>");
-            sb.AppendLine($"<div class='signature-line'><strong>{Application.Content.ContractWording.CaregiverSignatureLabel}:</strong> {Sanitize(data.CaregiverFullName)}<br/>Date: {data.GeneratedAt:MMMM dd, yyyy}</div>");
+            sb.AppendLine($"<div class='signature-line'><strong>Client:</strong> {Sanitize(data.ClientFullName)}<br/>Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}</div>");
+            sb.AppendLine($"<div class='signature-line'><strong>{Application.Content.ContractWording.CaregiverSignatureLabel}:</strong> {Sanitize(data.CaregiverFullName)}<br/>Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}</div>");
             sb.AppendLine("</div>");
 
             sb.AppendLine("</body></html>");

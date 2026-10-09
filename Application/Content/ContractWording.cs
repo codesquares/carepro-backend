@@ -78,7 +78,14 @@ namespace Application.Content
             $"You have {windowHours} hours from {FormatUtc(contractSentAtUtc)} to cancel this order. " +
             "If you do not cancel within this period, you confirm that you have read and agree to all the terms of this agreement.";
 
-        public static string FormatUtc(DateTime utc) =>
-            utc.ToString("dddd, MMMM dd, yyyy 'at' HH:mm 'UTC'", CultureInfo.InvariantCulture);
+        /// <summary>Display text for a stored UTC time — Africa/Lagos, labelled WAT (see <see cref="LagosTime"/>).</summary>
+        public static string FormatUtc(DateTime utc) => LagosTime.Format(utc);
+
+        /// <summary>
+        /// Factual line added under the acknowledgement (DRAFT, pending legal review): when the window closes.
+        /// The acknowledgement sentence itself is unchanged.
+        /// </summary>
+        public static string CancellationClosesLine(DateTime windowEndsUtc) =>
+            $"The cancellation period closes on {LagosTime.Format(windowEndsUtc)}.";
     }
 }

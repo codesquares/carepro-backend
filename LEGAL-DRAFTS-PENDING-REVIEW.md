@@ -23,8 +23,15 @@ the PDF is re-rendered from the current wording on download.
 | 8 | Section 13, bullet 2 | `LiabilityLine2` | The Caregiver delivers the care on CarePro's behalf and is expected to provide it to a professional standard. | The Caregiver operates as an independent contractor and is solely responsible for the quality of care provided. | ☐ |
 | 9 | Section 14 | `AcknowledgmentText` | The Client and CarePro acknowledge they have read, understood, and agree to all terms of this Care Service Agreement. The Caregiver acknowledges the terms that apply to delivering the service. | Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement. | ☐ |
 | 10 | Cancellation acknowledgement (contract, PDF, email, client view) | `CancellationAcknowledgement(hours, sentAt)` | You have {hours} hours from {contract sent date/time UTC} to cancel this order. If you do not cancel within this period, you confirm that you have read and agree to all the terms of this agreement. | *(new)* | ☐ |
+| 10b | Cancellation window closing line (contract HTML/PDF, client email, client view) — added under row 10; row 10's sentence is unchanged | `CancellationClosesLine(windowEndsAt)` | The cancellation period closes on {window end, Africa/Lagos}. | *(new)* | ☐ |
 | 11 | Client "I agree" checkbox label (frontend) | `PackageRequestDetail.jsx` | I have read and agree to the terms of this agreement. | *(new)* | ☐ |
 | 12 | Client cancel dialog / success text (frontend) | `PackageRequestDetail.jsx` | Your order will be cancelled. Our team will contact you about any refund due. | *(new)* | ☐ |
+
+## Time zone
+
+All contract dates (sent, window end, agreed, cancelled, contract date and signature dates) are displayed in
+Africa/Lagos and labelled **WAT** (e.g. "Friday, 9 October 2026 at 8:51 AM WAT"). Storage remains UTC. Formatting lives in
+`Application/Content/LagosTime.cs` (backend) and `src/main-app/utils/lagosTime.js` (frontend).
 
 ## Questions the lawyer should answer
 

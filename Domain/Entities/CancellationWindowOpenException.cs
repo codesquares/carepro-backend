@@ -12,8 +12,9 @@ namespace Domain.Entities
         public string ErrorCode => Code;
         public DateTime WindowEndsAt { get; }
 
-        public CancellationWindowOpenException(DateTime windowEndsAtUtc)
-            : base($"Care can begin after {windowEndsAtUtc:dddd, MMMM dd, yyyy 'at' HH:mm} UTC. The client has a cancellation period until then.")
+        /// <param name="message">Display text (the caller formats the time in Africa/Lagos — Domain has no formatting helper).</param>
+        public CancellationWindowOpenException(DateTime windowEndsAtUtc, string message)
+            : base(message)
         {
             WindowEndsAt = windowEndsAtUtc;
         }

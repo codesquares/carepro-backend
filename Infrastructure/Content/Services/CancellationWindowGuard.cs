@@ -16,7 +16,8 @@ namespace Infrastructure.Content.Services
             if (contract.CancelledAt != null)
                 throw new InvalidOperationException("This order was cancelled by the client, so no visits can be recorded.");
             if (contract.CancellationWindowEndsAt.HasValue && nowUtc < contract.CancellationWindowEndsAt.Value)
-                throw new CancellationWindowOpenException(contract.CancellationWindowEndsAt.Value);
+                throw new CancellationWindowOpenException(contract.CancellationWindowEndsAt.Value,
+                    $"Care can begin after {Application.Content.LagosTime.Format(contract.CancellationWindowEndsAt.Value)}. The client has a cancellation period until then.");
         }
     }
 }
