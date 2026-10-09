@@ -95,6 +95,12 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
+            // Optimistic-concurrency tokens for the cancellation-window outcome: cancel, the sweeper (agreement by
+            // non-cancellation) and the client "I agree" tick all update these. A save whose originally-read value no
+            // longer matches the stored document fails with DbUpdateConcurrencyException instead of overwriting.
+            modelBuilder.Entity<Contract>().Property(c => c.CancelledAt).IsConcurrencyToken();
+            modelBuilder.Entity<Contract>().Property(c => c.AcceptedByNonCancellationAt).IsConcurrencyToken();
+            modelBuilder.Entity<Contract>().Property(c => c.ClientAgreedAt).IsConcurrencyToken();
             modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
             modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
             modelBuilder.Entity<TrainingMaterial>().Property(tm => tm.Id).HasElementName("_id");

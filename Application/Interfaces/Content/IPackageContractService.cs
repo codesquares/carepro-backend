@@ -22,6 +22,9 @@ namespace Application.Interfaces.Content
         /// <summary>Client cancels within the cancellation window (records who/when; cancels the assignment; alerts admins).</summary>
         Task<PackageContractDTO> CancelByClientAsync(string packageRequestId, string clientId);
 
+        /// <summary>Client ticks "I agree" (idempotent; owning client only). Does not affect the window or care.</summary>
+        Task<PackageContractDTO> AgreeByClientAsync(string packageRequestId, string clientId);
+
         /// <summary>Records agreement-by-non-cancellation for every contract whose window has ended. Returns how many were recorded.</summary>
         Task<int> FinalizeExpiredWindowsAsync();
 

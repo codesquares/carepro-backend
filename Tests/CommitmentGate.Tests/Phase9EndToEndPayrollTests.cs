@@ -140,6 +140,12 @@ public class Phase9EndToEndPayrollTests
         // ── Phase 9.5: real check-in → submit, producing real hours ──
         using (var db = CreateDb(dbName))
         {
+            // Visits are blocked while the client's cancellation window is open (see CancellationWindowTests);
+            // this test is about what happens once care may begin, so let the window elapse first.
+            foreach (var c in await db.Contracts.Where(c => c.CancellationWindowEndsAt != null).ToListAsync())
+                c.CancellationWindowEndsAt = DateTime.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+
             var taskSheetService = CreateTaskSheetService(db);
             var taskSheet = await taskSheetService.CreateTaskSheetForAssignmentAsync(assignmentId, caregiverId);
             taskSheetId = taskSheet.Id;

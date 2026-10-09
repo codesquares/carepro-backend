@@ -119,8 +119,21 @@ namespace Application.DTOs
     /// browse/filter requests before searching candidates for one — there was previously
     /// no admin-facing way to discover a PackageRequestId at all.
     /// </summary>
+    /// <summary>Admin-facing summary of the cancellation-window / agreement state of a request's contract.</summary>
+    public class AdminContractStatusDTO
+    {
+        public DateTime? ContractSentAt { get; set; }
+        public DateTime? CancellationWindowEndsAt { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        public string? CancelledBy { get; set; }
+        public DateTime? ClientAgreedAt { get; set; }
+        public DateTime? AcceptedByNonCancellationAt { get; set; }
+    }
+
     public class AdminPackageRequestDTO
     {
+        /// <summary>Null until a contract has been generated for this request.</summary>
+        public AdminContractStatusDTO? Contract { get; set; }
         public string Id { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
         public string ClientName { get; set; } = string.Empty;

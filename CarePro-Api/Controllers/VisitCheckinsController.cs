@@ -54,6 +54,10 @@ namespace CarePro_Api.Controllers
                     CurrentTimeNigeria = ex.CurrentTimeNigeria
                 });
             }
+            catch (CancellationWindowOpenException ex)
+            {
+                return Conflict(new { error = ex.Message, errorCode = ex.ErrorCode, windowEndsAt = ex.WindowEndsAt });
+            }
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new { error = ex.Message });

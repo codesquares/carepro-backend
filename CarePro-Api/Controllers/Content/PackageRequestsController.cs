@@ -132,6 +132,21 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex) { return HandleException(ex, "CancelPackageRequest"); }
         }
 
+        /// <summary>The client's explicit "I agree" tick. Idempotent; identity comes from the JWT only.</summary>
+        [HttpPost("{id}/agree")]
+        public async Task<IActionResult> Agree(string id)
+        {
+            var clientId = CurrentClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Unauthorized(new { message = "Client identity not found in token." });
+            try
+            {
+                var contract = await _contractService.AgreeByClientAsync(id, clientId);
+                return Ok(new { success = true, data = contract });
+            }
+            catch (Exception ex) { return HandleException(ex, "AgreePackageRequestContract"); }
+        }
+
         [HttpGet("{id}/contract/pdf")]
         public async Task<IActionResult> GetContractPdf(string id)
         {

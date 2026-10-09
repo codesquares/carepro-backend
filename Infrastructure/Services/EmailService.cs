@@ -744,6 +744,13 @@ namespace Infrastructure.Services
 
         public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
         {
+            var emailMessage = BuildContractPdfEmailMessage(toEmail, firstName, contractId, gigTitle, pdfBytes, acknowledgementText);
+            await SendEmailAsync(emailMessage);
+        }
+
+        /// <summary>Builds (does not send) the contract email — separated so the exact rendered body can be inspected/tested.</summary>
+        public MimeMessage BuildContractPdfEmailMessage(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
+        {
             var emailMessage = new MimeMessage();
             emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
             emailMessage.To.Add(MailboxAddress.Parse(toEmail));
@@ -770,7 +777,7 @@ namespace Infrastructure.Services
             builder.Attachments.Add($"CarePro-Contract-{contractId}.pdf", pdfBytes, new MimeKit.ContentType("application", "pdf"));
 
             emailMessage.Body = builder.ToMessageBody();
-            await SendEmailAsync(emailMessage);
+            return emailMessage;
         }
 
         public async Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes)

@@ -52,7 +52,7 @@ namespace Infrastructure.Content.Services
         public async Task<List<PackageSubscription>> GetPackageSubscriptionsDueForBillingAsync()
         {
             var now = DateTime.UtcNow;
-            return await _dbContext.PackageSubscriptions
+            var due = await _dbContext.PackageSubscriptions
                 .Where(s =>
                     (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.PastDue) &&
                     s.AutoRenew &&
@@ -60,6 +60,16 @@ namespace Infrastructure.Content.Services
                     s.NextChargeDate.Value <= now &&
                     !string.IsNullOrEmpty(s.FlutterwavePaymentToken))
                 .ToListAsync();
+
+            // Belt and braces: never bill a subscription whose package request the client cancelled, even if the
+            // cancel flow was interrupted before it could flip the subscription itself.
+            if (due.Count == 0) return due;
+            var requestIds = due.Select(s => s.PackageRequestId).Distinct()
+                .Select(i => MongoDB.Bson.ObjectId.TryParse(i, out var o) ? o : (MongoDB.Bson.ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            var cancelled = (await _dbContext.PackageRequests.Where(r => requestIds.Contains(r.Id)).ToListAsync())
+                .Where(r => r.Status == PackageRequestStatuses.Cancelled).Select(r => r.Id.ToString()).ToHashSet();
+            return due.Where(s => !cancelled.Contains(s.PackageRequestId)).ToList();
         }
 
         public async Task<PackageSubscription?> GetByPackageRequestIdAsync(string packageRequestId)

@@ -162,6 +162,7 @@ namespace Infrastructure.Content.Services
                 approvedContract = await _dbContext.Contracts.FirstOrDefaultAsync(c =>
                         c.PackageRequestId == assignment.PackageRequestId && c.Status == ContractStatus.Generated)
                     ?? throw CheckinValidationException.NoApprovedContract("No active contract found for this package assignment.");
+                CancellationWindowGuard.EnsureCareMayBegin(approvedContract, DateTime.UtcNow);
             }
             else
             {

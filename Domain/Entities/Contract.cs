@@ -107,6 +107,11 @@ namespace Domain.Entities
         /// <summary>Set (to the window end) once the window passed without a cancellation: agreement by non-cancellation.</summary>
         public DateTime? AcceptedByNonCancellationAt { get; set; }
 
+        // ── Explicit client agreement ("I agree" tick). Optional: care never depends on it. ──
+        public DateTime? ClientAgreedAt { get; set; }
+        /// <summary>Client id taken from the JWT at the time of the tick (never from the request body).</summary>
+        public string? ClientAgreedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
