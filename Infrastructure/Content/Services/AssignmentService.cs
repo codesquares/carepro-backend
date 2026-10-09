@@ -55,7 +55,8 @@ namespace Infrastructure.Content.Services
 
         public async Task<AssignmentDTO> AssignAsync(
             string packageRequestId, string caregiverId,
-            string adminId, string? adminEmail, string assignedBy, double? matchScore)
+            string adminId, string? adminEmail, string assignedBy, double? matchScore,
+            CareBriefDTO? careBrief = null)
         {
             if (string.IsNullOrWhiteSpace(adminId)) throw new ArgumentException("Admin identity is required.");
             if (!ObjectId.TryParse(packageRequestId, out var prOid)) throw new ArgumentException("Invalid package request id.");
@@ -113,6 +114,11 @@ namespace Infrastructure.Content.Services
                 AssignedAt = now,
                 MatchScore = matchScore,
                 CreatedAt = now,
+                BriefCareNeeds = Clean(careBrief?.CareNeedsSummary),
+                BriefSchedule = Clean(careBrief?.Schedule),
+                BriefStartDate = careBrief?.StartDate,
+                BriefDuration = Clean(careBrief?.Duration),
+                BriefArea = Clean(careBrief?.Area),
             };
             _db.Assignments.Add(assignment);
 
@@ -382,8 +388,14 @@ namespace Infrastructure.Content.Services
                 {
                     Id = a.Id.ToString(),
                     PackageRequestId = a.PackageRequestId,
-                    ClientId = a.ClientId,
-                    ClientName = clientName.GetValueOrDefault(a.ClientId, "(unknown)"),
+                    // Privacy: before acceptance the caregiver gets the client's FIRST NAME only and no client id
+                    // (enforced here, not in the UI). PackageRequest.Notes/Location are never returned at all.
+                    ClientDetailsReleased = ClientDetailsReleased(a),
+                    ClientId = ClientDetailsReleased(a) ? a.ClientId : string.Empty,
+                    ClientName = ClientDetailsReleased(a)
+                        ? clientName.GetValueOrDefault(a.ClientId, "(unknown)")
+                        : FirstNameOf(clientName.GetValueOrDefault(a.ClientId)),
+                    CareBrief = ToBrief(a),
                     Status = a.Status,
                     PackageCategory = req?.PackageCategory ?? string.Empty,
                     PackageTierLabel = req?.PackageTierLabel ?? string.Empty,
@@ -606,6 +618,33 @@ namespace Infrastructure.Content.Services
             MatchScore = a.MatchScore,
             RespondedAt = a.RespondedAt,
             DeclineReason = a.DeclineReason,
+            CareBrief = ToBrief(a),
         };
+
+        private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+        /// <summary>Null when no brief fields were ever set (legacy assignments) — never throws on missing data.</summary>
+        private static CareBriefDTO? ToBrief(Assignment a)
+        {
+            if (a.BriefCareNeeds == null && a.BriefSchedule == null && a.BriefStartDate == null
+                && a.BriefDuration == null && a.BriefArea == null) return null;
+            return new CareBriefDTO
+            {
+                CareNeedsSummary = a.BriefCareNeeds, Schedule = a.BriefSchedule,
+                StartDate = a.BriefStartDate, Duration = a.BriefDuration, Area = a.BriefArea,
+            };
+        }
+
+        /// <summary>
+        /// The client's name/contact is released only once the caregiver has actually accepted
+        /// (Accepted, or Cancelled after a prior acceptance — RespondedAt is set on accept and a decline
+        /// moves to Declined instead). Pending/Declined/never-accepted offers see the first name only.
+        /// </summary>
+        private static bool ClientDetailsReleased(Assignment a) =>
+            a.Status == AssignmentStatuses.Accepted
+            || (a.Status == AssignmentStatuses.Cancelled && a.RespondedAt != null);
+
+        private static string FirstNameOf(string? full) =>
+            string.IsNullOrWhiteSpace(full) ? "(client)" : full.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
     }
 }

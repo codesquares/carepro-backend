@@ -44,6 +44,16 @@ namespace Domain.Entities
         public string? CancelledByAdminId { get; set; }
         public string? CancelReason { get; set; }
 
+        // ── Care brief (staff-written, shown to the caregiver BEFORE acceptance) ──
+        // Flat nullable fields (not a nested document) so assignments created before the brief existed
+        // still load — a missing field is simply null. Deliberately free of client contact details.
+        public string? BriefCareNeeds { get; set; }
+        public string? BriefSchedule { get; set; }
+        public DateTime? BriefStartDate { get; set; }
+        public string? BriefDuration { get; set; }
+        /// <summary>General area only (city / neighborhood) — never a street address.</summary>
+        public string? BriefArea { get; set; }
+
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

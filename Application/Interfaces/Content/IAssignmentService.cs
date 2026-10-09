@@ -15,7 +15,8 @@ namespace Application.Interfaces.Content
         // Staff / system
         Task<AssignmentDTO> AssignAsync(
             string packageRequestId, string caregiverId,
-            string adminId, string? adminEmail, string assignedBy, double? matchScore);
+            string adminId, string? adminEmail, string assignedBy, double? matchScore,
+            CareBriefDTO? careBrief = null);
 
         Task<AssignmentActionResult> CancelAsync(string assignmentId, string adminId, string? adminEmail, string reason);
 
