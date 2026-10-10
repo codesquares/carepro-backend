@@ -231,6 +231,15 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<GigTemplateCategory>().HasKey(gt => gt.Id);
             modelBuilder.Entity<GigTemplateCategory>().Property(gt => gt.Id).HasElementName("_id");
 
+            modelBuilder.Entity<PoliceClearance>().ToCollection("PoliceClearances");
+            modelBuilder.Entity<PoliceClearance>().HasKey(pc => pc.Id);
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Id).HasElementName("_id");
+            // Review race guard (same pattern as Contract): two staff reviewing the same record both read
+            // Status=pending; the second SaveChanges no longer matches the stored value and throws
+            // DbUpdateConcurrencyException instead of overwriting the first decision.
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Status).IsConcurrencyToken();
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.ReviewedAt).IsConcurrencyToken();
+
             modelBuilder.Entity<AdminAuditLog>().ToCollection("AdminAuditLogs");
             modelBuilder.Entity<AdminAuditLog>().HasKey(a => a.Id);
             modelBuilder.Entity<AdminAuditLog>().Property(a => a.Id).HasElementName("_id");
@@ -336,6 +345,7 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverQualification> CaregiverQualifications { get; set; }
         public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
         public DbSet<Guarantor> Guarantors { get; set; }
+        public DbSet<PoliceClearance> PoliceClearances { get; set; }
         public DbSet<CaregiverAddressHistory> CaregiverAddressHistories { get; set; }
         public DbSet<CaregiverSocialMediaHandle> CaregiverSocialMediaHandles { get; set; }
         public DbSet<Package> Packages { get; set; }
