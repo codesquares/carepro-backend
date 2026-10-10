@@ -68,6 +68,7 @@ No new email type may ship without an explicit entry in this policy.
 | 42 | Police clearance rejected — with reason (caregiver) | `SendGenericNotificationEmailAsync` (Always-Send branch of #19), from `PoliceClearanceNotifier.NotifyRejectedAsync`; notification type `police_clearance_rejected` | Always-Send | The caregiver is blocked on a mandatory step until they act, so they must be told what was wrong. The staff-typed reason is HTML-encoded and appears in both the in-app notification and the email. No unsubscribe header, no gate. |
 | 43 | Police clearance approval revoked — with reason (caregiver) | `SendGenericNotificationEmailAsync` (Always-Send branch of #19), from `PoliceClearanceNotifier.NotifyRevokedAsync`; notification type `police_clearance_revoked` | Always-Send | A previously approved vetting step was withdrawn after further review; the caregiver must be told why and what to do next. Reason in both in-app and email. No unsubscribe header, no gate. |
 | 44 | Ops alert: clearance rejected/revoked while the caregiver has active assignments (admins) | `OpsAlertService.NotifyAdminsAsync` with `alsoEmail: false`, from `PoliceClearanceNotifier.NotifyAssignmentsAtRiskAsync`; notification type `police_clearance_assignments_at_risk` (no email path) | In-app only — no email | Raised only after the enforcement date. Lists the caregiver and each Accepted assignment so a human decides; nothing is cancelled automatically. Approved admins only. In-app only; row added for completeness (same treatment as #39). |
+| 45 | Caregiver vetting lockout notice (all existing caregivers) | *Not yet sent* — no sender exists; when built it will use `SendGenericNotificationEmailAsync` (Always-Send branch of #19) | Always-Send | One-off operational notice that account access will be limited from the lockout date unless three vetting steps (caregiver type, two guarantors added, address history) are completed. Same reasoning as rows #24–26 and #33: a workflow notice about the caregiver's own account, not marketing. **No unsubscribe header, no `gateUserId`/`gateNotificationType`.** Numbered #45 because #35 was already taken (see the 2026-09-29 change note). |
 
 ## Correction — 2026-07-23: Row #29 mechanism and coverage were both wrong
 
@@ -163,3 +164,8 @@ Full sweep performed — every `IEmailService.Send*` method with a live call sit
 - **Rows #40–#44 added** (clearance submitted alert, approved / rejected / revoked caregiver emails, assignments-at-risk alert). #41–#43 are Always-Send operational notices; #40 and #44 are in-app only to Approved admins.
 - New notification types in `Application.DTOs.NotificationTypes`: `police_clearance_submitted`, `police_clearance_approved`, `police_clearance_rejected`, `police_clearance_revoked`, `police_clearance_assignments_at_risk`. None is in `_preferenceGatedTypes` or `_immediateOnceOnlyTypes`.
 - These emails use real `<br />` line breaks; staff-typed reasons are HTML-encoded before being placed in the generic wrapper.
+
+## Change — 2026-10-10: vetting lockout notice
+
+- **Row #45 added** for the (not yet built) lockout notice email. Always-Send.
+- `/api/public-config` now returns `vettingLockoutEnforcementDate` (`VettingLockout:EnforcementDate`); unset/unparseable = not enforced.
