@@ -133,6 +133,18 @@ namespace Application.DTOs
         public const string CertificateManualRejection = "certificate_manual_rejection";
         public const string CertificateReview = "certificate_review";
 
+        // ── Police clearance (caregiver vetting step) ──
+        /// <summary>To Approved admins (in-app only): a caregiver submitted a police clearance for review.</summary>
+        public const string PoliceClearanceSubmitted = "police_clearance_submitted";
+        /// <summary>To the caregiver (in-app + email): staff approved their police clearance.</summary>
+        public const string PoliceClearanceApproved = "police_clearance_approved";
+        /// <summary>To the caregiver (in-app + email, with the reason): staff rejected their police clearance.</summary>
+        public const string PoliceClearanceRejected = "police_clearance_rejected";
+        /// <summary>To the caregiver (in-app + email, with the reason): a previously approved clearance was revoked.</summary>
+        public const string PoliceClearanceRevoked = "police_clearance_revoked";
+        /// <summary>To Approved admins (in-app only): a clearance was rejected/revoked after enforcement for a caregiver who has active assignments — a human must decide.</summary>
+        public const string PoliceClearanceAssignmentsAtRisk = "police_clearance_assignments_at_risk";
+
         // ── Subscriptions ──
         public const string SubscriptionCreated = "subscription_created";
         public const string SubscriptionCancellationScheduled = "subscription_cancellation_scheduled";
