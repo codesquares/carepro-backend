@@ -191,9 +191,10 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                var admins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted)
-                    .ToListAsync();
+                // var admins = await _dbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted)
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var admins = await AdminRecipients.GetApprovedAsync(_dbContext);
 
                 var caregiver = await _dbContext.CareGivers.FirstOrDefaultAsync(c => c.Id.ToString() == caregiverId);
                 var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "A caregiver";

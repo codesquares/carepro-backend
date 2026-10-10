@@ -1028,9 +1028,10 @@ namespace Infrastructure.Content.Services
                 var content = $"{clientName} has raised a dispute on Order {order.Id}. Reason: {dispute.Reason}";
 
                 // Notify all admins
-                var admins = await careProDbContext.AdminUsers
-                    .Where(a => !a.IsDeleted)
-                    .ToListAsync();
+                // var admins = await careProDbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted)
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var admins = await AdminRecipients.GetApprovedAsync(careProDbContext);
 
                 foreach (var admin in admins)
                 {

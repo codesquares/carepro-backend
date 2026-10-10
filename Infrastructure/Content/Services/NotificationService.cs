@@ -16,6 +16,13 @@ namespace Infrastructure.Content.Services
 {
     public class NotificationService : INotificationService
     {
+        /// <summary>
+        /// Legacy notification types excluded from every inbox read (list, unread count, mark-all).
+        /// Rows are NOT deleted or modified — they are simply not surfaced. care_request_admin_no_match
+        /// belonged to the retired care-matching flow and is still sitting unread on admin accounts.
+        /// </summary>
+        private static readonly string[] HiddenInboxTypes = { NotificationTypes.CareRequestAdminNoMatch };
+
         private readonly CareProDbContext _dbContext;
         private readonly IHubContext<NotificationHub> _notificationHubContext;
         private readonly IPushService _pushService;
@@ -91,8 +98,10 @@ namespace Infrastructure.Content.Services
                 if (pageSize < 1) pageSize = 10;
                 if (pageSize > 200) pageSize = 200;
 
+                // var query = _dbContext.Notifications
+                //     .Where(n => n.RecipientId == userId);
                 var query = _dbContext.Notifications
-                    .Where(n => n.RecipientId == userId);
+                    .Where(n => n.RecipientId == userId && !HiddenInboxTypes.Contains(n.Type));
 
                 var totalCount = await query.CountAsync();
 
@@ -166,8 +175,10 @@ namespace Infrastructure.Content.Services
         {
             try
             {
+                // return await _dbContext.Notifications
+                //     .CountAsync(n => n.RecipientId == userId && n.IsRead == false);
                 return await _dbContext.Notifications
-                    .CountAsync(n => n.RecipientId == userId && n.IsRead == false);
+                    .CountAsync(n => n.RecipientId == userId && n.IsRead == false && !HiddenInboxTypes.Contains(n.Type));
             }
             catch (Exception ex)
             {
@@ -211,8 +222,9 @@ namespace Infrastructure.Content.Services
         {
             try
             {
+                // Legacy hidden types are left untouched (not shown in the inbox, so not "read" by mark-all either).
                 var notifications = await _dbContext.Notifications
-                    .Where(n => n.RecipientId == userId && !n.IsRead)
+                    .Where(n => n.RecipientId == userId && !n.IsRead && !HiddenInboxTypes.Contains(n.Type))
                     .ToListAsync();
 
                 foreach (var notification in notifications)

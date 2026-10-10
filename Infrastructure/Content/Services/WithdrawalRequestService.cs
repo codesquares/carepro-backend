@@ -472,9 +472,11 @@ namespace Infrastructure.Content.Services
                                    $"<p>Please log in to the admin portal to review and process this request.</p>";
 
                 // Target: SuperAdmin users + Finance department admins
-                var admins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
-                    .ToListAsync();
+                // var admins = await _dbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var admins = await AdminRecipients.GetApprovedAsync(_dbContext,
+                    a => a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance);
 
                 foreach (var admin in admins)
                 {
