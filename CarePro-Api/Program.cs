@@ -153,6 +153,7 @@ builder.Services.AddScoped<IGuarantorService, GuarantorService>();
 builder.Services.AddScoped<IPoliceClearanceFileStore, CloudinaryPoliceClearanceFileStore>();
 builder.Services.AddScoped<IPoliceClearanceNotifier, PoliceClearanceNotifier>();
 builder.Services.AddScoped<IPoliceClearanceService, PoliceClearanceService>();
+builder.Services.AddScoped<IPoliceClearanceAdminService, PoliceClearanceAdminService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
