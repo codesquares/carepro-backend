@@ -150,6 +150,7 @@ builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
 builder.Services.AddScoped<ICaregiverVettingService, CaregiverVettingService>();
 builder.Services.AddScoped<IGuarantorService, GuarantorService>();
+builder.Services.AddScoped<IPoliceClearanceFileStore, CloudinaryPoliceClearanceFileStore>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
