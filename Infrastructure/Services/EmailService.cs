@@ -1018,9 +1018,31 @@ Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/prom
             await SendEmailAsync(message);
         }
 
+        public async Task SendVettingNoticeEmailAsync(string toEmail, string subject, string htmlBody, string textBody)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+            message.Body = new BodyBuilder { HtmlBody = htmlBody, TextBody = textBody }.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Centralized SMTP send with full logging
         private async Task SendEmailAsync(MimeMessage message)
         {
+            // Mail sink (local/test only): write the message to disk and never touch SMTP.
+            var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+            if (!string.IsNullOrWhiteSpace(emailSettings.SinkDirectory)
+                && !env.Equals("Production", StringComparison.OrdinalIgnoreCase) && !env.Equals("Staging", StringComparison.OrdinalIgnoreCase))
+            {
+                System.IO.Directory.CreateDirectory(emailSettings.SinkDirectory);
+                var file = System.IO.Path.Combine(emailSettings.SinkDirectory, $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.eml");
+                using (var fs = System.IO.File.Create(file)) message.WriteTo(fs);
+                _logger.LogInformation("Mail sink: message written to the sink directory (not sent).");
+                return;
+            }
+
             var to = message.To.ToString();
             var subject = message.Subject;
             var smtpUsername = string.IsNullOrEmpty(emailSettings.SmtpUsername) ? emailSettings.FromEmail : emailSettings.SmtpUsername;
