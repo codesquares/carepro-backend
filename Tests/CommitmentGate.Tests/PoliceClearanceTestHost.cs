@@ -88,7 +88,9 @@ internal sealed class ClearanceHeaderAuthHandler : AuthenticationHandler<Authent
 
 public sealed class ClearanceHostFactory : WebApplicationFactory<Program>
 {
-    public string DbName { get; } = $"carepro_clearance_http_{Guid.NewGuid():N}";
+    public string DbNameOverride { get; set; } = string.Empty;
+    private readonly string _ownDbName = $"carepro_clearance_http_{Guid.NewGuid():N}";
+    public string DbName => string.IsNullOrEmpty(DbNameOverride) ? _ownDbName : DbNameOverride;
     public FakeClearanceFileStore Store { get; } = new();
     public Mock<IEmailService> Email { get; } = new();
     public Dictionary<string, string?> ExtraConfig { get; } = new();

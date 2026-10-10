@@ -281,6 +281,7 @@ namespace Infrastructure.Content.Services
             await SaveDecisionAsync();
 
             await _notifier.NotifyRejectedAsync(record.CaregiverId!, record.Id.ToString(), cleanReason);
+            await AlertActiveAssignmentsAsync(record, "rejected");
             return await BuildDetailAsync(record, all, true);
         }
 
@@ -303,7 +304,43 @@ namespace Infrastructure.Content.Services
             await SaveDecisionAsync();
 
             await _notifier.NotifyRevokedAsync(record.CaregiverId!, record.Id.ToString(), cleanReason);
+            await AlertActiveAssignmentsAsync(record, "revoked");
             return await BuildDetailAsync(record, all, true);
+        }
+
+        /// <summary>
+        /// After the enforcement date, a rejection/revocation can leave a caregiver with Accepted assignments and no approved
+        /// clearance. NOTHING is cancelled automatically: Approved admins are alerted, with each assignment listed, so a human
+        /// decides. Before the enforcement date (or if unset) there is no alert — the step isn't blocking yet.
+        /// </summary>
+        private async Task AlertActiveAssignmentsAsync(PoliceClearance record, string trigger)
+        {
+            try
+            {
+                var settings = PoliceClearanceSettings.Load(_configuration);
+                if (!settings.IsEnforced(NowUtc)) return;
+
+                var cgId = record.CaregiverId!;
+                var active = await _db.Assignments.Where(a => a.CaregiverId == cgId && a.Status == AssignmentStatuses.Accepted).ToListAsync();
+                if (active.Count == 0) return;
+
+                var requestOids = active.Select(a => ObjectId.TryParse(a.PackageRequestId, out var o) ? o : (ObjectId?)null)
+                                        .Where(o => o.HasValue).Select(o => o!.Value).Distinct().ToList();
+                var requests = (await _db.PackageRequests.Where(p => requestOids.Contains(p.Id)).ToListAsync())
+                    .ToDictionary(p => p.Id.ToString());
+                var lines = active.Select(a =>
+                {
+                    requests.TryGetValue(a.PackageRequestId ?? string.Empty, out var pr);
+                    return $"assignment {a.Id} ({pr?.PackageCategory ?? "package"}{(pr?.PackageTierLabel != null ? " – " + pr.PackageTierLabel : "")})";
+                }).ToList();
+
+                var caregiver = ObjectId.TryParse(cgId, out var oid) ? await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == oid) : null;
+                await _notifier.NotifyAssignmentsAtRiskAsync(cgId, FullName(caregiver), trigger, record.Id.ToString(), lines);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not raise the at-risk assignment alert for clearance {ClearanceId}", record.Id);
+            }
         }
 
         // ───────────────────────── staff file view ─────────────────────────

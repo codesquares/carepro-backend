@@ -45,6 +45,9 @@ namespace CarePro_Api.Controllers.Content
         {
             switch (ex)
             {
+                // Accept re-check (police clearance). Same 409 shape as the staff assign route.
+                case Domain.Entities.CaregiverNotReadyException cnr:
+                    return Conflict(new { message = cnr.Message, errorCode = cnr.ErrorCode, reasons = cnr.Reasons });
                 case ArgumentException ae:
                     return BadRequest(new { message = ae.Message });
                 case InvalidOperationException ioe:

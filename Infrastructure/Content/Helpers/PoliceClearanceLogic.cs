@@ -29,6 +29,17 @@ namespace Infrastructure.Content.Helpers
             };
         }
 
+        /// <summary>
+        /// The readiness reason for a clearance status, or null when approved. Only "pending" is non-actionable;
+        /// none/rejected/revoked all mean "the caregiver has to submit (again)".
+        /// </summary>
+        public static string? ReadinessReason(string statusName) => statusName switch
+        {
+            "approved" => null,
+            "pending" => CaregiverReadinessReasons.PoliceClearancePending,
+            _ => CaregiverReadinessReasons.PoliceClearanceMissing
+        };
+
         public static bool CanResubmit(PoliceClearance? latest) => StatusName(latest) != "approved";
 
         /// <summary>

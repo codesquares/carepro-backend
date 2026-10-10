@@ -4,8 +4,10 @@ using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
@@ -29,6 +31,8 @@ namespace Infrastructure.Content.Services
         private readonly IPackageContractService _packageContractService;
         private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<AssignmentService> _logger;
+        private readonly IConfiguration? _configuration;
+        private readonly TimeProvider _time;
 
         private static readonly string[] ActiveAssignmentStatuses =
             { AssignmentStatuses.PendingAcceptance, AssignmentStatuses.Accepted };
@@ -40,8 +44,12 @@ namespace Infrastructure.Content.Services
             ICaregiverReadinessService readinessService,
             IPackageContractService packageContractService,
             IOpsAlertService opsAlerts,
-            ILogger<AssignmentService> logger)
+            ILogger<AssignmentService> logger,
+            IConfiguration? configuration = null,
+            TimeProvider? time = null)
         {
+            _configuration = configuration;
+            _time = time ?? TimeProvider.System;
             _db = db;
             _mediator = mediator;
             _emailService = emailService;
@@ -410,6 +418,23 @@ namespace Infrastructure.Content.Services
             }).ToList();
         }
 
+        private async Task EnsurePoliceClearanceAllowsAcceptAsync(string caregiverId)
+        {
+            var settings = PoliceClearanceSettings.Load(_configuration);
+            if (!settings.IsEnforced(_time.GetUtcNow().UtcDateTime)) return;   // grace period / unset: informational only
+
+            var records = await _db.PoliceClearances.Where(c => c.CaregiverId == caregiverId).ToListAsync();
+            var status = PoliceClearanceLogic.StatusName(PoliceClearanceLogic.Latest(records));
+            var reason = PoliceClearanceLogic.ReadinessReason(status);
+            if (reason == null) return;
+
+            throw new CaregiverNotReadyException(
+                status == "pending"
+                    ? "Your police clearance is still being reviewed. You can accept this assignment once our team has approved it."
+                    : "A police clearance approved by our team is required before you can accept assignments. Please submit yours from the Vetting page.",
+                new List<string> { reason });
+        }
+
         public async Task<AssignmentActionResult> AcceptAsync(string assignmentId, string caregiverId)
         {
             var assignment = await LoadOwnedAssignmentAsync(assignmentId, caregiverId);
@@ -423,6 +448,10 @@ namespace Infrastructure.Content.Services
 
             if (!string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
                 throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be accepted.");
+
+            // Police clearance re-check (only this one criterion — accept behaviour for every other readiness reason is
+            // unchanged). Runs before anything is modified, so a refusal leaves the assignment exactly as it was.
+            await EnsurePoliceClearanceAllowsAcceptAsync(caregiverId);
 
             var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId))
                 ?? throw new KeyNotFoundException("The linked package request no longer exists.");
