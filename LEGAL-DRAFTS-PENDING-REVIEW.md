@@ -52,3 +52,47 @@ Africa/Lagos and labelled **WAT** (e.g. "Friday, 9 October 2026 at 8:51 AM WAT")
 ## Not changed on purpose (owner decision)
 
 Terms & Conditions, Privacy Policy and `MarketingPage.jsx:250` (background-check claim) are untouched.
+
+---
+
+# Police clearance — PROPOSED Privacy Policy wording (not applied)
+
+**Status: DRAFT, LOCAL ONLY. The public Privacy Policy and Terms pages have NOT been edited (owner decision). Nothing below is live until a lawyer approves it and the owner publishes it.**
+
+Police clearance documents are personal data. They are collected as an uploaded document on the caregiver Vetting page and
+reviewed by CarePro Operations staff.
+
+## Proposed sentence for the Privacy Policy
+
+> If you work with CarePro as a caregiver, we ask you to upload a police clearance certificate so that our Operations team can
+> review it before you are assigned to clients. The document is stored in private storage that is not publicly accessible. Only you
+> and authorised CarePro Operations staff can open it, and every time a staff member opens it, we record who and when. We keep the
+> document, and the record of our review, for as long as your caregiver account is active. If you delete your account, we
+> permanently delete the document and the review record 30 days after your request, together with the rest of your personal
+> data. We keep a limited audit entry (which staff member took an action, on which account, and when) for accountability.
+
+## What the system actually does today (so the wording above stays true)
+
+| Item | Behaviour |
+|---|---|
+| Storage | Cloudinary **authenticated** (non-public) raw assets. No public URL exists; no storage URL is returned by any API or written to logs. Files are read only through backend routes that check the requester. |
+| Who can open a file | The owning caregiver; Operations/Policy admins (SuperAdmin, or Admin in HR / ComplianceAndLegal / CareLeads). Every other admin department and every other caregiver gets 403. |
+| Staff views | Each staff view writes an `AdminAuditLog` row (admin id and email from the token, clearance id, caregiver id, file index, time) **before** the file is served. The original file name is deliberately not logged. |
+| Retention while the account is active | **No automatic expiry or deletion.** An approved clearance stays approved. Older submissions that were replaced by a resubmission are kept as history (the caregiver cannot delete them). |
+| Account deletion | After the existing 30-day grace period, `UserHardDeleteProcessor` deletes every clearance record for the account (including superseded ones) **and** deletes each file from storage. If a file cannot be deleted the account's processing fails loudly (ERROR log naming the opaque storage ids) and is retried on the next daily cycle. |
+| Kept after deletion | `AdminAuditLog` rows (admin id/email, caregiver id, action, free-text reason typed by staff, file index, time). Staff reasons are free text and could in principle name the person — reviewers should avoid including names in reasons. |
+| Not done | No antivirus scan. PDFs containing scripts/attachments are rejected, and files must match their declared type by magic bytes. No automatic retention period has been decided. |
+
+## Questions for the lawyer
+
+- Is "for as long as your caregiver account is active" an acceptable retention statement, or is a fixed period required (and if so, which)?
+- Is a limited audit trail after account deletion acceptable, and how should the policy describe it?
+- Does collecting police clearance need an explicit consent step or a stated lawful basis in the Privacy Policy?
+- Should "background-checked" wording on the public pages be replaced with something like "police clearance reviewed"? (A clearance document is not a live criminal-record search.)
+
+## Public wording to review when the step goes live (NOT changed in this pass)
+
+- `Application/Content/ContractWording.cs` — `CaregiverVettingClaim` (and its comment block; row 6 above)
+- `src/pages/MarketingPage.jsx` lines 84 ("Rigorously vetted"), 145 ("background-checked & verified"), 250 ("background checks")
+- `src/components/LandingPage/FAQ.jsx:36` ("thorough background checks")
+- `src/pages/TermsAndConditions.jsx` lines 53, 95 and `src/pages/PrivacyPolicy.jsx` lines 57, 92 (background-check information / providers)

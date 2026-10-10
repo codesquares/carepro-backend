@@ -356,7 +356,7 @@ namespace Infrastructure.Content.Services
 
             // Audit first and fail closed: if the entry cannot be written, the file is not served.
             await AuditAsync(admin, record, "PoliceClearanceFileViewed",
-                new { fileIndex, fileName = record.Files[fileIndex].OriginalFileName }, "Staff viewed a police clearance file");
+                new { fileIndex }, "Staff viewed a police clearance file");
             await _db.SaveChangesAsync();
 
             return await PoliceClearanceService.ReadFileAsync(_store, record, fileIndex);
