@@ -239,6 +239,8 @@ namespace Infrastructure.Content.Data
             // DbUpdateConcurrencyException instead of overwriting the first decision.
             modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Status).IsConcurrencyToken();
             modelBuilder.Entity<PoliceClearance>().Property(pc => pc.ReviewedAt).IsConcurrencyToken();
+            // Superseded is a token too, so two simultaneous resubmissions cannot both supersede the same record.
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Superseded).IsConcurrencyToken();
 
             modelBuilder.Entity<AdminAuditLog>().ToCollection("AdminAuditLogs");
             modelBuilder.Entity<AdminAuditLog>().HasKey(a => a.Id);
