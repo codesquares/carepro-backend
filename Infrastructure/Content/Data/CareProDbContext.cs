@@ -242,6 +242,11 @@ namespace Infrastructure.Content.Data
             // Superseded is a token too, so two simultaneous resubmissions cannot both supersede the same record.
             modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Superseded).IsConcurrencyToken();
 
+            modelBuilder.Entity<VettingNotice>().ToCollection("VettingNotices");
+            modelBuilder.Entity<VettingNotice>().HasKey(n => n.Id);
+            modelBuilder.Entity<VettingNotice>().Property(n => n.Id).HasElementName("_id");
+            modelBuilder.Entity<VettingNotice>().Property(n => n.Result).IsConcurrencyToken();
+
             modelBuilder.Entity<AdminAuditLog>().ToCollection("AdminAuditLogs");
             modelBuilder.Entity<AdminAuditLog>().HasKey(a => a.Id);
             modelBuilder.Entity<AdminAuditLog>().Property(a => a.Id).HasElementName("_id");
@@ -347,6 +352,7 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverQualification> CaregiverQualifications { get; set; }
         public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
         public DbSet<Guarantor> Guarantors { get; set; }
+        public DbSet<VettingNotice> VettingNotices { get; set; }
         public DbSet<PoliceClearance> PoliceClearances { get; set; }
         public DbSet<CaregiverAddressHistory> CaregiverAddressHistories { get; set; }
         public DbSet<CaregiverSocialMediaHandle> CaregiverSocialMediaHandles { get; set; }

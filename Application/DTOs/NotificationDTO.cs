@@ -145,6 +145,10 @@ namespace Application.DTOs
         /// <summary>To Approved admins (in-app only): a clearance was rejected/revoked after enforcement for a caregiver who has active assignments — a human must decide.</summary>
         public const string PoliceClearanceAssignmentsAtRisk = "police_clearance_assignments_at_risk";
 
+        // ── Vetting enforcement notice ──
+        /// <summary>To a caregiver (in-app + email): vetting steps are missing and an enforcement date is coming.</summary>
+        public const string VettingEnforcementNotice = "vetting_enforcement_notice";
+
         // ── Subscriptions ──
         public const string SubscriptionCreated = "subscription_created";
         public const string SubscriptionCancellationScheduled = "subscription_cancellation_scheduled";
