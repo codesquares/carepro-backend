@@ -112,10 +112,14 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PackageRequest>().ToCollection("PackageRequests");
             modelBuilder.Entity<PackageRequest>().HasKey(pr => pr.Id);
             modelBuilder.Entity<PackageRequest>().Property(pr => pr.Id).HasElementName("_id");
+            // Race guard (same pattern as PoliceClearance.Status): a write whose expected Status no longer matches the stored
+            // document fails with DbUpdateConcurrencyException instead of overwriting — one winner for assign/accept/decline/cancel.
+            modelBuilder.Entity<PackageRequest>().Property(pr => pr.Status).IsConcurrencyToken();
 
             modelBuilder.Entity<Assignment>().ToCollection("Assignments");
             modelBuilder.Entity<Assignment>().HasKey(a => a.Id);
             modelBuilder.Entity<Assignment>().Property(a => a.Id).HasElementName("_id");
+            modelBuilder.Entity<Assignment>().Property(a => a.Status).IsConcurrencyToken();   // see PackageRequest.Status above
             modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
             modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
             modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");

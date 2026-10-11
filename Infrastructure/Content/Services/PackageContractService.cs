@@ -390,41 +390,58 @@ namespace Infrastructure.Content.Services
 
             // STEP 2 — dependants. Idempotent and re-runnable: a repeat/double call (or a retry after a crash between
             // steps) only transitions what is not yet cancelled, and only newly-transitioned rows trigger notifications.
-            if (request.Status != PackageRequestStatuses.Cancelled)
-            {
-                request.Status = PackageRequestStatuses.Cancelled;
-                request.UpdatedAt = now;
-            }
-
-            var assignments = await _db.Assignments
-                .Where(a => a.PackageRequestId == packageRequestId
-                            && (a.Status == AssignmentStatuses.Accepted || a.Status == AssignmentStatuses.PendingAcceptance))
-                .ToListAsync();
-            foreach (var a in assignments)
-            {
-                a.Status = AssignmentStatuses.Cancelled;
-                a.CancelReason = "Cancelled by the client during the cancellation window.";
-                a.UpdatedAt = now;
-            }
-
-            // Stop future recurring charges (does NOT move money; no refund is automated).
-            var subscription = await _db.PackageSubscriptions.FirstOrDefaultAsync(s => s.PackageRequestId == packageRequestId);
+            PackageSubscription? subscription = null;
             var stoppedSubscription = false;
-            if (subscription != null && subscription.Status != SubscriptionStatus.Cancelled && subscription.Status != SubscriptionStatus.Terminated)
+            for (var attempt = 0; ; attempt++)
             {
-                subscription.Status = SubscriptionStatus.Cancelled;
-                subscription.AutoRenew = false;
-                subscription.NextChargeDate = null;
-                subscription.CancelAtPeriodEnd = false;
-                subscription.CancellationRequestedAt = now;
-                subscription.CancellationReason = "Order cancelled by the client within the cancellation window.";
-                subscription.CancelledBy = $"Client:{clientId}";
-                subscription.TerminatedAt = now;
-                subscription.UpdatedAt = now;
-                stoppedSubscription = true;
-            }
+                try
+                {
+                    if (request.Status != PackageRequestStatuses.Cancelled)
+                    {
+                        request.Status = PackageRequestStatuses.Cancelled;
+                        request.UpdatedAt = now;
+                    }
 
-            await _db.SaveChangesAsync();
+                    var assignments = await _db.Assignments
+                        .Where(a => a.PackageRequestId == packageRequestId
+                                    && (a.Status == AssignmentStatuses.Accepted || a.Status == AssignmentStatuses.PendingAcceptance))
+                        .ToListAsync();
+                    foreach (var a in assignments)
+                    {
+                        a.Status = AssignmentStatuses.Cancelled;
+                        a.CancelReason = "Cancelled by the client during the cancellation window.";
+                        a.UpdatedAt = now;
+                    }
+
+                    // Stop future recurring charges (does NOT move money; no refund is automated).
+                    subscription = await _db.PackageSubscriptions.FirstOrDefaultAsync(s => s.PackageRequestId == packageRequestId);
+                    stoppedSubscription = false;
+                    if (subscription != null && subscription.Status != SubscriptionStatus.Cancelled && subscription.Status != SubscriptionStatus.Terminated)
+                    {
+                        subscription.Status = SubscriptionStatus.Cancelled;
+                        subscription.AutoRenew = false;
+                        subscription.NextChargeDate = null;
+                        subscription.CancelAtPeriodEnd = false;
+                        subscription.CancellationRequestedAt = now;
+                        subscription.CancellationReason = "Order cancelled by the client within the cancellation window.";
+                        subscription.CancelledBy = $"Client:{clientId}";
+                        subscription.TerminatedAt = now;
+                        subscription.UpdatedAt = now;
+                        stoppedSubscription = true;
+                    }
+
+                    await _db.SaveChangesAsync();
+                    break;
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < 4)
+                {
+                    // Assignment/PackageRequest status tokens (assign/accept/decline race guard): a concurrent writer moved the
+                    // same rows to the same terminal state. Reload and re-apply — only still-open rows transition.
+                    _db.ChangeTracker.Clear();
+                    request = await _db.PackageRequests.FirstAsync(p => p.Id == prOid);
+                    contract = await _db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+                }
+            }
 
             // Notifications — caregiver in-app only (no new email type). Only the call that won the contract gate
             // notifies; concurrent/duplicate calls reconcile state silently, so there is exactly one notification.

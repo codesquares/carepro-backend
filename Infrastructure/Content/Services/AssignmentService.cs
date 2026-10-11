@@ -109,6 +109,14 @@ namespace Infrastructure.Content.Services
                     "This caregiver isn't ready to be assigned right now.", readiness.IneligibilityReasons);
 
             var now = DateTime.UtcNow;
+
+            // Atomic claim of the request (Status is a concurrency token): of two staff assigning the same request at
+            // once, only the first to flip it to Assigned proceeds; the other 409s before any Assignment row exists.
+            // The AnyAsync check above is only a friendly early error — it is not what enforces one-active-assignment.
+            request.Status = PackageRequestStatuses.Assigned;
+            request.UpdatedAt = now;
+            await SaveRequestTransitionAsync();
+
             var assignment = new Assignment
             {
                 Id = ObjectId.GenerateNewId(),
@@ -130,9 +138,6 @@ namespace Infrastructure.Content.Services
                 ServiceAddress = Clean(serviceAddress),
             };
             _db.Assignments.Add(assignment);
-
-            request.Status = PackageRequestStatuses.Assigned;
-            request.UpdatedAt = now;
 
             await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
             {
@@ -204,6 +209,8 @@ namespace Infrastructure.Content.Services
             assignment.CancelledByAdminId = adminId;
             assignment.CancelReason = reason.Trim();
             assignment.UpdatedAt = now;
+
+            await ClaimAssignmentTransitionAsync(assignment, "cancelled");
 
             var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId));
             if (request != null && request.Status == PackageRequestStatuses.Assigned)
@@ -461,13 +468,18 @@ namespace Infrastructure.Content.Services
             assignment.RespondedAt = now;
             assignment.UpdatedAt = now;
 
+            // Atomic claim: only one concurrent responder can move this row off PendingAcceptance (Status is a
+            // concurrency token). The loser gets a 409 and sends nothing. Saved on its own so a lost race can
+            // never leave the PackageRequest half-updated.
+            await ClaimAssignmentTransitionAsync(assignment, "accepted");
+
             // Finalize to the client — this is the first moment the client sees a caregiver.
             request.Status = PackageRequestStatuses.Confirmed;
             request.ConfirmedCaregiverId = caregiverId;
             request.ConfirmedAt = now;
             request.UpdatedAt = now;
 
-            await _db.SaveChangesAsync();
+            await SaveRequestTransitionAsync();
 
             var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(caregiverId));
             var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Your caregiver";
@@ -581,14 +593,16 @@ namespace Infrastructure.Content.Services
             assignment.DeclineReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
             assignment.UpdatedAt = now;
 
+            // Atomic claim — see AcceptAsync. A concurrent accept/decline/cancel that got there first wins; this one 409s.
+            await ClaimAssignmentTransitionAsync(assignment, "declined");
+
             var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId));
             if (request != null && request.Status == PackageRequestStatuses.Assigned)
             {
                 request.Status = PackageRequestStatuses.Pending; // back to the queue; no auto-reassignment
                 request.UpdatedAt = now;
+                await SaveRequestTransitionAsync();
             }
-
-            await _db.SaveChangesAsync();
 
             // Tell ops — there is deliberately no automatic reassignment.
             var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(caregiverId));
@@ -610,6 +624,28 @@ namespace Infrastructure.Content.Services
         }
 
         // ─────────────────────────────── Helpers ───────────────────────────────
+
+        /// <summary>Saves a status change on an already-loaded assignment; a lost race becomes a 409 (InvalidOperationException).</summary>
+        private async Task ClaimAssignmentTransitionAsync(Assignment assignment, string verb)
+        {
+            try { await _db.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException)
+            {
+                _db.Entry(assignment).State = EntityState.Detached;
+                throw new InvalidOperationException(
+                    $"This assignment was just changed by someone else and can no longer be {verb}. Please refresh to see its current status.");
+            }
+        }
+
+        private async Task SaveRequestTransitionAsync()
+        {
+            try { await _db.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw new InvalidOperationException(
+                    "This package request was just changed by someone else. Please refresh and try again.");
+            }
+        }
 
         private async Task<Assignment> LoadAssignmentAsync(string assignmentId)
         {
