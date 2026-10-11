@@ -350,6 +350,143 @@ public class Phase4AssignmentTests
             It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
+    // ═══════════════════ Concurrency: one winner, the loser gets a conflict ═══════════════════
+
+    private static async Task<(PromiseOutcome a, PromiseOutcome b)> RaceAsync(Func<Task> first, Func<Task> second)
+    {
+        var gate = new TaskCompletionSource();
+        async Task<PromiseOutcome> Run(Func<Task> f)
+        {
+            await gate.Task;
+            try { await f(); return new PromiseOutcome(true, null); }
+            catch (Exception ex) { return new PromiseOutcome(false, ex); }
+        }
+        var ta = Task.Run(() => Run(first));
+        var tb = Task.Run(() => Run(second));
+        gate.SetResult();
+        return (await ta, await tb);
+    }
+
+    private sealed record PromiseOutcome(bool Ok, Exception? Error);
+
+    private static async Task<(string assignmentId, string prId, string cgId)> SeedPendingAssignmentAsync(string dbName)
+    {
+        using var db = CreateDb(dbName);
+        var (prId, cgId, _) = await SeedRequestAndCaregiver(db);
+        var a = await CreateAssignHarness(db).Assignments.AssignAsync(prId, cgId, "admin-1", "ops@x", "staff", null);
+        return (a.Id, prId, cgId);
+    }
+
+    private static void SeedAdmin(string dbName)
+    {
+        using var db = CreateDb(dbName);
+        db.AdminUsers.Add(new AdminUser
+        {
+            Id = ObjectId.GenerateNewId(), FirstName = "Ops", LastName = "Admin",
+            Email = "ops@carepro.test", Password = "x", Role = "Admin", Department = "CareLeads" // pragma: allowlist-secret
+        });
+        db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task Decline_TwoSimultaneousRequests_ExactlyOneSucceeds_OtherConflicts_OneAdminNotification()
+    {
+        for (var round = 0; round < 15; round++)
+        {
+            var dbName = NewDbName();
+            SeedAdmin(dbName);
+            var (assignmentId, prId, cgId) = await SeedPendingAssignmentAsync(dbName);
+
+            using var dbA = CreateDb(dbName);
+            using var dbB = CreateDb(dbName);
+            var hA = CreateAssignHarness(dbA);
+            var hB = CreateAssignHarness(dbB);
+
+            var (ra, rb) = await RaceAsync(
+                () => hA.Assignments.DeclineAsync(assignmentId, cgId, "a"),
+                () => hB.Assignments.DeclineAsync(assignmentId, cgId, "b"));
+
+            Assert.Equal(1, new[] { ra, rb }.Count(r => r.Ok));
+            var loser = ra.Ok ? rb : ra;
+            Assert.IsType<InvalidOperationException>(loser.Error); // controller maps this to 409
+
+            var notifications = new[] { hA, hB }.Sum(h => h.Mediator.Invocations
+                .Count(i => i.Arguments.OfType<SendNotificationCommand>().Any(c => c.Type == NotificationTypes.PackageAssignmentDeclined)));
+            Assert.Equal(1, notifications);
+
+            using var check = CreateDb(dbName);
+            Assert.Equal("Declined", (await check.Assignments.FirstAsync()).Status);
+            Assert.Equal("pending", (await check.PackageRequests.FirstAsync(p => p.Id == ObjectId.Parse(prId))).Status);
+        }
+    }
+
+    [Fact]
+    public async Task AcceptVsDecline_Simultaneous_ExactlyOneWins_AndRequestStateMatchesTheWinner()
+    {
+        for (var round = 0; round < 15; round++)
+        {
+            var dbName = NewDbName();
+            SeedAdmin(dbName);
+            var (assignmentId, prId, cgId) = await SeedPendingAssignmentAsync(dbName);
+
+            using var dbA = CreateDb(dbName);
+            using var dbB = CreateDb(dbName);
+            var hA = CreateAssignHarness(dbA);
+            var hB = CreateAssignHarness(dbB);
+
+            var (acc, dec) = await RaceAsync(
+                () => hA.Assignments.AcceptAsync(assignmentId, cgId),
+                () => hB.Assignments.DeclineAsync(assignmentId, cgId, "no"));
+
+            Assert.Equal(1, new[] { acc, dec }.Count(r => r.Ok));
+            Assert.IsType<InvalidOperationException>((acc.Ok ? dec : acc).Error);
+
+            using var check = CreateDb(dbName);
+            var a = await check.Assignments.FirstAsync();
+            var pr = await check.PackageRequests.FirstAsync(p => p.Id == ObjectId.Parse(prId));
+            if (acc.Ok)
+            {
+                Assert.Equal("Accepted", a.Status);
+                Assert.Equal("confirmed", pr.Status);
+                hB.Mediator.Verify(m => m.Send(It.Is<SendNotificationCommand>(c => c.Type == NotificationTypes.PackageAssignmentDeclined), It.IsAny<CancellationToken>()), Times.Never);
+            }
+            else
+            {
+                Assert.Equal("Declined", a.Status);
+                Assert.Equal("pending", pr.Status);
+                hA.Mediator.Verify(m => m.Send(It.Is<SendNotificationCommand>(c => c.Type == NotificationTypes.PackageAssignmentConfirmed), It.IsAny<CancellationToken>()), Times.Never);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Assign_TwoStaffDifferentCaregiversSimultaneously_OnlyOneActiveAssignmentExists()
+    {
+        for (var round = 0; round < 15; round++)
+        {
+            var dbName = NewDbName();
+            string prId, cg1, cg2;
+            using (var seed = CreateDb(dbName))
+            {
+                (prId, cg1, _) = await SeedRequestAndCaregiver(seed);
+                cg2 = AddCaregiver(seed, CaregiverType.RegisteredNurse, "Midwifery").Id.ToString();
+                await seed.SaveChangesAsync();
+            }
+
+            using var dbA = CreateDb(dbName);
+            using var dbB = CreateDb(dbName);
+            var (ra, rb) = await RaceAsync(
+                () => CreateAssignHarness(dbA).Assignments.AssignAsync(prId, cg1, "admin-1", "a@x", "staff", null),
+                () => CreateAssignHarness(dbB).Assignments.AssignAsync(prId, cg2, "admin-2", "b@x", "staff", null));
+
+            Assert.Equal(1, new[] { ra, rb }.Count(r => r.Ok));
+            Assert.IsType<InvalidOperationException>((ra.Ok ? rb : ra).Error);
+
+            using var check = CreateDb(dbName);
+            Assert.Single(await check.Assignments.Where(a => a.PackageRequestId == prId).ToListAsync());
+        }
+    }
+
     [Fact]
     public async Task PendingAcceptanceView_ShowsStalledAssignments_LongestFirst_UntilStaffActs()
     {
