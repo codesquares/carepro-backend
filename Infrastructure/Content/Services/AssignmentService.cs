@@ -34,6 +34,19 @@ namespace Infrastructure.Content.Services
         private readonly IConfiguration? _configuration;
         private readonly TimeProvider _time;
 
+        /// <summary>
+        /// A claimed-but-unfinished transition younger than this is presumed to still be running on another request (the double
+        /// click / racing tab), so a second caller gets a 409 instead of joining in. Older than this, the owner's retry (or an admin's,
+        /// for a staff cancel) is treated as "please finish this" and completes the missing steps.
+        /// </summary>
+        private static readonly TimeSpan InFlightGrace = TimeSpan.FromSeconds(30);
+
+        private static bool StillInFlight(Assignment a) =>
+            a.DownstreamPendingSince != null && DateTime.UtcNow - a.DownstreamPendingSince.Value < InFlightGrace;
+
+        private static InvalidOperationException JustChanged(string verb) =>
+            new($"This assignment was just changed by someone else and can no longer be {verb}. Please refresh to see its current status.");
+
         private static readonly string[] ActiveAssignmentStatuses =
             { AssignmentStatuses.PendingAcceptance, AssignmentStatuses.Accepted };
 
@@ -225,7 +238,8 @@ namespace Infrastructure.Content.Services
             }
             else if (IsHalfDoneStaffCancel(assignment))
             {
-                // Same cancel, first attempt stopped part-way: finish it (idempotent) instead of refusing.
+                // Same cancel, first attempt stopped part-way: finish it (idempotent) instead of refusing — unless it is still in flight.
+                if (StillInFlight(assignment)) throw JustChanged("cancelled");
             }
             else
             {
@@ -452,6 +466,19 @@ namespace Infrastructure.Content.Services
                         Status = assignment.Status, Message = "Already accepted."
                     };
 
+                // Another request is (very probably) still finishing this one — a double click or second tab, not a retry. Before the
+                // notifications are claimed that is a lost race (409); once they are, the acceptance is real and the contract is
+                // just being generated, so a duplicate gets the same idempotent "Already accepted" it always did.
+                if (StillInFlight(assignment))
+                {
+                    if (assignment.DownstreamDoneAt == null) throw JustChanged("accepted");
+                    return new AssignmentActionResult
+                    {
+                        Success = true, AssignmentId = assignment.Id.ToString(),
+                        Status = assignment.Status, Message = "Already accepted."
+                    };
+                }
+
                 // The first accept stopped part-way (status saved, follow-on work not finished). Same caregiver retrying:
                 // finish it. Every step is idempotent and notifications are claimed atomically, so nothing is repeated.
                 await FinishAcceptAsync(assignment, alertOpsOnContractFailure: true);
@@ -652,7 +679,8 @@ namespace Infrastructure.Content.Services
             }
             else if (assignment.Status == AssignmentStatuses.Declined && assignment.DownstreamPendingSince != null && assignment.DownstreamDoneAt == null)
             {
-                // Same caregiver retrying a decline that stopped part-way: finish it (idempotent).
+                // Same caregiver retrying a decline that stopped part-way: finish it (idempotent) — unless it is still in flight.
+                if (StillInFlight(assignment)) throw JustChanged("declined");
             }
             else
             {
@@ -804,7 +832,9 @@ namespace Infrastructure.Content.Services
             try { await _db.SaveChangesAsync(); return true; }
             catch (DbUpdateConcurrencyException)
             {
-                await _db.Entry(assignment).ReloadAsync();   // someone else claimed (or the status moved on) — show what is stored
+                // Someone else holds the claim (or the status moved on). Drop our failed update so a later save in this scope
+                // can't re-attempt it. (Deliberately not Reload: the Mongo EF provider can't build the by-key query it needs.)
+                _db.Entry(assignment).State = EntityState.Detached;
                 return false;
             }
         }
@@ -825,7 +855,7 @@ namespace Infrastructure.Content.Services
             if (assignment.RecoveryAlertedAt != null) return false;
             assignment.RecoveryAlertedAt = DateTime.UtcNow;
             try { await _db.SaveChangesAsync(); return true; }
-            catch (DbUpdateConcurrencyException) { await _db.Entry(assignment).ReloadAsync(); return false; }
+            catch (DbUpdateConcurrencyException) { _db.Entry(assignment).State = EntityState.Detached; return false; }
         }
 
         private async Task ReleaseRequestClaimAsync(ObjectId requestId, ObjectId assignmentId, string previousStatus, Exception cause)

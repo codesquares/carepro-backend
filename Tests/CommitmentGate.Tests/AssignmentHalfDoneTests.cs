@@ -69,8 +69,11 @@ public class AssignmentHalfDoneTests
     private sealed class Rig
     {
         public required string DbName { get; init; }
-        public required FaultDb Db { get; init; }
-        public required AssignmentService Svc { get; init; }
+        public required FaultDb Db { get; set; }
+        public required AssignmentService Svc { get; set; }
+        public Func<FaultDb, AssignmentService>? Rebuild;
+        /// <summary>A brand-new request-scoped context/service over the same database and the same mocks (what a retry really is).</summary>
+        public void Renew() { Db = NewFaultDb(DbName); Svc = Rebuild!(Db); }
         public required FakeContracts Contracts { get; init; }
         public required Mock<IOpsAlertService> Ops { get; init; }
         public List<SendNotificationCommand> Sent { get; } = new();
@@ -80,10 +83,12 @@ public class AssignmentHalfDoneTests
         public int OpsCount(string type) => Ops.Invocations.Count(i => i.Method.Name == "NotifyAdminsAsync" && (string)i.Arguments[0] == type);
     }
 
+    private static FaultDb NewFaultDb(string dbName) =>
+        new(new DbContextOptionsBuilder<CareProDbContext>().UseMongoDB("mongodb://127.0.0.1:27018", dbName).Options);
+
     private static Rig NewRig(string dbName)
     {
-        var options = new DbContextOptionsBuilder<CareProDbContext>().UseMongoDB("mongodb://127.0.0.1:27018", dbName).Options;
-        var db = new FaultDb(options);
+        var db = NewFaultDb(dbName);
         var contracts = new FakeContracts(dbName);
         var ops = new Mock<IOpsAlertService>();
         var email = new Mock<IEmailService>();
@@ -97,6 +102,8 @@ public class AssignmentHalfDoneTests
             Svc = new AssignmentService(db, mediator.Object, email.Object, readiness.Object, contracts.Mock.Object, ops.Object,
                 Mock.Of<ILogger<AssignmentService>>()),
         };
+        rig.Rebuild = d => new AssignmentService(d, mediator.Object, email.Object, readiness.Object, contracts.Mock.Object, ops.Object,
+            Mock.Of<ILogger<AssignmentService>>());
         mediator.Setup(m => m.Send(It.IsAny<SendNotificationCommand>(), It.IsAny<CancellationToken>()))
             .Returns((SendNotificationCommand c, CancellationToken _) =>
             {
@@ -143,6 +150,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal(1, rig.Count(NotificationTypes.PackageAssignmentConfirmed));
         Assert.Equal(1, rig.OpsCount(NotificationTypes.PackageContractDeliveryFailed));
 
+        await AgeAsync(rig.DbName, id); rig.Renew();
         // Same caregiver tries again: finishes the missing contract, success, nothing re-sent, no second alert.
         var again = await rig.Svc.AcceptAsync(id, cgId);
         Assert.True(again.Success);
@@ -169,6 +177,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal("Accepted", s1.a.Status); Assert.Equal("assigned", s1.r.Status); Assert.False(s1.contract);
         Assert.Empty(rig.Sent);
 
+        await AgeAsync(rig.DbName, id); rig.Renew();
         var again = await rig.Svc.AcceptAsync(id, cgId);   // no 409: the caregiver can finish it
         Assert.True(again.Success);
         var s2 = await StateAsync(rig.DbName, id, prId);
@@ -187,6 +196,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal("Accepted", s1.a.Status); Assert.Equal("confirmed", s1.r.Status); Assert.Null(s1.a.DownstreamDoneAt);
         Assert.Empty(rig.Sent);
 
+        await AgeAsync(rig.DbName, id); rig.Renew();
         await rig.Svc.AcceptAsync(id, cgId);
         Assert.Equal(1, rig.Count(NotificationTypes.PackageAssignmentConfirmed));
         Assert.True((await StateAsync(rig.DbName, id, prId)).contract);
@@ -205,6 +215,48 @@ public class AssignmentHalfDoneTests
         Assert.Empty(rig.Sent);
     }
 
+    [Fact]
+    public async Task Accept_LosesTheNotificationClaimToAConcurrentFinisher_StillSucceeds_SendsNothingTwice()
+    {
+        // Regression: the lost-claim branch used EF Reload, which throws ArgumentNullException on the Mongo provider (seen as an HTTP 400).
+        var (a, id, prId, cgId) = await PendingAsync();
+        a.Db.ThrowOnceWhen = d => d.Modifying<PackageRequest>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => a.Svc.AcceptAsync(id, cgId));   // half-done: Accepted, request still Assigned
+        await AgeAsync(a.DbName, id);
+
+        var b = NewRig(a.DbName);
+        var other = NewRig(a.DbName);   // the other finisher: its own request-scoped context, as in production
+        var fired = false;
+        b.Db.ThrowOnceWhen = d =>
+        {
+            // The instant B is about to save its notification claim, the other finisher completes everything first.
+            if (!fired && d.ChangeTracker.Entries<Assignment>().Any(e => e.State == EntityState.Modified && e.Entity.DownstreamDoneAt != null))
+            {
+                fired = true;
+                other.Svc.AcceptAsync(id, cgId).GetAwaiter().GetResult();
+            }
+            return false;
+        };
+
+        var r = await b.Svc.AcceptAsync(id, cgId);
+        Assert.True(fired); Assert.True(r.Success);
+        Assert.Equal(1, other.Count(NotificationTypes.PackageAssignmentConfirmed));
+        Assert.Equal(0, b.Count(NotificationTypes.PackageAssignmentConfirmed));   // B lost the claim: sends nothing, still succeeds
+        Assert.True((await StateAsync(a.DbName, id, prId)).contract);
+    }
+
+    [Fact]
+    public async Task Accept_DuplicateWhileFirstIsStillFinishing_IsA409_NotAJoinedRetry()
+    {
+        var (rig, id, prId, cgId) = await PendingAsync();
+        rig.Db.ThrowOnceWhen = d => d.Modifying<PackageRequest>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cgId));   // half-done, claimed just now
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cgId));   // inside the grace window
+        Assert.Contains("just changed", ex.Message);
+        Assert.Equal("assigned", (await StateAsync(rig.DbName, id, prId)).r.Status);   // the duplicate did not run any steps
+    }
+
     // ───────────────────────── Decline / cancel ─────────────────────────
 
     [Fact]
@@ -218,6 +270,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal("Declined", s1.a.Status); Assert.Equal("assigned", s1.r.Status);
         Assert.Equal(0, rig.OpsCount(NotificationTypes.PackageAssignmentDeclined));
 
+        await AgeAsync(rig.DbName, id); rig.Renew();
         var again = await rig.Svc.DeclineAsync(id, cgId, "busy");
         Assert.True(again.Success);
         Assert.Equal("pending", (await StateAsync(rig.DbName, id, prId)).r.Status);
@@ -238,6 +291,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal("pending", (await StateAsync(rig.DbName, id, prId)).r.Status);
 
         rig.Ops.Reset();
+        await AgeAsync(rig.DbName, id); rig.Renew();
         await rig.Svc.DeclineAsync(id, cgId, null);
         Assert.Equal(1, rig.OpsCount(NotificationTypes.PackageAssignmentDeclined));
     }
@@ -253,6 +307,7 @@ public class AssignmentHalfDoneTests
         Assert.Equal("Cancelled", s1.a.Status); Assert.Equal("assigned", s1.r.Status);
         Assert.Empty(rig.Sent);
 
+        await AgeAsync(rig.DbName, id); rig.Renew();
         await rig.Svc.CancelAsync(id, "admin-1", "ops@x", "wrong person picked");
         Assert.Equal("pending", (await StateAsync(rig.DbName, id, prId)).r.Status);
         Assert.Equal(1, rig.Count(NotificationTypes.PackageAssignmentCancelled));
@@ -332,12 +387,12 @@ public class AssignmentHalfDoneTests
             var (rig, id, pr, cg) = await PendingAsync();
             rig.Db.ThrowOnceWhen = d => d.Modifying<PackageRequest>();
             await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cg));
-            await AgeAsync(rig.DbName, id);
+            await AgeAsync(rig.DbName, id); rig.Renew();
 
             var a = NewRig(rig.DbName); var b = NewRig(rig.DbName);
             var gate = new TaskCompletionSource();
-            var ta = Task.Run(async () => { await gate.Task; try { await a.Svc.RecoverIncompleteTransitionsAsync(TimeSpan.FromMinutes(5)); } catch { } });
-            var tb = Task.Run(async () => { await gate.Task; try { await b.Svc.RecoverIncompleteTransitionsAsync(TimeSpan.FromMinutes(5)); } catch { } });
+            var ta = Task.Run(async () => { await gate.Task; await a.Svc.RecoverIncompleteTransitionsAsync(TimeSpan.FromMinutes(5)); });
+            var tb = Task.Run(async () => { await gate.Task; await b.Svc.RecoverIncompleteTransitionsAsync(TimeSpan.FromMinutes(5)); });
             gate.SetResult(); await Task.WhenAll(ta, tb);
 
             Assert.Equal(1, a.Count(NotificationTypes.PackageAssignmentConfirmed) + b.Count(NotificationTypes.PackageAssignmentConfirmed));
@@ -352,7 +407,7 @@ public class AssignmentHalfDoneTests
         var (rig, id, pr, cg) = await PendingAsync();
         rig.Contracts.FailTimes = 1;                 // the accept's own contract attempt fails -> admin alert #1 (claims the once-only alert)
         await rig.Svc.AcceptAsync(id, cg);
-        await AgeAsync(rig.DbName, id);
+        await AgeAsync(rig.DbName, id); rig.Renew();
 
         var sweeper = NewRig(rig.DbName);
         sweeper.Contracts.FailTimes = 5;             // and recovery keeps failing
@@ -371,7 +426,7 @@ public class AssignmentHalfDoneTests
         var (rig, id, pr, cg) = await PendingAsync();
         rig.Db.ThrowOnceWhen = d => d.Modifying<PackageRequest>();
         await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cg));
-        await AgeAsync(rig.DbName, id);
+        await AgeAsync(rig.DbName, id); rig.Renew();
 
         for (var run = 0; run < 3; run++)
         {
