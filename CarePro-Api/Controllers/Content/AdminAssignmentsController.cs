@@ -63,6 +63,8 @@ namespace CarePro_Api.Controllers.Content
                     return Conflict(new { message = cnr.Message, errorCode = cnr.ErrorCode, reasons = cnr.Reasons });
                 case ArgumentException ae:
                     return BadRequest(new { message = ae.Message });
+                case AssignmentConflictException ace:
+                    return Conflict(new { message = ace.Message, errorCode = ace.ErrorCode });
                 case InvalidOperationException ioe:
                     return Conflict(new { message = ioe.Message });
                 case KeyNotFoundException knf:

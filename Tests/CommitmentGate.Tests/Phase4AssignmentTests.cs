@@ -408,7 +408,7 @@ public class Phase4AssignmentTests
 
             Assert.Equal(1, new[] { ra, rb }.Count(r => r.Ok));
             var loser = ra.Ok ? rb : ra;
-            Assert.IsType<InvalidOperationException>(loser.Error); // controller maps this to 409
+            Assert.IsType<AssignmentConflictException>(loser.Error); // controllers map this to 409 + errorCode ASSIGNMENT_CONFLICT
 
             var notifications = new[] { hA, hB }.Sum(h => h.Mediator.Invocations
                 .Count(i => i.Arguments.OfType<SendNotificationCommand>().Any(c => c.Type == NotificationTypes.PackageAssignmentDeclined)));
@@ -439,7 +439,7 @@ public class Phase4AssignmentTests
                 () => hB.Assignments.DeclineAsync(assignmentId, cgId, "no"));
 
             Assert.Equal(1, new[] { acc, dec }.Count(r => r.Ok));
-            Assert.IsType<InvalidOperationException>((acc.Ok ? dec : acc).Error);
+            Assert.IsType<AssignmentConflictException>((acc.Ok ? dec : acc).Error);
 
             using var check = CreateDb(dbName);
             var a = await check.Assignments.FirstAsync();
@@ -480,7 +480,7 @@ public class Phase4AssignmentTests
                 () => CreateAssignHarness(dbB).Assignments.AssignAsync(prId, cg2, "admin-2", "b@x", "staff", null));
 
             Assert.Equal(1, new[] { ra, rb }.Count(r => r.Ok));
-            Assert.IsType<InvalidOperationException>((ra.Ok ? rb : ra).Error);
+            Assert.IsType<AssignmentConflictException>((ra.Ok ? rb : ra).Error);
 
             using var check = CreateDb(dbName);
             Assert.Single(await check.Assignments.Where(a => a.PackageRequestId == prId).ToListAsync());
@@ -541,7 +541,7 @@ public class Phase4AssignmentTests
         var h = CreateAssignHarness(db);
 
         var a1 = await h.Assignments.AssignAsync(prId, cg1, "admin-1", "ops@x", "staff", null);
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<AssignmentConflictException>(
             () => h.Assignments.AssignAsync(prId, cg2.Id.ToString(), "admin-1", "ops@x", "staff", null));
 
         await h.Assignments.CancelAsync(a1.Id, "admin-1", "ops@x", "Reassigning to a closer caregiver");

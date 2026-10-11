@@ -44,7 +44,7 @@ namespace Infrastructure.Content.Services
         private static bool StillInFlight(Assignment a) =>
             a.DownstreamPendingSince != null && DateTime.UtcNow - a.DownstreamPendingSince.Value < InFlightGrace;
 
-        private static InvalidOperationException JustChanged(string verb) =>
+        private static AssignmentConflictException JustChanged(string verb) =>
             new($"This assignment was just changed by someone else and can no longer be {verb}. Please refresh to see its current status.");
 
         private static readonly string[] ActiveAssignmentStatuses =
@@ -92,7 +92,7 @@ namespace Infrastructure.Content.Services
             var existingActive = await _db.Assignments.AnyAsync(a =>
                 a.PackageRequestId == packageRequestId && ActiveAssignmentStatuses.Contains(a.Status));
             if (existingActive)
-                throw new InvalidOperationException(
+                throw new AssignmentConflictException(
                     "This request already has an assignment awaiting acceptance (or accepted). " +
                     "Cancel it first to reassign.");
 
@@ -890,8 +890,7 @@ namespace Infrastructure.Content.Services
             catch (DbUpdateConcurrencyException)
             {
                 _db.Entry(assignment).State = EntityState.Detached;
-                throw new InvalidOperationException(
-                    $"This assignment was just changed by someone else and can no longer be {verb}. Please refresh to see its current status.");
+                throw JustChanged(verb);
             }
         }
 
@@ -900,7 +899,7 @@ namespace Infrastructure.Content.Services
             try { await _db.SaveChangesAsync(); }
             catch (DbUpdateConcurrencyException)
             {
-                throw new InvalidOperationException(
+                throw new AssignmentConflictException(
                     "This package request was just changed by someone else. Please refresh and try again.");
             }
         }

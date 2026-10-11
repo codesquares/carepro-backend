@@ -252,7 +252,7 @@ public class AssignmentHalfDoneTests
         rig.Db.ThrowOnceWhen = d => d.Modifying<PackageRequest>();
         await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cgId));   // half-done, claimed just now
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.AcceptAsync(id, cgId));   // inside the grace window
+        var ex = await Assert.ThrowsAsync<AssignmentConflictException>(() => rig.Svc.AcceptAsync(id, cgId));   // inside the grace window
         Assert.Contains("just changed", ex.Message);
         Assert.Equal("assigned", (await StateAsync(rig.DbName, id, prId)).r.Status);   // the duplicate did not run any steps
     }
