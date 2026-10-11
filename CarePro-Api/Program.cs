@@ -312,6 +312,7 @@ builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
 builder.Services.AddHostedService<ContractCancellationWindowProcessor>();
+builder.Services.AddHostedService<AssignmentRecoveryProcessor>();
 
 // GDPR: Hard-delete gigs past 30-day grace period (runs daily)
 builder.Services.AddHostedService<GigHardDeleteProcessor>();

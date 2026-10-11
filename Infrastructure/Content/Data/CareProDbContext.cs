@@ -119,7 +119,9 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Assignment>().ToCollection("Assignments");
             modelBuilder.Entity<Assignment>().HasKey(a => a.Id);
             modelBuilder.Entity<Assignment>().Property(a => a.Id).HasElementName("_id");
-            modelBuilder.Entity<Assignment>().Property(a => a.Status).IsConcurrencyToken();   // see PackageRequest.Status above
+            modelBuilder.Entity<Assignment>().Property(a => a.Status).IsConcurrencyToken();
+            modelBuilder.Entity<Assignment>().Property(a => a.DownstreamDoneAt).IsConcurrencyToken();   // atomic claim of the follow-on notifications
+            modelBuilder.Entity<Assignment>().Property(a => a.RecoveryAlertedAt).IsConcurrencyToken();   // alert admins at most once   // see PackageRequest.Status above
             modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
             modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
             modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");

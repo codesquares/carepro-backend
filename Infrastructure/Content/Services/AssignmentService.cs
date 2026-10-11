@@ -113,6 +113,7 @@ namespace Infrastructure.Content.Services
             // Atomic claim of the request (Status is a concurrency token): of two staff assigning the same request at
             // once, only the first to flip it to Assigned proceeds; the other 409s before any Assignment row exists.
             // The AnyAsync check above is only a friendly early error — it is not what enforces one-active-assignment.
+            var previousRequestStatus = request.Status;
             request.Status = PackageRequestStatuses.Assigned;
             request.UpdatedAt = now;
             await SaveRequestTransitionAsync();
@@ -137,23 +138,33 @@ namespace Infrastructure.Content.Services
                 BriefArea = Clean(careBrief?.Area),
                 ServiceAddress = Clean(serviceAddress),
             };
-            _db.Assignments.Add(assignment);
-
-            await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
+            try
             {
-                Id = ObjectId.GenerateNewId(),
-                AdminId = adminId,
-                AdminEmail = adminEmail,
-                TargetEntityType = "Assignment",
-                TargetEntityId = assignment.Id.ToString(),
-                TargetUserId = caregiverId,
-                Action = "PackageCaregiverAssigned",
-                AfterJson = JsonSerializer.Serialize(new { assignment.PackageRequestId, assignment.CaregiverId, assignment.AssignedBy }),
-                Reason = $"Assigned to package request {packageRequestId}",
-                Timestamp = now,
-            });
+                _db.Assignments.Add(assignment);
 
-            await _db.SaveChangesAsync();
+                await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
+                {
+                    Id = ObjectId.GenerateNewId(),
+                    AdminId = adminId,
+                    AdminEmail = adminEmail,
+                    TargetEntityType = "Assignment",
+                    TargetEntityId = assignment.Id.ToString(),
+                    TargetUserId = caregiverId,
+                    Action = "PackageCaregiverAssigned",
+                    AfterJson = JsonSerializer.Serialize(new { assignment.PackageRequestId, assignment.CaregiverId, assignment.AssignedBy }),
+                    Reason = $"Assigned to package request {packageRequestId}",
+                    Timestamp = now,
+                });
+
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                // The request was already flipped to Assigned; if the assignment never landed, put it back so it can't
+                // sit "Assigned" with nobody assigned.
+                await ReleaseRequestClaimAsync(prOid, assignment.Id, previousRequestStatus, ex);
+                throw;
+            }
 
             // Real notification to the caregiver + email.
             await _mediator.Send(new SendNotificationCommand(
@@ -200,55 +211,39 @@ namespace Infrastructure.Content.Services
 
             var assignment = await LoadAssignmentAsync(assignmentId);
 
-            if (!string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
+            if (string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
+            {
+                var now = DateTime.UtcNow;
+                assignment.Status = AssignmentStatuses.Cancelled;
+                assignment.CancelledByAdminId = adminId;
+                assignment.CancelReason = reason.Trim();
+                assignment.UpdatedAt = now;
+                assignment.DownstreamPendingSince = now;
+
+                // Atomic claim (see AcceptAsync); the follow-on work below is idempotent and re-runnable.
+                await ClaimAssignmentTransitionAsync(assignment, "cancelled");
+            }
+            else if (IsHalfDoneStaffCancel(assignment))
+            {
+                // Same cancel, first attempt stopped part-way: finish it (idempotent) instead of refusing.
+            }
+            else
+            {
                 throw new InvalidOperationException(
                     $"Only a pending assignment can be cancelled here (this one is '{assignment.Status}').");
-
-            var now = DateTime.UtcNow;
-            assignment.Status = AssignmentStatuses.Cancelled;
-            assignment.CancelledByAdminId = adminId;
-            assignment.CancelReason = reason.Trim();
-            assignment.UpdatedAt = now;
-
-            await ClaimAssignmentTransitionAsync(assignment, "cancelled");
-
-            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId));
-            if (request != null && request.Status == PackageRequestStatuses.Assigned)
-            {
-                request.Status = PackageRequestStatuses.Pending;
-                request.UpdatedAt = now;
             }
 
-            await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
-            {
-                Id = ObjectId.GenerateNewId(),
-                AdminId = adminId,
-                AdminEmail = adminEmail,
-                TargetEntityType = "Assignment",
-                TargetEntityId = assignment.Id.ToString(),
-                TargetUserId = assignment.CaregiverId,
-                Action = "PackageAssignmentCancelled",
-                Reason = reason.Trim(),
-                Timestamp = now,
-            });
-
-            await _db.SaveChangesAsync();
-
-            await _mediator.Send(new SendNotificationCommand(
-                RecipientId: assignment.CaregiverId,
-                SenderId: adminId,
-                Type: NotificationTypes.PackageAssignmentCancelled,
-                Content: "An assignment you hadn't yet accepted was withdrawn by our team.",
-                Title: "Assignment withdrawn",
-                RelatedEntityId: assignment.Id.ToString()));
-
-            _logger.LogInformation("Admin {AdminId} cancelled assignment {AssignmentId}", adminId, assignment.Id);
+            await FinishCancelAsync(assignment, adminEmail);
             return new AssignmentActionResult
             {
                 Success = true, AssignmentId = assignment.Id.ToString(),
                 Status = assignment.Status, Message = "Assignment cancelled."
             };
         }
+
+        private static bool IsHalfDoneStaffCancel(Assignment a) =>
+            a.Status == AssignmentStatuses.Cancelled && a.DownstreamPendingSince != null && a.DownstreamDoneAt == null
+            && !string.IsNullOrEmpty(a.CancelledByAdminId);
 
         public async Task<List<PendingAssignmentDTO>> GetPendingAcceptanceAsync()
         {
@@ -444,14 +439,28 @@ namespace Infrastructure.Content.Services
 
         public async Task<AssignmentActionResult> AcceptAsync(string assignmentId, string caregiverId)
         {
+            // Ownership is enforced here, before anything else: only this assignment's caregiver can accept it or
+            // complete its half-done acceptance.
             var assignment = await LoadOwnedAssignmentAsync(assignmentId, caregiverId);
 
             if (string.Equals(assignment.Status, AssignmentStatuses.Accepted, StringComparison.Ordinal))
+            {
+                if (await IsAcceptanceCompleteAsync(assignment))
+                    return new AssignmentActionResult
+                    {
+                        Success = true, AssignmentId = assignment.Id.ToString(),
+                        Status = assignment.Status, Message = "Already accepted."
+                    };
+
+                // The first accept stopped part-way (status saved, follow-on work not finished). Same caregiver retrying:
+                // finish it. Every step is idempotent and notifications are claimed atomically, so nothing is repeated.
+                await FinishAcceptAsync(assignment, alertOpsOnContractFailure: true);
                 return new AssignmentActionResult
                 {
                     Success = true, AssignmentId = assignment.Id.ToString(),
-                    Status = assignment.Status, Message = "Already accepted."
+                    Status = assignment.Status, Message = "Assignment accepted. The client has been notified."
                 };
+            }
 
             if (!string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
                 throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be accepted.");
@@ -460,27 +469,105 @@ namespace Infrastructure.Content.Services
             // unchanged). Runs before anything is modified, so a refusal leaves the assignment exactly as it was.
             await EnsurePoliceClearanceAllowsAcceptAsync(caregiverId);
 
-            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId))
+            _ = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId))
                 ?? throw new KeyNotFoundException("The linked package request no longer exists.");
 
             var now = DateTime.UtcNow;
             assignment.Status = AssignmentStatuses.Accepted;
             assignment.RespondedAt = now;
             assignment.UpdatedAt = now;
+            assignment.DownstreamPendingSince = now;
 
             // Atomic claim: only one concurrent responder can move this row off PendingAcceptance (Status is a
             // concurrency token). The loser gets a 409 and sends nothing. Saved on its own so a lost race can
             // never leave the PackageRequest half-updated.
             await ClaimAssignmentTransitionAsync(assignment, "accepted");
 
-            // Finalize to the client — this is the first moment the client sees a caregiver.
-            request.Status = PackageRequestStatuses.Confirmed;
-            request.ConfirmedCaregiverId = caregiverId;
-            request.ConfirmedAt = now;
-            request.UpdatedAt = now;
+            await FinishAcceptAsync(assignment, alertOpsOnContractFailure: true);
 
-            await SaveRequestTransitionAsync();
+            return new AssignmentActionResult
+            {
+                Success = true, AssignmentId = assignment.Id.ToString(),
+                Status = assignment.Status, Message = "Assignment accepted. The client has been notified."
+            };
+        }
 
+        /// <summary>Accepted is only "complete" once the request is Confirmed, the notifications were claimed/sent, and a contract exists.
+        /// Legacy rows (no pending marker) predate this tracking and count as complete.</summary>
+        private async Task<bool> IsAcceptanceCompleteAsync(Assignment assignment)
+        {
+            if (assignment.DownstreamPendingSince == null) return true;
+            if (assignment.DownstreamDoneAt == null) return false;
+            return await _db.Contracts.AnyAsync(c => c.PackageRequestId == assignment.PackageRequestId);
+        }
+
+        /// <summary>
+        /// Everything that follows a successful accept claim. Idempotent and safe to run any number of times, from any of: the
+        /// original call, the caregiver retrying, or the recovery sweeper — including concurrently.
+        /// </summary>
+        private async Task FinishAcceptAsync(Assignment assignment, bool alertOpsOnContractFailure)
+        {
+            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId))
+                ?? throw new KeyNotFoundException("The linked package request no longer exists.");
+            var caregiverId = assignment.CaregiverId;
+            var now = DateTime.UtcNow;
+
+            // 1. Request → Confirmed (first moment the client sees a caregiver). Skipped when already done or the
+            //    client has cancelled in the meantime.
+            if (request.Status != PackageRequestStatuses.Confirmed && request.Status != PackageRequestStatuses.Cancelled)
+            {
+                request.Status = PackageRequestStatuses.Confirmed;
+                request.ConfirmedCaregiverId = caregiverId;
+                request.ConfirmedAt = assignment.RespondedAt ?? now;
+                request.UpdatedAt = now;
+                await SaveRequestTransitionAsync();
+            }
+
+            // 2. Notifications + emails: claimed atomically (DownstreamDoneAt is a concurrency token), so exactly one
+            //    runner sends them even if the caregiver's retry and the sweeper arrive together.
+            if (assignment.DownstreamDoneAt == null && request.Status == PackageRequestStatuses.Confirmed)
+            {
+                if (await TryClaimDownstreamAsync(assignment))
+                {
+                    try { await SendAcceptedNotificationsAsync(assignment, request); }
+                    catch { await ReleaseDownstreamClaimAsync(assignment); throw; }
+                }
+            }
+
+            // 3. Contract (idempotent generator). A hiccup must not undo the acceptance; the sweeper retries it.
+            if (request.Status == PackageRequestStatuses.Confirmed)
+            {
+                try
+                {
+                    await _packageContractService.GenerateForConfirmedRequestAsync(request.Id.ToString());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Auto contract generation failed for confirmed request {RequestId} — acceptance stands; retry available",
+                        request.Id);
+                    if (alertOpsOnContractFailure && await TryClaimRecoveryAlertAsync(assignment))
+                    {
+                        await _opsAlerts.NotifyAdminsAsync(
+                            NotificationTypes.PackageContractDeliveryFailed,
+                            "Package contract was not generated",
+                            $"Caregiver accepted request {request.Id} ({request.PackageCategory}, {request.PackageTierLabel}) but the care agreement " +
+                            $"could not be generated ({ex.GetType().Name}: {ex.Message}). Neither party has received a contract — follow up manually.",
+                            request.Id.ToString(),
+                            alsoEmail: true);
+                    }
+                }
+            }
+
+            // Phase 7.1's automatic pending-balance credit at confirmation was removed in
+            // Phase 9.8 — package-assignment caregivers are now paid exclusively through
+            // admin-approved Payroll records (Phase 9.7), not an automatic credit fired
+            // by acceptance. Confirmation no longer touches the wallet at all.
+        }
+
+        private async Task SendAcceptedNotificationsAsync(Assignment assignment, PackageRequest request)
+        {
+            var caregiverId = assignment.CaregiverId;
             var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(caregiverId));
             var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "Your caregiver";
 
@@ -520,7 +607,7 @@ namespace Infrastructure.Content.Services
             }
 
             // Dedicated "you're confirmed" email to the caregiver — sent in addition to (not instead of)
-            // the contract PDF email delivered by GenerateForConfirmedRequestAsync below.
+            // the contract PDF email delivered by GenerateForConfirmedRequestAsync.
             try
             {
                 if (caregiver != null && !string.IsNullOrEmpty(caregiver.Email))
@@ -545,82 +632,223 @@ namespace Infrastructure.Content.Services
 
             _logger.LogInformation("Caregiver {CaregiverId} accepted assignment {AssignmentId}; request {RequestId} confirmed",
                 caregiverId, assignment.Id, request.Id);
-
-            // Phase 6 — the moment the request reaches "confirmed", auto-generate the
-            // package contract (Package terms + CarePro standard terms, no negotiation).
-            // Resilient: a hiccup here must not undo the acceptance. Idempotent, so it
-            // can also be re-run later (e.g. by the payment flow) if this call fails.
-            try
-            {
-                await _packageContractService.GenerateForConfirmedRequestAsync(request.Id.ToString());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Auto contract generation failed for confirmed request {RequestId} — acceptance stands; retry available",
-                    request.Id);
-                await _opsAlerts.NotifyAdminsAsync(
-                    NotificationTypes.PackageContractDeliveryFailed,
-                    "Package contract was not generated",
-                    $"Caregiver accepted request {request.Id} ({request.PackageCategory}, {request.PackageTierLabel}) but the care agreement " +
-                    $"could not be generated ({ex.GetType().Name}: {ex.Message}). Neither party has received a contract — follow up manually.",
-                    request.Id.ToString(),
-                    alsoEmail: true);
-            }
-
-            // Phase 7.1's automatic pending-balance credit at confirmation was removed in
-            // Phase 9.8 — package-assignment caregivers are now paid exclusively through
-            // admin-approved Payroll records (Phase 9.7), not an automatic credit fired
-            // by acceptance. Confirmation no longer touches the wallet at all.
-
-            return new AssignmentActionResult
-            {
-                Success = true, AssignmentId = assignment.Id.ToString(),
-                Status = assignment.Status, Message = "Assignment accepted. The client has been notified."
-            };
         }
 
         public async Task<AssignmentActionResult> DeclineAsync(string assignmentId, string caregiverId, string? reason)
         {
             var assignment = await LoadOwnedAssignmentAsync(assignmentId, caregiverId);
 
-            if (!string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
-                throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be declined.");
-
-            var now = DateTime.UtcNow;
-            assignment.Status = AssignmentStatuses.Declined;
-            assignment.RespondedAt = now;
-            assignment.DeclineReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-            assignment.UpdatedAt = now;
-
-            // Atomic claim — see AcceptAsync. A concurrent accept/decline/cancel that got there first wins; this one 409s.
-            await ClaimAssignmentTransitionAsync(assignment, "declined");
-
-            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId));
-            if (request != null && request.Status == PackageRequestStatuses.Assigned)
+            if (string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
             {
-                request.Status = PackageRequestStatuses.Pending; // back to the queue; no auto-reassignment
-                request.UpdatedAt = now;
-                await SaveRequestTransitionAsync();
+                var now = DateTime.UtcNow;
+                assignment.Status = AssignmentStatuses.Declined;
+                assignment.RespondedAt = now;
+                assignment.DeclineReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+                assignment.UpdatedAt = now;
+                assignment.DownstreamPendingSince = now;
+
+                // Atomic claim — see AcceptAsync. A concurrent accept/decline/cancel that got there first wins; this one 409s.
+                await ClaimAssignmentTransitionAsync(assignment, "declined");
+            }
+            else if (assignment.Status == AssignmentStatuses.Declined && assignment.DownstreamPendingSince != null && assignment.DownstreamDoneAt == null)
+            {
+                // Same caregiver retrying a decline that stopped part-way: finish it (idempotent).
+            }
+            else
+            {
+                throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be declined.");
             }
 
-            // Tell ops — there is deliberately no automatic reassignment.
-            var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(caregiverId));
-            var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "A caregiver";
-            await NotifyOpsAdminsAsync(
-                NotificationTypes.PackageAssignmentDeclined,
-                $"{caregiverName} declined the assignment for package request {assignment.PackageRequestId}"
-                    + (assignment.DeclineReason != null ? $" — \"{assignment.DeclineReason}\"" : "")
-                    + ". No automatic reassignment; please reassign or follow up.",
-                "Assignment declined — action needed",
-                assignment.Id.ToString());
-
-            _logger.LogInformation("Caregiver {CaregiverId} declined assignment {AssignmentId}", caregiverId, assignment.Id);
+            await FinishDeclineAsync(assignment);
             return new AssignmentActionResult
             {
                 Success = true, AssignmentId = assignment.Id.ToString(),
                 Status = assignment.Status, Message = "Assignment declined. Our team has been notified."
             };
+        }
+
+        private async Task FinishDeclineAsync(Assignment assignment)
+        {
+            await ReturnRequestToQueueAsync(assignment);
+
+            if (assignment.DownstreamDoneAt != null || !await TryClaimDownstreamAsync(assignment)) return;
+            try
+            {
+                var caregiver = await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == ObjectId.Parse(assignment.CaregiverId));
+                var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}".Trim() : "A caregiver";
+                // Tell ops — there is deliberately no automatic reassignment.
+                await NotifyOpsAdminsAsync(
+                    NotificationTypes.PackageAssignmentDeclined,
+                    $"{caregiverName} declined the assignment for package request {assignment.PackageRequestId}"
+                        + (assignment.DeclineReason != null ? $" — \"{assignment.DeclineReason}\"" : "")
+                        + ". No automatic reassignment; please reassign or follow up.",
+                    "Assignment declined — action needed",
+                    assignment.Id.ToString());
+            }
+            catch { await ReleaseDownstreamClaimAsync(assignment); throw; }
+
+            _logger.LogInformation("Caregiver {CaregiverId} declined assignment {AssignmentId}", assignment.CaregiverId, assignment.Id);
+        }
+
+        private async Task FinishCancelAsync(Assignment assignment, string? adminEmail)
+        {
+            await ReturnRequestToQueueAsync(assignment);
+
+            if (assignment.DownstreamDoneAt != null || !await TryClaimDownstreamAsync(assignment)) return;
+            try
+            {
+                var adminId = assignment.CancelledByAdminId ?? string.Empty;
+                await _db.AdminAuditLogs.AddAsync(new AdminAuditLog
+                {
+                    Id = ObjectId.GenerateNewId(),
+                    AdminId = adminId,
+                    AdminEmail = adminEmail,
+                    TargetEntityType = "Assignment",
+                    TargetEntityId = assignment.Id.ToString(),
+                    TargetUserId = assignment.CaregiverId,
+                    Action = "PackageAssignmentCancelled",
+                    Reason = assignment.CancelReason,
+                    Timestamp = DateTime.UtcNow,
+                });
+                await _db.SaveChangesAsync();
+
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: assignment.CaregiverId,
+                    SenderId: adminId,
+                    Type: NotificationTypes.PackageAssignmentCancelled,
+                    Content: "An assignment you hadn't yet accepted was withdrawn by our team.",
+                    Title: "Assignment withdrawn",
+                    RelatedEntityId: assignment.Id.ToString()));
+            }
+            catch { await ReleaseDownstreamClaimAsync(assignment); throw; }
+
+            _logger.LogInformation("Admin {AdminId} cancelled assignment {AssignmentId}", assignment.CancelledByAdminId, assignment.Id);
+        }
+
+        /// <summary>Decline / staff cancel: the request goes back to the queue (only if it is still Assigned). Idempotent.</summary>
+        private async Task ReturnRequestToQueueAsync(Assignment assignment)
+        {
+            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == ObjectId.Parse(assignment.PackageRequestId));
+            if (request != null && request.Status == PackageRequestStatuses.Assigned)
+            {
+                request.Status = PackageRequestStatuses.Pending; // back to the queue; no auto-reassignment
+                request.UpdatedAt = DateTime.UtcNow;
+                await SaveRequestTransitionAsync();
+            }
+        }
+
+        // ───────────────────────── Recovery of half-done transitions ─────────────────────────
+
+        /// <summary>
+        /// Safety net for transitions nobody retried. Finds assignments whose status was claimed more than
+        /// <paramref name="olderThan"/> ago but whose follow-on work never completed (or Accepted ones still without a contract) and
+        /// finishes them through the same idempotent code the normal path uses. Admins are alerted (once per assignment, through the
+        /// shared approved-admin recipient rule) only if completion fails. Safe to run on several API instances at once: every side
+        /// effect is behind an atomic claim (Status / DownstreamDoneAt / RecoveryAlertedAt are concurrency tokens, the contract
+        /// generator is idempotent), so a concurrent run just loses the claim and moves on.
+        /// </summary>
+        public async Task<int> RecoverIncompleteTransitionsAsync(TimeSpan olderThan)
+        {
+            var cutoff = DateTime.UtcNow - olderThan;
+            var stuck = await _db.Assignments
+                .Where(a => a.DownstreamPendingSince != null && a.DownstreamPendingSince < cutoff
+                            && (a.Status == AssignmentStatuses.Accepted
+                                || a.Status == AssignmentStatuses.Declined
+                                || a.Status == AssignmentStatuses.Cancelled))
+                .ToListAsync();
+
+            var fixedCount = 0;
+            foreach (var a in stuck)
+            {
+                try
+                {
+                    var wasComplete = a.Status == AssignmentStatuses.Accepted
+                        ? await IsAcceptanceCompleteAsync(a)
+                        : a.DownstreamDoneAt != null;
+                    if (wasComplete) continue;
+
+                    if (a.Status == AssignmentStatuses.Accepted) await FinishAcceptAsync(a, alertOpsOnContractFailure: false);
+                    else if (a.Status == AssignmentStatuses.Declined) await FinishDeclineAsync(a);
+                    else await FinishCancelAsync(a, adminEmail: null);
+
+                    var nowComplete = a.Status == AssignmentStatuses.Accepted ? await IsAcceptanceCompleteAsync(a) : a.DownstreamDoneAt != null;
+                    if (nowComplete) { fixedCount++; _logger.LogWarning("Recovered half-done {Status} for assignment {AssignmentId}", a.Status, a.Id); }
+                    else await AlertRecoveryFailedAsync(a, "some follow-on steps are still incomplete after a retry");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Recovery of assignment {AssignmentId} failed", a.Id);
+                    try { await AlertRecoveryFailedAsync(a, $"{ex.GetType().Name}: {ex.Message}"); } catch (Exception aex) { _logger.LogError(aex, "Recovery alert failed for {AssignmentId}", a.Id); }
+                }
+            }
+            return fixedCount;
+        }
+
+        private async Task AlertRecoveryFailedAsync(Assignment a, string detail)
+        {
+            if (!await TryClaimRecoveryAlertAsync(a)) return;   // another instance/run already alerted
+            await _opsAlerts.NotifyAdminsAsync(
+                NotificationTypes.PackageContractDeliveryFailed,
+                "Assignment left half-finished — follow up",
+                $"Assignment {a.Id} for package request {a.PackageRequestId} ({a.Status}) did not finish all of its follow-on steps " +
+                $"(request status / notifications / contract) and automatic recovery could not complete it: {detail}. Please check it manually.",
+                a.PackageRequestId);
+        }
+
+        // ───────────────────────────── Atomic claim helpers ─────────────────────────────
+
+        /// <summary>First caller wins; everyone else gets false (their save hits the DownstreamDoneAt token).</summary>
+        private async Task<bool> TryClaimDownstreamAsync(Assignment assignment)
+        {
+            assignment.DownstreamDoneAt = DateTime.UtcNow;
+            try { await _db.SaveChangesAsync(); return true; }
+            catch (DbUpdateConcurrencyException)
+            {
+                await _db.Entry(assignment).ReloadAsync();   // someone else claimed (or the status moved on) — show what is stored
+                return false;
+            }
+        }
+
+        /// <summary>Sending failed after we claimed: hand the claim back so a retry/the sweeper will send them.</summary>
+        private async Task ReleaseDownstreamClaimAsync(Assignment assignment)
+        {
+            try
+            {
+                assignment.DownstreamDoneAt = null;
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Could not release the downstream claim on assignment {AssignmentId}", assignment.Id); }
+        }
+
+        private async Task<bool> TryClaimRecoveryAlertAsync(Assignment assignment)
+        {
+            if (assignment.RecoveryAlertedAt != null) return false;
+            assignment.RecoveryAlertedAt = DateTime.UtcNow;
+            try { await _db.SaveChangesAsync(); return true; }
+            catch (DbUpdateConcurrencyException) { await _db.Entry(assignment).ReloadAsync(); return false; }
+        }
+
+        private async Task ReleaseRequestClaimAsync(ObjectId requestId, ObjectId assignmentId, string previousStatus, Exception cause)
+        {
+            _db.ChangeTracker.Clear();
+            try
+            {
+                // The insert may actually have landed (e.g. a timeout after commit) — then leave the request as Assigned.
+                if (await _db.Assignments.AnyAsync(a => a.Id == assignmentId)) return;
+                var r = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == requestId);
+                if (r != null && r.Status == PackageRequestStatuses.Assigned)
+                {
+                    r.Status = previousStatus;   // conditional: Status is a concurrency token, so this fails if anyone else changed it
+                    r.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
+                    _logger.LogWarning(cause, "Assignment insert failed after claiming request {RequestId}; request put back to '{Previous}'", requestId, previousStatus);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not put request {RequestId} back to '{Previous}' after a failed assignment insert (original error: {Cause})",
+                    requestId, previousStatus, cause.Message);
+            }
         }
 
         // ─────────────────────────────── Helpers ───────────────────────────────

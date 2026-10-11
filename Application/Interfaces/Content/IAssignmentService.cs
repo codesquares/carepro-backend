@@ -1,4 +1,5 @@
 using Application.DTOs;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -29,6 +30,12 @@ namespace Application.Interfaces.Content
         /// creating a payroll record; there was previously no admin-facing way to list these).
         /// </summary>
         Task<List<AcceptedAssignmentDTO>> GetAcceptedAsync();
+
+        /// <summary>
+        /// Safety net: finishes accept/decline/cancel transitions whose status was saved but whose follow-on work (request status,
+        /// notifications, contract) never completed, using the same idempotent code as the normal path. Returns how many it completed.
+        /// </summary>
+        Task<int> RecoverIncompleteTransitionsAsync(TimeSpan olderThan);
 
         // Caregiver
         Task<List<CaregiverAssignmentDTO>> GetMyAssignmentsAsync(string caregiverId);
