@@ -21,16 +21,16 @@ namespace CommitmentGate.Tests;
 /// </summary>
 public class Phase4AssignmentTests
 {
-    private static CareProDbContext CreateDb(string name)
+    internal static CareProDbContext CreateDb(string name)
     {
         var options = new DbContextOptionsBuilder<CareProDbContext>()
             .UseMongoDB("mongodb://127.0.0.1:27018", name).Options;
         return new TestCareProDbContext(options);
     }
 
-    private static string NewDbName() => $"carepro_phase4_{Guid.NewGuid():N}";
+    internal static string NewDbName() => $"carepro_phase4_{Guid.NewGuid():N}";
 
-    private static Caregiver AddCaregiver(CareProDbContext db, CaregiverType type, string? specialty,
+    internal static Caregiver AddCaregiver(CareProDbContext db, CaregiverType type, string? specialty,
         bool available = true, bool identityVerified = true, string category = "General")
     {
         var cg = new Caregiver
@@ -183,7 +183,7 @@ public class Phase4AssignmentTests
         return new AssignHarness { Assignments = assignments, Requests = requests, Mediator = mediator, Email = email };
     }
 
-    private static async Task<(string prId, string cgId, string clientId)> SeedRequestAndCaregiver(
+    internal static async Task<(string prId, string cgId, string clientId)> SeedRequestAndCaregiver(
         CareProDbContext db, CaregiverType pkgType = CaregiverType.RegisteredNurse, string? pkgSpecialty = "Midwifery")
     {
         var client = AddClient(db);
