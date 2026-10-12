@@ -272,3 +272,56 @@ public class CertificateRoutesOwnershipTests : IClassFixture<CertificateHostFact
         _ => _f.Client(),
     };
 }
+
+/// <summary>Reviewer identity for certificate review comes from the JWT; an AdminId in the body is ignored.</summary>
+public class CertificateReviewerIdentityTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateReviewerIdentityTests(CertificateHostFactory f) => _f = f;
+
+    private static StringContent Json(object o) => new(JsonSerializer.Serialize(o), System.Text.Encoding.UTF8, "application/json");
+
+    [Fact]
+    public async Task Review_BodyAdminIdOfAnotherAdmin_IsIgnored_StoredReviewerIsTheJwtAdmin()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var client = _f.Client("Admin:HR", "admin-jwt-id", "hr@carepro.test");
+
+        var res = await client.PostAsync("/api/Admins/Certificates/Review",
+            Json(new { certificateId = cert.Id.ToString(), adminId = "some-other-admin", approved = false, adminNotes = "Blurry scan." }));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var db = _f.Db();
+        var stored = await db.Certifications.FirstAsync(c => c.Id == cert.Id);
+        Assert.Equal("admin-jwt-id", stored.ReviewedByAdminId);
+        Assert.NotNull(stored.ReviewedAt);
+    }
+
+    [Fact]
+    public async Task Review_WithNoAdminIdInBody_Works()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var res = await _f.Client("Admin:CareLeads", "admin-jwt-2").PostAsync("/api/Admins/Certificates/Review",
+            Json(new { certificateId = cert.Id.ToString(), approved = true }));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var db = _f.Db();
+        Assert.Equal("admin-jwt-2", (await db.Certifications.FirstAsync(c => c.Id == cert.Id)).ReviewedByAdminId);
+    }
+
+    [Theory]
+    [InlineData("Admin:Finance", HttpStatusCode.Forbidden)]
+    [InlineData("Caregiver", HttpStatusCode.Forbidden)]
+    [InlineData(null, HttpStatusCode.Unauthorized)]
+    public async Task Review_OtherCallers_AreRejected(string? role, HttpStatusCode expected)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var res = await _f.Client(role, "someone").PostAsync("/api/Admins/Certificates/Review",
+            Json(new { certificateId = cert.Id.ToString(), adminId = "x", approved = true }));
+        Assert.Equal(expected, res.StatusCode);
+        using var db = _f.Db();
+        Assert.Null((await db.Certifications.FirstAsync(c => c.Id == cert.Id)).ReviewedByAdminId);
+    }
+}
