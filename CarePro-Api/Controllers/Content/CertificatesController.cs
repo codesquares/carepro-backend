@@ -786,7 +786,12 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Deleting all certificates for caregiver: {caregiverId}");
 
+                var countBefore = await careProDbContext.Certifications.CountAsync(c => c.CaregiverId == caregiverId);
+
                 await certificationService.DeleteAllCaregiverCertificatesAsync(caregiverId);
+
+                await WriteAdminAuditAsync("CertificateAdminBulkDelete", caregiverId, caregiverId,
+                    "Admin deleted all of a caregiver's certificates", $"{{\"certificatesDeleted\":{countBefore}}}");
 
                 return Ok(new
                 {
@@ -836,15 +841,28 @@ namespace CarePro_Api.Controllers.Content
                 if (!User.IsInRole("Caregiver") && !await IsOperationsAdminAsync())
                     return ForbiddenResult("Your department is not permitted to delete caregiver certificates.");
 
-                if (User.IsInRole("Caregiver"))
+                // Look up first: a non-owner caregiver gets the same 404 as a missing certificate, and the rule below needs the status.
+                var existing = await certificationService.GetCertificateAsync(certificateId);
+                var isCaregiver = User.IsInRole("Caregiver");
+                if (isCaregiver && existing.CaregiverId != CurrentUserId())
+                    return CertificateNotFound(certificateId);
+
+                // RULE (owner can reverse): a caregiver cannot remove an APPROVED certificate - that would silently drop an eligibility
+                // requirement. Pending, under-review and rejected ones can still be removed by their owner; Operations admins can
+                // remove any, and every admin delete is audited.
+                if (isCaregiver && (existing.VerificationStatus == DocumentVerificationStatus.Verified || existing.IsVerified))
                 {
-                    // Look up first so a non-owner gets the same 404 as a missing certificate.
-                    var existing = await certificationService.GetCertificateAsync(certificateId);
-                    if (existing.CaregiverId != CurrentUserId())
-                        return CertificateNotFound(certificateId);
+                    return ForbiddenResult("Approved certificates cannot be removed here. Please contact support.");
                 }
 
                 await certificationService.DeleteCertificateAsync(certificateId);
+
+                if (!isCaregiver)
+                {
+                    await WriteAdminAuditAsync("CertificateAdminDelete", certificateId, existing.CaregiverId ?? string.Empty,
+                        "Admin deleted a caregiver's certificate",
+                        $"{{\"certificateName\":{JsonSerializer.Serialize(existing.CertificateName)},\"statusBeforeDelete\":\"{existing.VerificationStatus}\"}}");
+                }
 
                 return Ok(new
                 {

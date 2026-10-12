@@ -640,15 +640,90 @@ public class CertificateFileDeletionBehaviourTests : IClassFixture<CertificateHo
         Assert.True(await RowExists(other.Id));
     }
 
+    // ---- RULE (default chosen, owner can flip): a caregiver cannot delete a VERIFIED certificate; Operations admins can, audited. ----
+    // To reverse it: remove the Verified check in CertificatesController.DeleteCertificateAsync and delete the first two tests below.
+
     [Fact]
-    public async Task OwnerCanDeleteAnApprovedCertificate_CurrentBehaviour_NoStatusRule()
+    public async Task Caregiver_CannotDeleteAnApprovedCertificate_403_WithTheAgreedMessage_AndNothingIsTouched()
     {
-        // Documents today's rule (there is none): an approved certificate can be deleted by its owner. Flip this
-        // test if the owner decides approved certificates must be admin-only to remove.
         var cg = _f.SeedCaregiver().Id.ToString();
-        var cert = _f.SeedCertificate(cg, status: DocumentVerificationStatus.Verified, publicId: $"certificates/{Guid.NewGuid():N}");
+        var pid = $"certificates/{Guid.NewGuid():N}";
+        var cert = _f.SeedCertificate(cg, status: DocumentVerificationStatus.Verified, publicId: pid);
+        var before = _f.Cloud.CertificateDeletes.Count;
+
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal("Approved certificates cannot be removed here. Please contact support.", doc.RootElement.GetProperty("message").GetString());
+        Assert.True(await RowExists(cert.Id));
+        Assert.Equal(before, _f.Cloud.CertificateDeletes.Count);   // the file was not touched either
+    }
+
+    [Fact]
+    public async Task AnotherCaregiver_DeletingSomeonesApprovedCertificate_Gets404_NotTheApprovedMessage()
+    {
+        var owner = _f.SeedCaregiver().Id.ToString();
+        var other = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(owner, status: DocumentVerificationStatus.Verified);
+        var res = await _f.Client("Caregiver", other).DeleteAsync($"/api/Certificates/{cert.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);   // existence (and status) is not revealed
+        Assert.True(await RowExists(cert.Id));
+    }
+
+    [Theory]
+    [InlineData(DocumentVerificationStatus.ManualReviewRequired)]
+    [InlineData(DocumentVerificationStatus.PendingVerification)]
+    [InlineData(DocumentVerificationStatus.Invalid)]
+    [InlineData(DocumentVerificationStatus.VerificationFailed)]
+    public async Task Caregiver_CanStillDelete_PendingAndRejectedCertificates(DocumentVerificationStatus status)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, status: status, publicId: $"certificates/{Guid.NewGuid():N}");
         var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.False(await RowExists(cert.Id));
+    }
+
+    [Theory]
+    [InlineData("Admin:HR")]
+    [InlineData("Admin:CareLeads")]
+    [InlineData("SuperAdmin")]
+    public async Task OperationsAdmin_CanDeleteAnApprovedCertificate_AndItIsAudited(string role)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, status: DocumentVerificationStatus.Verified, publicId: $"certificates/{Guid.NewGuid():N}");
+        var res = await _f.Client(role, "actor-9", "actor9@carepro.test").DeleteAsync($"/api/Certificates/{cert.Id}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.False(await RowExists(cert.Id));
+        using var db = _f.Db();
+        var audit = await db.AdminAuditLogs.FirstAsync(a => a.TargetEntityId == cert.Id.ToString());
+        Assert.Equal(("actor-9", "actor9@carepro.test", "CertificateAdminDelete", cg), (audit.AdminId, audit.AdminEmail, audit.Action, audit.TargetUserId));
+        Assert.Contains("Verified", audit.AfterJson);
+    }
+
+    [Fact]
+    public async Task CaregiverDelete_WritesNoAdminAudit_AndFinanceCannotDelete()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, publicId: $"certificates/{Guid.NewGuid():N}");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.Client("Admin:Finance", "fin").DeleteAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        using var db = _f.Db();
+        Assert.False(await db.AdminAuditLogs.AnyAsync(a => a.TargetEntityId == cert.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task AdminBulkDelete_IsAudited_WithTheCount()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        _f.SeedCertificate(cg, "CPR Certification", $"certificates/{Guid.NewGuid():N}");
+        _f.SeedCertificate(cg, "Dementia Care Certificate", $"certificates/{Guid.NewGuid():N}");
+        Assert.Equal(HttpStatusCode.OK, (await _f.Client("Admin:HR", "hr-bulk", "hrb@carepro.test").DeleteAsync($"/api/Certificates/caregiver/{cg}")).StatusCode);
+        using var db = _f.Db();
+        var audit = await db.AdminAuditLogs.FirstAsync(a => a.TargetUserId == cg && a.Action == "CertificateAdminBulkDelete");
+        Assert.Equal("hr-bulk", audit.AdminId);
+        Assert.Contains("2", audit.AfterJson);
     }
 
     [Fact]
