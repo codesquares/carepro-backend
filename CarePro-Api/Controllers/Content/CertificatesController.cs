@@ -21,13 +21,50 @@ namespace CarePro_Api.Controllers.Content
         private readonly ICertificationService certificationService;
         private readonly ILogger<CertificatesController> logger;
         private readonly ICareGiverService careGiverService;
+        private readonly IAuthorizationService authorizationService;
 
-        public CertificatesController(CareProDbContext careProDbContext, ICertificationService certificationService, ILogger<CertificatesController> logger, ICareGiverService careGiverService)
+        public CertificatesController(CareProDbContext careProDbContext, ICertificationService certificationService, ILogger<CertificatesController> logger, ICareGiverService careGiverService, IAuthorizationService authorizationService)
         {
+            this.authorizationService = authorizationService;
             this.careProDbContext = careProDbContext;
             this.certificationService = certificationService;
             this.logger = logger;
             this.careGiverService = careGiverService;
+        }
+
+        // ---- Ownership helpers -------------------------------------------------------------------------
+        // Identity ALWAYS comes from the JWT. A caregiverId in a body/query is attacker-controlled and is only
+        // ever compared against the JWT, never trusted. "Allowed admin" = the same OperationsPolicy that guards
+        // every other vetting/review route (HR, ComplianceAndLegal, CareLeads, or SuperAdmin).
+        private string? CurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private async Task<bool> IsOperationsAdminAsync() =>
+            (await authorizationService.AuthorizeAsync(User, "OperationsPolicy")).Succeeded;
+
+        private IActionResult ForbiddenResult(string message) =>
+            StatusCode(StatusCodes.Status403Forbidden, new { success = false, message });
+
+        private IActionResult CertificateNotFound(string certificateId) =>
+            NotFound(new { message = $"Certificate with ID '{certificateId}' not found." });
+
+        /// <summary>
+        /// Resolves the caregiver id an upload is for. Always the JWT caregiver. A different id in the body is
+        /// rejected (403) rather than silently re-targeted, so a tampered client is visible in the logs.
+        /// </summary>
+        private IActionResult? ResolveUploadCaregiver(string? bodyCaregiverId, out string caregiverId)
+        {
+            caregiverId = CurrentUserId() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { success = false, message = "Unable to identify the signed-in caregiver." });
+            if (!string.IsNullOrWhiteSpace(bodyCaregiverId) && bodyCaregiverId != caregiverId)
+            {
+                logger.LogWarning("Certificate upload rejected: body CaregiverId differs from the JWT caregiver {CallerId}", caregiverId);
+                return ForbiddenResult("You can only upload certificates for your own account.");
+            }
+            return null;
         }
 
         /// <summary>
@@ -54,6 +91,14 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogWarning(
                     "Deprecated certificate upload path used: caregiver POST api/Certificates (application/json, base64). CaregiverId={CaregiverId}",
                     addCertificationRequest?.CaregiverId);
+
+                // Identity from the JWT, never the body.
+                if (addCertificationRequest != null)
+                {
+                    var denied = ResolveUploadCaregiver(addCertificationRequest.CaregiverId, out var jwtCaregiverId);
+                    if (denied != null) return denied;
+                    addCertificationRequest.CaregiverId = jwtCaregiverId;
+                }
 
                 // Validate the incoming request
                 if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
@@ -145,6 +190,9 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { success = false, message = "Request cannot be empty." });
                 }
 
+                var deniedUpload = ResolveUploadCaregiver(formRequest.CaregiverId, out var jwtCaregiverId);
+                if (deniedUpload != null) return deniedUpload;
+
                 if (formRequest.Certificate == null || formRequest.Certificate.Length == 0)
                 {
                     ModelState.AddModelError(nameof(formRequest.Certificate), "Certificate file is required.");
@@ -180,7 +228,8 @@ namespace CarePro_Api.Controllers.Content
                 var addCertificationRequest = new AddCertificationRequest
                 {
                     CertificateName = formRequest.CertificateName,
-                    CaregiverId = formRequest.CaregiverId,
+                    // CaregiverId = formRequest.CaregiverId, // was: trusted the form field (any caregiver could upload as another)
+                    CaregiverId = jwtCaregiverId,
                     CertificateIssuer = formRequest.CertificateIssuer,
                     CertificateCategory = formRequest.CertificateCategory,
                     Certificate = base64Certificate,
@@ -526,10 +575,25 @@ namespace CarePro_Api.Controllers.Content
         /// </summary>
         [HttpGet]
         [Authorize(Roles = "Caregiver,Admin")]
-        public async Task<IActionResult> GetAllCertificatesAsync(string caregiverId)
+        public async Task<IActionResult> GetAllCertificatesAsync(string? caregiverId = null)
         {
             try
             {
+                if (User.IsInRole("Caregiver"))
+                {
+                    var callerId = CurrentUserId();
+                    if (string.IsNullOrWhiteSpace(callerId))
+                        return Unauthorized(new { success = false, message = "Unable to identify the signed-in caregiver." });
+                    // A caregiver only ever gets their own; omitting the id means "mine".
+                    if (string.IsNullOrWhiteSpace(caregiverId)) caregiverId = callerId;
+                    else if (caregiverId != callerId)
+                        return ForbiddenResult("You can only view your own certificates.");
+                }
+                else if (!await IsOperationsAdminAsync())
+                {
+                    return ForbiddenResult("Your department is not permitted to view caregiver certificates.");
+                }
+
                 if (string.IsNullOrWhiteSpace(caregiverId))
                 {
                     return BadRequest(new { message = "CaregiverId is required" });
@@ -600,7 +664,14 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Retrieving certificate: {certificateId}");
 
+                if (!User.IsInRole("Caregiver") && !await IsOperationsAdminAsync())
+                    return ForbiddenResult("Your department is not permitted to view caregiver certificates.");
+
                 var certificate = await certificationService.GetCertificateAsync(certificateId);
+
+                // Not the owner -> 404, identical to a missing certificate (do not reveal existence).
+                if (User.IsInRole("Caregiver") && certificate.CaregiverId != CurrentUserId())
+                    return CertificateNotFound(certificateId);
 
                 return Ok(new
                 {
@@ -685,6 +756,17 @@ namespace CarePro_Api.Controllers.Content
                 }
 
                 logger.LogInformation($"Deleting certificate: {certificateId}");
+
+                if (!User.IsInRole("Caregiver") && !await IsOperationsAdminAsync())
+                    return ForbiddenResult("Your department is not permitted to delete caregiver certificates.");
+
+                if (User.IsInRole("Caregiver"))
+                {
+                    // Look up first so a non-owner gets the same 404 as a missing certificate.
+                    var existing = await certificationService.GetCertificateAsync(certificateId);
+                    if (existing.CaregiverId != CurrentUserId())
+                        return CertificateNotFound(certificateId);
+                }
 
                 await certificationService.DeleteCertificateAsync(certificateId);
 

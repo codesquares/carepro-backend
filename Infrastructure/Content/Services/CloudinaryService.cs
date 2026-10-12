@@ -338,7 +338,7 @@ namespace Infrastructure.Content.Services
             }
         }
 
-        public async Task<bool> DeleteFileAsync(string publicId)
+        public virtual async Task<bool> DeleteFileAsync(string publicId)
         {
             try
             {
@@ -490,7 +490,7 @@ namespace Infrastructure.Content.Services
         /// <summary>
         /// Upload certificate image to Cloudinary with proper folder organization
         /// </summary>
-        public async Task<(string Url, string PublicId)> UploadCertificateAsync(byte[] imageBytes, string fileName)
+        public virtual async Task<(string Url, string PublicId)> UploadCertificateAsync(byte[] imageBytes, string fileName)
         {
             using var stream = new MemoryStream(imageBytes);
 
