@@ -325,3 +325,137 @@ public class CertificateReviewerIdentityTests : IClassFixture<CertificateHostFac
         Assert.Null((await db.Certifications.FirstAsync(c => c.Id == cert.Id)).ReviewedByAdminId);
     }
 }
+
+/// <summary>Every review path records reviewer / time / notes, returns the notes, and tells the caregiver WHY.</summary>
+public class CertificateReviewNotesTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateReviewNotesTests(CertificateHostFactory f) => _f = f;
+
+    private static StringContent Json(object o) => new(JsonSerializer.Serialize(o), System.Text.Encoding.UTF8, "application/json");
+    private const string Reason = "Name <b>mismatch</b> & blurry\nSecond line";
+
+    private (string cg, Certification cert) Seed()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        return (cg, _f.SeedCertificate(cg));
+    }
+
+    private async Task<Certification> Stored(ObjectId id) { using var db = _f.Db(); return await db.Certifications.FirstAsync(c => c.Id == id); }
+
+    [Fact]
+    public async Task ManualReject_Persists_Reviewer_Time_Reason()
+    {
+        var (_, cert) = Seed();
+        var res = await _f.Client("Admin:HR", "hr-1", "hr@carepro.test")
+            .PostAsync($"/api/Admins/Certificates/{cert.Id}/Reject", Json(new { adminId = "ignored", rejectionReason = Reason }));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var s = await Stored(cert.Id);
+        Assert.Equal(DocumentVerificationStatus.Invalid, s.VerificationStatus);
+        Assert.Equal("hr-1", s.ReviewedByAdminId);
+        Assert.NotNull(s.ReviewedAt);
+        Assert.Equal(Reason, s.AdminReviewNotes);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal(Reason, doc.RootElement.GetProperty("certificate").GetProperty("adminReviewNotes").GetString());
+    }
+
+    [Fact]
+    public async Task ManualApprove_Persists_Reviewer_Time_Notes()
+    {
+        var (_, cert) = Seed();
+        var res = await _f.Client("Admin:CareLeads", "cl-1").PostAsync($"/api/Admins/Certificates/{cert.Id}/Approve",
+            Json(new { adminId = "ignored", approvalNotes = "Checked with the issuer." }));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var s = await Stored(cert.Id);
+        Assert.Equal(DocumentVerificationStatus.Verified, s.VerificationStatus);
+        Assert.Equal("cl-1", s.ReviewedByAdminId);
+        Assert.NotNull(s.ReviewedAt);
+        Assert.Equal("Checked with the issuer.", s.AdminReviewNotes);
+    }
+
+    [Fact]
+    public async Task Review_Persists_Reviewer_Time_Notes()
+    {
+        var (_, cert) = Seed();
+        var res = await _f.Client("Admin:HR", "hr-2").PostAsync("/api/Admins/Certificates/Review",
+            Json(new { certificateId = cert.Id.ToString(), approved = false, adminNotes = "Expired." }));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var s = await Stored(cert.Id);
+        Assert.Equal(("hr-2", "Expired."), (s.ReviewedByAdminId, s.AdminReviewNotes));
+        Assert.NotNull(s.ReviewedAt);
+    }
+
+    [Fact]
+    public async Task Caregiver_SeesRejectionReason_OnList_AndGetById_ButNotApprovalNotes()
+    {
+        var (cg, rejected) = Seed();
+        var approved = _f.SeedCertificate(cg, "Dementia Care Certificate");
+        var hr = _f.Client("Admin:HR", "hr-3");
+        await hr.PostAsync($"/api/Admins/Certificates/{rejected.Id}/Reject", Json(new { rejectionReason = "Photo is cropped." }));
+        await hr.PostAsync($"/api/Admins/Certificates/{approved.Id}/Approve", Json(new { approvalNotes = "internal: called the issuer" }));
+
+        var caregiver = _f.Client("Caregiver", cg);
+        using var list = JsonDocument.Parse(await caregiver.GetStringAsync($"/api/Certificates?caregiverId={cg}"));
+        var rows = list.RootElement.GetProperty("data").EnumerateArray().ToList();
+        Assert.Equal("Photo is cropped.", rows.Single(r => r.GetProperty("id").GetString() == rejected.Id.ToString()).GetProperty("adminReviewNotes").GetString());
+        Assert.Equal(JsonValueKind.Null, rows.Single(r => r.GetProperty("id").GetString() == approved.Id.ToString()).GetProperty("adminReviewNotes").ValueKind);
+
+        using var one = JsonDocument.Parse(await caregiver.GetStringAsync($"/api/Certificates/{rejected.Id}"));
+        Assert.Equal("Photo is cropped.", one.RootElement.GetProperty("data").GetProperty("adminReviewNotes").GetString());
+    }
+
+    [Fact]
+    public async Task Admin_Details_ReturnsNotes_ForApprovalToo()
+    {
+        var (_, cert) = Seed();
+        var hr = _f.Client("Admin:HR", "hr-4");
+        await hr.PostAsync($"/api/Admins/Certificates/{cert.Id}/Approve", Json(new { approvalNotes = "internal note" }));
+        using var doc = JsonDocument.Parse(await hr.GetStringAsync($"/api/Admins/Certificates/{cert.Id}/Details"));
+        Assert.Equal("internal note", doc.RootElement.GetProperty("data").GetProperty("adminReviewNotes").GetString());
+    }
+
+    [Fact]
+    public async Task Rejection_InAppNotification_CarriesTheReason_AndEmailUsesBrAndEncodesIt()
+    {
+        var (cg, cert) = Seed();
+        var sent = new List<string>();
+        _f.Email.Setup(e => e.SendGenericNotificationEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<string, string, string, string, bool, string?, string?>((_, _, _, content, _, _, _) => { lock (sent) sent.Add(content); })
+            .Returns(Task.CompletedTask);
+
+        await _f.Client("Admin:HR", "hr-5").PostAsync($"/api/Admins/Certificates/{cert.Id}/Reject", Json(new { rejectionReason = Reason }));
+
+        using var db = _f.Db();
+        var note = await db.Notifications.FirstAsync(n => n.RecipientId == cg && n.RelatedEntityId == cert.Id.ToString());
+        Assert.Contains("Reason: " + Reason, note.Content);
+
+        var email = sent.Last();
+        Assert.Contains("<br />", email);
+        Assert.DoesNotContain("\\n", email);
+        Assert.DoesNotContain("\n", email);
+        Assert.Contains("Name &lt;b&gt;mismatch&lt;/b&gt; &amp; blurry<br />Second line", email);
+        Assert.DoesNotContain("<b>mismatch</b>", email);
+    }
+
+    [Fact]
+    public async Task ReviewPath_RejectionEmail_HasNoLiteralBackslashN_AndCarriesTheReason()
+    {
+        var (cg, cert) = Seed();
+        var sent = new List<string>();
+        _f.Email.Setup(e => e.SendGenericNotificationEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<string, string, string, string, bool, string?, string?>((_, _, _, content, _, _, _) => { lock (sent) sent.Add(content); })
+            .Returns(Task.CompletedTask);
+
+        await _f.Client("Admin:HR", "hr-6").PostAsync("/api/Admins/Certificates/Review",
+            Json(new { certificateId = cert.Id.ToString(), approved = false, adminNotes = "Certificate is for a different person." }));
+
+        var email = sent.Last();
+        Assert.DoesNotContain("\\n", email);
+        Assert.Contains("Certificate is for a different person.", email);
+        using var db = _f.Db();
+        var note = await db.Notifications.FirstAsync(n => n.RecipientId == cg && n.RelatedEntityId == cert.Id.ToString());
+        Assert.Contains("Reason: Certificate is for a different person.", note.Content);
+    }
+}

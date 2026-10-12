@@ -229,7 +229,9 @@ namespace Infrastructure.Content.Services
                     VerificationDate = certificate.VerificationDate,
                     VerificationConfidence = certificate.VerificationConfidence,
                     SubmittedOn = certificate.SubmittedOn,
-                    ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null
+                    ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
+                    AdminReviewNotes = CaregiverVisibleReviewNotes(certificate),
+                    ReviewedAt = certificate.ReviewedAt
                 };
                 
                 certificatesDTOs.Add(certificateDTO);
@@ -261,7 +263,9 @@ namespace Infrastructure.Content.Services
                 VerificationDate = certificate.VerificationDate,
                 VerificationConfidence = certificate.VerificationConfidence,
                 SubmittedOn = certificate.SubmittedOn,
-                ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null
+                ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
+                AdminReviewNotes = CaregiverVisibleReviewNotes(certificate),
+                ReviewedAt = certificate.ReviewedAt
             };
 
             return certificateDTO;
@@ -587,21 +591,24 @@ namespace Infrastructure.Content.Services
                         notificationTitle = "Certificate Verified Successfully";
                         notificationContent = $"Your {certification.CertificateName} has been successfully verified and approved.";
                         emailSubject = "Certificate Verification Successful - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";
                         break;
 
                     case DocumentVerificationStatus.ManualReviewRequired:
                         notificationTitle = "Certificate Under Review";
                         notificationContent = $"Your {certification.CertificateName} is under manual review. We'll notify you once the review is complete.";
                         emailSubject = "Certificate Under Manual Review - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        emailContent = $"Dear {caregiver.FirstName},<br /><br />Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.<br /><br />Best regards,<br />CarePro Team";
                         break;
 
                     case DocumentVerificationStatus.VerificationFailed:
                         notificationTitle = "Certificate Verification Error";
                         notificationContent = $"There was an error verifying your {certification.CertificateName}. Please try again or contact support.";
                         emailSubject = "Certificate Verification Error - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        emailContent = $"Dear {caregiver.FirstName},<br /><br />We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.<br /><br />Best regards,<br />CarePro Team";
                         break;
 
                     default:
@@ -801,6 +808,10 @@ namespace Infrastructure.Content.Services
                 certificate.VerificationStatus = DocumentVerificationStatus.Verified;
                 certificate.IsVerified = true;
                 certificate.VerificationDate = DateTime.UtcNow;
+                // Every review path records who/when/why (previously only ReviewCertificateAsync did).
+                certificate.ReviewedByAdminId = adminId;
+                certificate.ReviewedAt = DateTime.UtcNow;
+                certificate.AdminReviewNotes = approvalNotes;
 
                 await careProDbContext.SaveChangesAsync();
 
@@ -850,6 +861,10 @@ namespace Infrastructure.Content.Services
                 certificate.VerificationStatus = DocumentVerificationStatus.Invalid;
                 certificate.IsVerified = false;
                 certificate.VerificationDate = DateTime.UtcNow;
+                // Every review path records who/when/why (previously only ReviewCertificateAsync did).
+                certificate.ReviewedByAdminId = adminId;
+                certificate.ReviewedAt = DateTime.UtcNow;
+                certificate.AdminReviewNotes = rejectionReason;
 
                 await careProDbContext.SaveChangesAsync();
 
@@ -875,6 +890,15 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        /// <summary>The caregiver only ever sees the REJECTION reason; approval notes are internal.</summary>
+        private static string? CaregiverVisibleReviewNotes(Certification c) =>
+            c.VerificationStatus == DocumentVerificationStatus.Invalid ? c.AdminReviewNotes : null;
+
+        // The generic email wrapper renders `content` as HTML inside a <p>, so a "\n" (real or literal) collapses to a
+        // space. Certificate emails therefore use <br /> breaks, and any staff-typed text is HTML-encoded first.
+        private static string EncodeForEmail(string? text) =>
+            System.Net.WebUtility.HtmlEncode(text ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "<br />");
+
         private AdminCertificationResponse MapToAdminCertificationResponse(Certification certificate, CaregiverResponse? caregiver)
         {
             return new AdminCertificationResponse
@@ -894,6 +918,8 @@ namespace Infrastructure.Content.Services
                 ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
                 DojahRawResponse = certificate.DojahVerificationResponse,
                 VerificationAttempts = certificate.VerificationAttempts,
+                AdminReviewNotes = certificate.AdminReviewNotes,
+                ReviewedAt = certificate.ReviewedAt,
                 CaregiverDetails = caregiver != null ? new CaregiverDetailsDTO
                 {
                     FirstName = caregiver.FirstName,
@@ -912,16 +938,17 @@ namespace Infrastructure.Content.Services
                 string notificationContent = $"Your {certificate.CertificateName} has been manually reviewed and approved by our team.";
                 
                 string emailSubject = "Certificate Approved - CarePro";
-                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
-                    $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.\n\n";
+                // Real "\n" collapses in the HTML wrapper -> <br />; staff-typed notes are HTML-encoded.
+                string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +
+                    $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.<br /><br />";
                 
                 if (!string.IsNullOrWhiteSpace(approvalNotes))
                 {
-                    emailContent += $"Admin Notes: {approvalNotes}\n\n";
+                    emailContent += $"Admin Notes: {EncodeForEmail(approvalNotes)}<br /><br />";
                 }
                 
-                emailContent += "You can now proceed with your profile activities.\n\n" +
-                    "Best regards,\nCarePro Team";
+                emailContent += "You can now proceed with your profile activities.<br /><br />" +
+                    "Best regards,<br />CarePro Team";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -952,19 +979,21 @@ namespace Infrastructure.Content.Services
             try
             {
                 string notificationTitle = "Certificate Rejected After Review";
-                string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Please upload a corrected certificate.";
+                // string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Please upload a corrected certificate."; // was: no reason
+                string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Reason: {rejectionReason} Please upload a corrected certificate.";
                 
                 string emailSubject = "Certificate Rejected - Action Required - CarePro";
-                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
-                    $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.\n\n" +
-                    $"Rejection Reason: {rejectionReason}\n\n" +
-                    "Please upload a corrected certificate to continue with your profile setup. Ensure that:\n" +
-                    "- The certificate image is clear and readable\n" +
-                    "- Your name on the certificate matches your profile name\n" +
-                    "- The certificate is genuine and issued by the stated institution\n" +
-                    "- All information is accurate and up-to-date\n\n" +
-                    "If you have questions or need assistance, please contact our support team.\n\n" +
-                    "Best regards,\nCarePro Team";
+                // Real "\n" collapses in the HTML wrapper -> <br />; the staff-typed reason is HTML-encoded.
+                string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +
+                    $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.<br /><br />" +
+                    $"Rejection Reason: {EncodeForEmail(rejectionReason)}<br /><br />" +
+                    "Please upload a corrected certificate to continue with your profile setup. Ensure that:<br />" +
+                    "- The certificate image is clear and readable<br />" +
+                    "- Your name on the certificate matches your profile name<br />" +
+                    "- The certificate is genuine and issued by the stated institution<br />" +
+                    "- All information is accurate and up-to-date<br /><br />" +
+                    "If you have questions or need assistance, please contact our support team.<br /><br />" +
+                    "Best regards,<br />CarePro Team";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -1196,15 +1225,20 @@ namespace Infrastructure.Content.Services
                     notificationTitle = "Certificate Approved";
                     notificationContent = $"Your {certification.CertificateName} has been reviewed and approved by our admin team.";
                     emailSubject = "Certificate Approved - CarePro";
-                    emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                    emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";
                 }
                 else
                 {
                     // Admin rejected certificate
                     notificationTitle = "Certificate Not Approved";
-                    notificationContent = $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate.";
+                    // notificationContent = $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate."; // was: no reason
+                    notificationContent = string.IsNullOrWhiteSpace(adminNotes)
+                        ? $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate."
+                        : $"Your {certification.CertificateName} was reviewed but could not be approved. Reason: {adminNotes} Please re-upload a valid certificate.";
                     emailSubject = "Certificate Review Decision - CarePro";
-                    emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                    emailContent = $"Dear {caregiver.FirstName},<br /><br />After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.<br /><br />Best regards,<br />CarePro Team";
                 }
 
                 // Send in-app notification

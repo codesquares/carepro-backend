@@ -91,6 +91,14 @@ namespace Application.DTOs
         public DateTime YearObtained { get; set; }
 
         public DateTime SubmittedOn { get; set; }
+
+        /// <summary>
+        /// The reviewer's notes. For an admin this is whatever the reviewer typed (approval or rejection).
+        /// For the caregiver it is the REJECTION reason only (status Invalid); approval notes stay internal.
+        /// </summary>
+        public string? AdminReviewNotes { get; set; }
+
+        public DateTime? ReviewedAt { get; set; }
     }
 
     public class CertificateExtractedInfoDTO
