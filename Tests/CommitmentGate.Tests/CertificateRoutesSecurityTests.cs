@@ -1115,3 +1115,52 @@ public class CertificateEligibilityCurrentRecordTests
     public void AllSuperseded_MeansNothingCounts()
         => Assert.Empty(Infrastructure.Content.Services.EligibilityService.CurrentCertificates(new[] { C("CPR", DocumentVerificationStatus.Invalid, 5, superseded: true) }));
 }
+
+/// <summary>The generic email wrapper already greets ("Dear name,") and signs off, so the certificate templates must not repeat either.</summary>
+public class CertificateEmailWrapperDuplicationTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateEmailWrapperDuplicationTests(CertificateHostFactory f) => _f = f;
+    private static StringContent Json(object o) => new(JsonSerializer.Serialize(o), System.Text.Encoding.UTF8, "application/json");
+
+    private List<string> Capture()
+    {
+        var sent = new List<string>();
+        _f.Email.Setup(e => e.SendGenericNotificationEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<string, string, string, string, bool, string?, string?>((_, _, _, content, _, _, _) => { lock (sent) sent.Add(content); })
+            .Returns(Task.CompletedTask);
+        return sent;
+    }
+
+    private static void AssertNoGreetingOrSignOff(string content)
+    {
+        Assert.DoesNotContain("Dear ", content);
+        Assert.DoesNotContain("Best regards", content);
+        Assert.DoesNotContain("CarePro Team", content);
+    }
+
+    [Theory]
+    [InlineData("manual-approve")]
+    [InlineData("manual-reject")]
+    [InlineData("review-approve")]
+    [InlineData("review-reject")]
+    public async Task ReviewEmails_HaveNoGreetingOrSignOff_OfTheirOwn(string flow)
+    {
+        var sent = Capture();
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var hr = _f.Client("Admin:HR", "hr-dup");
+        var res = flow switch
+        {
+            "manual-approve" => await hr.PostAsync($"/api/Admins/Certificates/{cert.Id}/Approve", Json(new { approvalNotes = "fine" })),
+            "manual-reject" => await hr.PostAsync($"/api/Admins/Certificates/{cert.Id}/Reject", Json(new { rejectionReason = "blurry" })),
+            "review-approve" => await hr.PostAsync("/api/Admins/Certificates/Review", Json(new { certificateId = cert.Id.ToString(), approved = true })),
+            _ => await hr.PostAsync("/api/Admins/Certificates/Review", Json(new { certificateId = cert.Id.ToString(), approved = false, adminNotes = "blurry" })),
+        };
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var email = Assert.Single(sent);
+        AssertNoGreetingOrSignOff(email);
+        Assert.True(email.Length > 40);   // there is still a real message
+    }
+}

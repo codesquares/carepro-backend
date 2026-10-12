@@ -650,7 +650,8 @@ namespace Infrastructure.Content.Services
                         notificationContent = $"Your {certification.CertificateName} has been successfully verified and approved.";
                         emailSubject = "Certificate Verification Successful - CarePro";
                         // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
-                        emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.";
                         break;
 
                     case DocumentVerificationStatus.ManualReviewRequired:
@@ -658,7 +659,8 @@ namespace Infrastructure.Content.Services
                         notificationContent = $"Your {certification.CertificateName} is under manual review. We'll notify you once the review is complete.";
                         emailSubject = "Certificate Under Manual Review - CarePro";
                         // emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
-                        emailContent = $"Dear {caregiver.FirstName},<br /><br />Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.<br /><br />Best regards,<br />CarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.";
                         break;
 
                     case DocumentVerificationStatus.VerificationFailed:
@@ -666,7 +668,8 @@ namespace Infrastructure.Content.Services
                         notificationContent = $"There was an error verifying your {certification.CertificateName}. Please try again or contact support.";
                         emailSubject = "Certificate Verification Error - CarePro";
                         // emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
-                        emailContent = $"Dear {caregiver.FirstName},<br /><br />We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.<br /><br />Best regards,<br />CarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.";
                         break;
 
                     default:
@@ -998,7 +1001,8 @@ namespace Infrastructure.Content.Services
                 
                 string emailSubject = "Certificate Approved - CarePro";
                 // Real "\n" collapses in the HTML wrapper -> <br />; staff-typed notes are HTML-encoded.
-                string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +
+                // string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                string emailContent = string.Empty +
                     $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.<br /><br />";
                 
                 if (!string.IsNullOrWhiteSpace(approvalNotes))
@@ -1007,7 +1011,8 @@ namespace Infrastructure.Content.Services
                 }
                 
                 emailContent += "You can now proceed with your profile activities.<br /><br />" +
-                    "Best regards,<br />CarePro Team";
+                    // "Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    "";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -1043,7 +1048,8 @@ namespace Infrastructure.Content.Services
                 
                 string emailSubject = "Certificate Rejected - Action Required - CarePro";
                 // Real "\n" collapses in the HTML wrapper -> <br />; the staff-typed reason is HTML-encoded.
-                string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +
+                // string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                string emailContent = string.Empty +
                     $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.<br /><br />" +
                     $"Rejection Reason: {EncodeForEmail(rejectionReason)}<br /><br />" +
                     "Please upload a corrected certificate to continue with your profile setup. Ensure that:<br />" +
@@ -1052,7 +1058,8 @@ namespace Infrastructure.Content.Services
                     "- The certificate is genuine and issued by the stated institution<br />" +
                     "- All information is accurate and up-to-date<br /><br />" +
                     "If you have questions or need assistance, please contact our support team.<br /><br />" +
-                    "Best regards,<br />CarePro Team";
+                    // "Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    "";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -1285,7 +1292,8 @@ namespace Infrastructure.Content.Services
                     notificationContent = $"Your {certification.CertificateName} has been reviewed and approved by our admin team.";
                     emailSubject = "Certificate Approved - CarePro";
                     // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
-                    emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    emailContent = $"Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.";
                 }
                 else
                 {
@@ -1297,7 +1305,8 @@ namespace Infrastructure.Content.Services
                         : $"Your {certification.CertificateName} was reviewed but could not be approved. Reason: {adminNotes} Please re-upload a valid certificate.";
                     emailSubject = "Certificate Review Decision - CarePro";
                     // emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
-                    emailContent = $"Dear {caregiver.FirstName},<br /><br />After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.<br /><br />Best regards,<br />CarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},<br /><br />After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    emailContent = $"After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.";
                 }
 
                 // Send in-app notification
