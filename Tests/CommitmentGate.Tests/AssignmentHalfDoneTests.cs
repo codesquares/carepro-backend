@@ -276,8 +276,9 @@ public class AssignmentHalfDoneTests
         Assert.Equal("pending", (await StateAsync(rig.DbName, id, prId)).r.Status);
         Assert.Equal(1, rig.OpsCount(NotificationTypes.PackageAssignmentDeclined));
 
-        // Complete now: a further decline is the normal 409.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.DeclineAsync(id, cgId, "busy"));
+        // Complete now: a further decline is the normal 409 - and, like every other "lost to someone else" outcome, it carries ASSIGNMENT_CONFLICT.
+        // await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Svc.DeclineAsync(id, cgId, "busy")); // was: plain InvalidOperationException (409 without errorCode)
+        await Assert.ThrowsAsync<Domain.Entities.AssignmentConflictException>(() => rig.Svc.DeclineAsync(id, cgId, "busy"));
         Assert.Equal(1, rig.OpsCount(NotificationTypes.PackageAssignmentDeclined));
     }
 

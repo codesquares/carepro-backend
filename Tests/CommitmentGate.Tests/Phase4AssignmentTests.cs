@@ -459,6 +459,55 @@ public class Phase4AssignmentTests
         }
     }
 
+    // ── Late losers: the loser of an accept/decline race may arrive BEFORE the winner finishes (loses the atomic claim) or just AFTER
+    //    (loads a row that is already Accepted/Declined). Both are the same outcome and must carry the same signal (409 + ASSIGNMENT_CONFLICT).
+    //    The racing tests above only saw the late case now and then, which is why they failed about one run in five before.
+    //    These make the late case deterministic by running the two calls one after the other.
+
+    [Theory]
+    [InlineData("accept", "decline")]
+    [InlineData("decline", "accept")]
+    [InlineData("decline", "decline")]
+    [InlineData("accept", "decline-with-reason")]
+    public async Task LateLoser_AfterTheWinnerFinished_IsAnAssignmentConflict_AndNothingElseChanges(string first, string second)
+    {
+        var dbName = NewDbName();
+        SeedAdmin(dbName);
+        var (assignmentId, prId, cgId) = await SeedPendingAssignmentAsync(dbName);
+        using var dbA = CreateDb(dbName);
+        using var dbB = CreateDb(dbName);
+        var hA = CreateAssignHarness(dbA);
+        var hB = CreateAssignHarness(dbB);
+        Task Run(AssignHarness h, string what) => what.StartsWith("accept")
+            ? h.Assignments.AcceptAsync(assignmentId, cgId)
+            : h.Assignments.DeclineAsync(assignmentId, cgId, what == "decline-with-reason" ? "busy" : null);
+
+        await Run(hA, first);                                   // the winner runs to completion
+        var late = await Record.ExceptionAsync(() => Run(hB, second));
+
+        if (first == "accept" && second.StartsWith("accept")) { Assert.Null(late); return; }   // (not a case here; accept-after-accept is idempotent)
+        Assert.IsType<AssignmentConflictException>(late);
+
+        using var check = CreateDb(dbName);
+        var a = await check.Assignments.FirstAsync();
+        Assert.Equal(first == "accept" ? "Accepted" : "Declined", a.Status);
+        // the loser sent nothing
+        Assert.DoesNotContain(hB.Mediator.Invocations, i => i.Arguments.OfType<SendNotificationCommand>().Any());
+    }
+
+    [Fact]
+    public async Task AcceptAfterStaffCancelled_IsAnAssignmentConflict()
+    {
+        var dbName = NewDbName();
+        SeedAdmin(dbName);
+        var (assignmentId, _, cgId) = await SeedPendingAssignmentAsync(dbName);
+        using var dbA = CreateDb(dbName);
+        using var dbB = CreateDb(dbName);
+        await CreateAssignHarness(dbA).Assignments.CancelAsync(assignmentId, "admin-1", "ops@x", "picked the wrong person");
+        var late = await Record.ExceptionAsync(() => CreateAssignHarness(dbB).Assignments.AcceptAsync(assignmentId, cgId));
+        Assert.IsType<AssignmentConflictException>(late);
+    }
+
     [Fact]
     public async Task Assign_TwoStaffDifferentCaregiversSimultaneously_OnlyOneActiveAssignmentExists()
     {

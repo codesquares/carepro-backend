@@ -47,6 +47,14 @@ namespace Infrastructure.Content.Services
         private static AssignmentConflictException JustChanged(string verb) =>
             new($"This assignment was just changed by someone else and can no longer be {verb}. Please refresh to see its current status.");
 
+        /// <summary>
+        /// The row is no longer in the state this action needs. When the caller lost to another responder (a double click, a second
+        /// tab, staff cancel, accept-vs-decline) this is the SAME outcome as losing the atomic claim, so it must carry the same
+        /// signal (409 + ASSIGNMENT_CONFLICT) whether the loser overlapped the winner or arrived just after it finished.
+        /// </summary>
+        private static AssignmentConflictException NoLongerAvailable(string status, string verb) =>
+            new($"This assignment is '{status}' and can no longer be {verb}. It was changed by someone else - please refresh to see its current status.");
+
         private static readonly string[] ActiveAssignmentStatuses =
             { AssignmentStatuses.PendingAcceptance, AssignmentStatuses.Accepted };
 
@@ -490,7 +498,8 @@ namespace Infrastructure.Content.Services
             }
 
             if (!string.Equals(assignment.Status, AssignmentStatuses.PendingAcceptance, StringComparison.Ordinal))
-                throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be accepted.");
+                // throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be accepted."); // was: a loser that arrived after the winner finished got a plain 409 with no errorCode
+                throw NoLongerAvailable(assignment.Status, "accepted");
 
             // Police clearance re-check (only this one criterion — accept behaviour for every other readiness reason is
             // unchanged). Runs before anything is modified, so a refusal leaves the assignment exactly as it was.
@@ -684,7 +693,8 @@ namespace Infrastructure.Content.Services
             }
             else
             {
-                throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be declined.");
+                // throw new InvalidOperationException($"This assignment is '{assignment.Status}' and can no longer be declined."); // was: plain 409, no errorCode
+                throw NoLongerAvailable(assignment.Status, "declined");
             }
 
             await FinishDeclineAsync(assignment);
