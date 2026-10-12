@@ -76,6 +76,7 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
 public sealed class CertificateHostFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbName = $"carepro_cert_http_{Guid.NewGuid():N}";
+    public string DbName => _dbName;
     public FakeCertCloudinary Cloud { get; } = new();
     public Mock<IEmailService> Email { get; } = new();
     public CapturingLoggerProvider Logs { get; } = new();
@@ -899,4 +900,143 @@ public class CertificateSuperAdminTests : IClassFixture<CertificateHostFactory>
         // GET types is [AllowAnonymous] by design (signup prefetch) and stays that way
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/Certificates/types")).StatusCode);
     }
+}
+
+/// <summary>A rejected certificate can be replaced; the old record is kept as superseded history and stops counting.</summary>
+public class CertificateReplacementTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateReplacementTests(CertificateHostFactory f) => _f = f;
+    private const string Type = "First Aid Training Certificate";
+
+    private Task<HttpResponseMessage> Upload(string cg, string? bodyId = null, string? asCaregiver = null)
+        => _f.Client("Caregiver", asCaregiver ?? cg).PostAsync("/api/Certificates", CertificateHostFactory.UploadForm(bodyId ?? cg, certName: Type));
+
+    [Fact]
+    public async Task Replacement_AllowedAfterRejection_OldKeptAsSupersededHistory()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var old = _f.SeedCertificate(cg, Type, status: DocumentVerificationStatus.Invalid);
+
+        var res = await Upload(cg);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var newId = doc.RootElement.GetProperty("data").GetProperty("certificateId").GetString();
+
+        using var db = _f.Db();
+        var oldNow = await db.Certifications.FirstAsync(c => c.Id == old.Id);          // still there
+        Assert.NotNull(oldNow.SupersededAt);
+        Assert.Equal(newId, oldNow.SupersededByCertificateId);
+        Assert.Equal(DocumentVerificationStatus.Invalid, oldNow.VerificationStatus);   // history untouched
+        var current = await db.Certifications.FirstAsync(c => c.Id == ObjectId.Parse(newId!));
+        Assert.Null(current.SupersededAt);
+        Assert.Equal(DocumentVerificationStatus.ManualReviewRequired, current.VerificationStatus);
+    }
+
+    [Theory]
+    [InlineData(DocumentVerificationStatus.ManualReviewRequired)]
+    [InlineData(DocumentVerificationStatus.PendingVerification)]
+    [InlineData(DocumentVerificationStatus.Verified)]
+    [InlineData(DocumentVerificationStatus.VerificationFailed)]
+    public async Task Duplicate_StillBlocked_WhileTheCurrentOneIsNotRejected(DocumentVerificationStatus status)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var existing = _f.SeedCertificate(cg, Type, status: status);
+        var res = await Upload(cg);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains("already been uploaded", await res.Content.ReadAsStringAsync());
+        using var db = _f.Db();
+        Assert.Single(await db.Certifications.Where(c => c.CaregiverId == cg).ToListAsync());
+        Assert.Null((await db.Certifications.FirstAsync(c => c.Id == existing.Id)).SupersededAt);
+    }
+
+    [Fact]
+    public async Task AfterAReplacement_AnotherUploadIsBlocked_BecauseTheNewOneIsPending()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        _f.SeedCertificate(cg, Type, status: DocumentVerificationStatus.Invalid);
+        Assert.Equal(HttpStatusCode.OK, (await Upload(cg)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg)).StatusCode);
+    }
+
+    [Fact]
+    public async Task CaregiverList_ShowsOnlyTheCurrentRecord_AdminCanStillSeeTheHistory()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var old = _f.SeedCertificate(cg, Type, status: DocumentVerificationStatus.Invalid);
+        Assert.Equal(HttpStatusCode.OK, (await Upload(cg)).StatusCode);
+
+        using var list = JsonDocument.Parse(await _f.Client("Caregiver", cg).GetStringAsync($"/api/Certificates?caregiverId={cg}"));
+        var rows = list.RootElement.GetProperty("data").EnumerateArray().ToList();
+        Assert.Single(rows);
+        Assert.NotEqual(old.Id.ToString(), rows[0].GetProperty("id").GetString());
+
+        using var details = JsonDocument.Parse(await _f.Client("Admin:HR", "hr").GetStringAsync($"/api/Admins/Certificates/{old.Id}/Details"));
+        Assert.NotEqual(JsonValueKind.Null, details.RootElement.GetProperty("data").GetProperty("supersededAt").ValueKind);
+    }
+
+    [Fact]
+    public async Task Ownership_StillEnforced_AnotherCaregiverCannotReplaceSomeoneElsesRejectedCertificate()
+    {
+        var owner = _f.SeedCaregiver().Id.ToString();
+        var other = _f.SeedCaregiver().Id.ToString();
+        var old = _f.SeedCertificate(owner, Type, status: DocumentVerificationStatus.Invalid);
+
+        var res = await Upload(owner, bodyId: owner, asCaregiver: other);   // other tries to upload "for" the owner
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        using var db = _f.Db();
+        Assert.Null((await db.Certifications.FirstAsync(c => c.Id == old.Id)).SupersededAt);
+        Assert.Single(await db.Certifications.Where(c => c.CaregiverId == owner).ToListAsync());
+    }
+
+    [Fact]
+    public async Task LegacyDocuments_WithoutTheSupersededFields_AreStillCurrent()
+    {
+        // A pre-existing row written before the field existed (no SupersededAt at all) must still list and still block.
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var coll = new MongoDB.Driver.MongoClient("mongodb://127.0.0.1:27018").GetDatabase(_f.DbName).GetCollection<MongoDB.Bson.BsonDocument>("Certifications");
+        var id = ObjectId.GenerateNewId();
+        await coll.InsertOneAsync(new MongoDB.Bson.BsonDocument
+        {
+            { "_id", id }, { "CaregiverId", cg }, { "CertificateName", Type }, { "CertificateIssuer", "x" },
+            { "CloudinaryUrl", "https://res.cloudinary.com/c/image/upload/v1/certificates/legacy.png" }, { "CloudinaryPublicId", "certificates/legacy" },
+            { "IsVerified", false }, { "VerificationStatus", 4 }, { "SubmittedOn", DateTime.UtcNow }, { "YearObtained", new DateTime(2024, 1, 1) },
+        });
+        using var list = JsonDocument.Parse(await _f.Client("Caregiver", cg).GetStringAsync($"/api/Certificates?caregiverId={cg}"));
+        Assert.Single(list.RootElement.GetProperty("data").EnumerateArray());
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg)).StatusCode);   // pending legacy row still blocks
+    }
+}
+
+/// <summary>Eligibility counts only the latest non-superseded certificate of each type.</summary>
+public class CertificateEligibilityCurrentRecordTests
+{
+    private static Certification C(string name, DocumentVerificationStatus st, int daysAgo, bool superseded = false, bool verified = false) => new()
+    {
+        Id = ObjectId.GenerateNewId(), CaregiverId = "cg", CertificateName = name, VerificationStatus = st, IsVerified = verified,
+        SubmittedOn = DateTime.UtcNow.AddDays(-daysAgo), SupersededAt = superseded ? DateTime.UtcNow : null
+    };
+
+    [Fact]
+    public void SupersededRecords_AreExcluded()
+    {
+        var old = C("CPR", DocumentVerificationStatus.Invalid, 10, superseded: true);
+        var now = C("CPR", DocumentVerificationStatus.ManualReviewRequired, 1);
+        var current = Infrastructure.Content.Services.EligibilityService.CurrentCertificates(new[] { old, now });
+        Assert.Equal(new[] { now.Id }, current.Select(c => c.Id));
+    }
+
+    [Fact]
+    public void LatestSubmissionPerType_Wins_AndTypesAreIndependent()
+    {
+        var olderVerified = C("CPR", DocumentVerificationStatus.Verified, 30, verified: true);
+        var newerPending = C("CPR", DocumentVerificationStatus.ManualReviewRequired, 2);
+        var other = C("WAEC", DocumentVerificationStatus.Verified, 50, verified: true);
+        var current = Infrastructure.Content.Services.EligibilityService.CurrentCertificates(new[] { olderVerified, newerPending, other });
+        Assert.Equal(new[] { newerPending.Id, other.Id }.OrderBy(i => i), current.Select(c => c.Id).OrderBy(i => i));
+    }
+
+    [Fact]
+    public void AllSuperseded_MeansNothingCounts()
+        => Assert.Empty(Infrastructure.Content.Services.EligibilityService.CurrentCertificates(new[] { C("CPR", DocumentVerificationStatus.Invalid, 5, superseded: true) }));
 }

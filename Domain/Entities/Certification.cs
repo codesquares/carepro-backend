@@ -64,6 +64,15 @@ namespace Domain.Entities
         public string? AdminReviewNotes { get; set; }
 
         public string? ValidationIssues { get; set; }
+
+        /// <summary>
+        /// Set when a rejected certificate has been replaced by a newer upload of the same type. The record is kept as
+        /// history; it no longer counts for eligibility, the caregiver's list, or the duplicate check. Null = current.
+        /// </summary>
+        public DateTime? SupersededAt { get; set; }
+
+        /// <summary>Id of the certificate that replaced this one.</summary>
+        public string? SupersededByCertificateId { get; set; }
     }
 
     public enum DocumentVerificationStatus

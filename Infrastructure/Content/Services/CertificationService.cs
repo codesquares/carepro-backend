@@ -82,15 +82,22 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException($"Invalid certificate issuer. Expected issuer for this certificate type is: {expectedIssuer}", nameof(addCertificationRequest.CertificateIssuer));
             }
 
-            // Check for duplicate certificate type
-            var existingCertificate = await careProDbContext.Certifications
-                .FirstOrDefaultAsync(c => c.CaregiverId == addCertificationRequest.CaregiverId 
-                                       && c.CertificateName == addCertificationRequest.CertificateName);
-            
-            if (existingCertificate != null)
+            // Check for duplicate certificate type. Only the CURRENT (non-superseded) records count. Pending, under-review,
+            // verification-failed and Verified ones block a second upload; a REJECTED (Invalid) one does not - it is replaced.
+            // var existingCertificate = await careProDbContext.Certifications
+            //     .FirstOrDefaultAsync(c => c.CaregiverId == addCertificationRequest.CaregiverId
+            //                            && c.CertificateName == addCertificationRequest.CertificateName); // was: any record blocked, so a rejected caregiver was stuck
+            var currentOfThisType = await careProDbContext.Certifications
+                .Where(c => c.CaregiverId == addCertificationRequest.CaregiverId
+                         && c.CertificateName == addCertificationRequest.CertificateName
+                         && c.SupersededAt == null)
+                .ToListAsync();
+
+            if (currentOfThisType.Any(c => c.VerificationStatus != DocumentVerificationStatus.Invalid))
             {
                 throw new InvalidOperationException($"A certificate of type '{addCertificationRequest.CertificateName}' has already been uploaded for this caregiver.");
             }
+            var rejectedToReplace = currentOfThisType;   // everything left is Invalid (rejected)
 
             // Reject expired certificates at upload time
             if (addCertificationRequest.ExpiryDate.HasValue && addCertificationRequest.ExpiryDate.Value < DateTime.UtcNow)
@@ -148,8 +155,15 @@ namespace Infrastructure.Content.Services
 
                 LogAuditEvent($"Certificate uploaded and queued for admin review. Type: {certification.CertificateName}, Issuer: {certification.CertificateIssuer}", addCertificationRequest.CaregiverId);
 
-                // Save to database
+                // Save to database. The rejected record(s) this upload replaces are marked superseded in the same save: kept as
+                // history, but no longer counted anywhere.
                 await careProDbContext.Certifications.AddAsync(certification);
+                var supersededNow = DateTime.UtcNow;
+                foreach (var old in rejectedToReplace)
+                {
+                    old.SupersededAt = supersededNow;
+                    old.SupersededByCertificateId = certification.Id.ToString();
+                }
                 await careProDbContext.SaveChangesAsync();
 
                 LogAuditEvent($"Certificate uploaded and saved. ID: {certification.Id}", addCertificationRequest.CaregiverId);
@@ -195,7 +209,7 @@ namespace Infrastructure.Content.Services
             {
                 // Handle potential schema migration issues with legacy documents
                 certificates = await careProDbContext.Certifications
-                    .Where(x => x.CaregiverId == caregiverId)
+                    .Where(x => x.CaregiverId == caregiverId && x.SupersededAt == null) // superseded (replaced) records are history only
                     .OrderBy(x => x.SubmittedOn)
                     .ToListAsync();
             }
@@ -964,6 +978,7 @@ namespace Infrastructure.Content.Services
                 VerificationAttempts = certificate.VerificationAttempts,
                 AdminReviewNotes = certificate.AdminReviewNotes,
                 ReviewedAt = certificate.ReviewedAt,
+                SupersededAt = certificate.SupersededAt,
                 CaregiverDetails = caregiver != null ? new CaregiverDetailsDTO
                 {
                     FirstName = caregiver.FirstName,
@@ -1318,7 +1333,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var certifications = await careProDbContext.Certifications
-                    .Where(c => c.CaregiverId == caregiverId)
+                    .Where(c => c.CaregiverId == caregiverId && c.SupersededAt == null) // superseded (replaced) records are history only
                     .OrderByDescending(c => c.SubmittedOn)
                     .ToListAsync();
 

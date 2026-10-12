@@ -78,6 +78,7 @@ namespace Infrastructure.Content.Services
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             var certsByCaregiver = certificationsTask.Result
+                .Where(c => c.SupersededAt == null) // replaced (superseded) records are history, not "uploaded"
                 .GroupBy(c => c.CaregiverId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 

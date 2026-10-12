@@ -99,6 +99,9 @@ namespace Application.DTOs
         public string? AdminReviewNotes { get; set; }
 
         public DateTime? ReviewedAt { get; set; }
+
+        /// <summary>Set when this (rejected) certificate was replaced by a newer upload; it is kept for history only.</summary>
+        public DateTime? SupersededAt { get; set; }
     }
 
     public class CertificateExtractedInfoDTO
