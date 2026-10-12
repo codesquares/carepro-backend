@@ -8,6 +8,12 @@ namespace Domain.Entities
     {
         public ObjectId Id { get; set; } = ObjectId.GenerateNewId();
         public string OrderId { get; set; } = string.Empty;
+        /// <summary>Set instead of OrderId for a package-assignment report (same alternate-reference pattern as
+        /// TaskSheet.AssignmentId). Nullable so pre-existing documents still load; legacy reports leave it null.</summary>
+        public string? AssignmentId { get; set; }
+        /// <summary>Set alongside AssignmentId — denormalised from Assignment.PackageRequestId; this is what the owning
+        /// client is resolved from (it survives a caregiver reassignment).</summary>
+        public string? PackageRequestId { get; set; }
         public string TaskSheetId { get; set; } = string.Empty;
         public string CaregiverId { get; set; } = string.Empty;
         public string Category { get; set; } = string.Empty;

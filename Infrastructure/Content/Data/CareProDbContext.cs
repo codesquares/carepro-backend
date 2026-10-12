@@ -208,6 +208,10 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ObservationReport>().HasKey(or => or.Id);
             modelBuilder.Entity<ObservationReport>().Property(or => or.Id).HasElementName("_id");
 
+            modelBuilder.Entity<VisitAbsenceNotice>().ToCollection("VisitAbsenceNotices");
+            modelBuilder.Entity<VisitAbsenceNotice>().HasKey(n => n.Id);
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.Id).HasElementName("_id");
+
             modelBuilder.Entity<IncidentReport>().ToCollection("IncidentReports");
             modelBuilder.Entity<IncidentReport>().HasKey(ir => ir.Id);
             modelBuilder.Entity<IncidentReport>().Property(ir => ir.Id).HasElementName("_id");
@@ -347,6 +351,7 @@ namespace Infrastructure.Content.Data
         public DbSet<VisitCheckin> VisitCheckins { get; set; }
         public DbSet<ObservationReport> ObservationReports { get; set; }
         public DbSet<IncidentReport> IncidentReports { get; set; }
+        public DbSet<VisitAbsenceNotice> VisitAbsenceNotices { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
         public DbSet<ClientWallet> ClientWallets { get; set; }

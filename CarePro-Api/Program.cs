@@ -268,6 +268,7 @@ builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
 builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
+builder.Services.AddScoped<IVisitAbsenceService, VisitAbsenceService>();
 builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
 builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
 

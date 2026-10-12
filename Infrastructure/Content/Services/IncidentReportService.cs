@@ -61,16 +61,31 @@ namespace Infrastructure.Content.Services
             if (request.ActionsTaken != null && request.ActionsTaken.Length > 2000)
                 throw new ArgumentException("Actions taken must not exceed 2000 characters.");
 
-            // Validate order and caregiver assignment
-            if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
-                throw new ArgumentException("Invalid order ID format.");
+            var hasOrder = !string.IsNullOrWhiteSpace(request.OrderId);
+            var hasAssignment = !string.IsNullOrWhiteSpace(request.AssignmentId);
+            if (hasOrder == hasAssignment)
+                throw new ArgumentException("Provide exactly one of OrderId or AssignmentId.");
 
-            var order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderObjectId);
-            if (order == null)
-                throw new KeyNotFoundException($"Order '{request.OrderId}' not found.");
+            Assignment? assignment = null;
+            if (hasAssignment)
+            {
+                // Package-assignment path: ownership + the sheet belonging to this assignment are checked up front.
+                assignment = await PackageReportAccess.LoadForCaregiverAsync(
+                    _dbContext, request.AssignmentId!, caregiverId, request.TaskSheetId);
+            }
+            else
+            {
+                // Validate order and caregiver assignment
+                if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
+                    throw new ArgumentException("Invalid order ID format.");
 
-            if (order.CaregiverId != caregiverId)
-                throw new UnauthorizedAccessException("Only the assigned caregiver can create incident reports for this order.");
+                var order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderObjectId);
+                if (order == null)
+                    throw new KeyNotFoundException($"Order '{request.OrderId}' not found.");
+
+                if (order.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Only the assigned caregiver can create incident reports for this order.");
+            }
 
             // Validate photos (max 5)
             if (request.Photos != null && request.Photos.Count > 5)
@@ -98,7 +113,9 @@ namespace Infrastructure.Content.Services
             var report = new IncidentReport
             {
                 Id = ObjectId.GenerateNewId(),
-                OrderId = request.OrderId,
+                OrderId = hasAssignment ? string.Empty : request.OrderId!,
+                AssignmentId = assignment?.Id.ToString(),
+                PackageRequestId = assignment?.PackageRequestId,
                 TaskSheetId = request.TaskSheetId,
                 CaregiverId = caregiverId,
                 IncidentType = request.IncidentType.ToLowerInvariant(),
@@ -115,8 +132,8 @@ namespace Infrastructure.Content.Services
             await _dbContext.IncidentReports.AddAsync(report);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("Incident report created: {ReportId} for Order: {OrderId}, Severity: {Severity}",
-                report.Id, request.OrderId, report.Severity);
+            _logger.LogInformation("Incident report created: {ReportId} for {Target}, Severity: {Severity}",
+                report.Id, hasAssignment ? $"Assignment {report.AssignmentId}" : $"Order {request.OrderId}", report.Severity);
 
             // Notify admins for serious and critical incidents
             var severity = request.Severity.ToLowerInvariant();
@@ -148,6 +165,34 @@ namespace Infrastructure.Content.Services
             return reports.Select(MapToDTO).ToList();
         }
 
+        public async Task<List<IncidentReportDTO>> GetByAssignmentAsync(string assignmentId, string userId, bool isAdmin, bool isClient = false)
+        {
+            await PackageReportAccess.AuthorizeViewAsync(_dbContext, assignmentId, userId, isAdmin, isClient);
+
+            var reports = await _dbContext.IncidentReports
+                .Where(r => r.AssignmentId == assignmentId)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+
+            return reports.Select(MapToDTO).ToList();
+        }
+
+        public async Task<List<IncidentReportDTO>> GetByPackageRequestAsClientAsync(string packageRequestId, string clientId)
+        {
+            if (!ObjectId.TryParse(packageRequestId, out var oid))
+                throw new ArgumentException("Invalid package request ID format.");
+            var pr = await _dbContext.PackageRequests.FirstOrDefaultAsync(r => r.Id == oid)
+                ?? throw new KeyNotFoundException($"Package request '{packageRequestId}' not found.");
+            if (pr.ClientId != clientId)
+                throw new UnauthorizedAccessException("This package request doesn't belong to you.");
+
+            var reports = await _dbContext.IncidentReports
+                .Where(r => r.PackageRequestId == packageRequestId)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+            return reports.Select(MapToDTO).ToList();
+        }
+
         public async Task<IncidentReportDTO> GetByIdAsync(string reportId, string userId, bool isAdmin, bool isClient)
         {
             var report = await _dbContext.IncidentReports
@@ -156,7 +201,21 @@ namespace Infrastructure.Content.Services
             if (report == null)
                 throw new KeyNotFoundException($"Incident report '{reportId}' not found.");
 
-            if (!isAdmin)
+            if (!isAdmin && !string.IsNullOrEmpty(report.AssignmentId))
+            {
+                // Package-assignment report: caregiver = the reporter, client = owner of the package request.
+                if (isClient)
+                {
+                    var ownerId = await PackageReportAccess.GetClientIdAsync(_dbContext, report.PackageRequestId ?? string.Empty);
+                    if (ownerId != userId)
+                        throw new UnauthorizedAccessException("You are not authorized to view this incident report.");
+                }
+                else if (report.CaregiverId != userId)
+                {
+                    throw new UnauthorizedAccessException("You are not authorized to view this incident report.");
+                }
+            }
+            else if (!isAdmin)
             {
                 if (!ObjectId.TryParse(report.OrderId, out var orderOid))
                     throw new KeyNotFoundException("Associated order not found.");
@@ -200,7 +259,9 @@ namespace Infrastructure.Content.Services
                 var caregiverName = caregiver != null ? $"{caregiver.FirstName} {caregiver.LastName}" : "A caregiver";
 
                 var title = $"⚠️ {report.Severity.ToUpperInvariant()} Incident Report";
-                var content = $"{caregiverName} reported a {report.Severity} {report.IncidentType.Replace("_", " ")} incident for Order {report.OrderId}. Immediate attention may be required.";
+                var isPackage = !string.IsNullOrEmpty(report.AssignmentId);
+                var where = isPackage ? $"package visit (assignment {report.AssignmentId})" : $"Order {report.OrderId}";
+                var content = $"{caregiverName} reported a {report.Severity} {report.IncidentType.Replace("_", " ")} incident for {where}. Immediate attention may be required.";
 
                 foreach (var admin in admins)
                 {
@@ -211,7 +272,7 @@ namespace Infrastructure.Content.Services
                         Content: content,
                         Title: title,
                         RelatedEntityId: report.Id.ToString(),
-                        OrderId: report.OrderId
+                        OrderId: isPackage ? null : report.OrderId
                     ));
                 }
 
@@ -221,19 +282,29 @@ namespace Infrastructure.Content.Services
 
                 if (isSevere)
                 {
-                    var order = await _dbContext.ClientOrders.FindAsync(MongoDB.Bson.ObjectId.Parse(report.OrderId));
-                    if (order != null && !string.IsNullOrEmpty(order.ClientId))
+                    string? recipientClientId;
+                    if (isPackage)
+                    {
+                        recipientClientId = await PackageReportAccess.GetClientIdAsync(_dbContext, report.PackageRequestId ?? string.Empty);
+                    }
+                    else
+                    {
+                        var order = await _dbContext.ClientOrders.FindAsync(MongoDB.Bson.ObjectId.Parse(report.OrderId));
+                        recipientClientId = order?.ClientId;
+                    }
+                    if (!string.IsNullOrEmpty(recipientClientId))
                     {
                         var clientContent = $"A {report.Severity} incident ({report.IncidentType.Replace("_", " ")}) has been reported during your care session. An admin has been alerted.";
 
                         await _mediator.Send(new SendNotificationCommand(
-                            RecipientId: order.ClientId,
+                            RecipientId: recipientClientId,
                             SenderId: caregiverId,
                             Type: NotificationTypes.IncidentReported,
                             Content: clientContent,
                             Title: $"Incident Report: {report.Severity.ToUpperInvariant()}",
-                            RelatedEntityId: report.Id.ToString(),
-                            OrderId: report.OrderId));
+                            // Package visits: RelatedEntityId = PackageRequestId, OrderId null (visit-notification convention).
+                            RelatedEntityId: isPackage ? report.PackageRequestId! : report.Id.ToString(),
+                            OrderId: isPackage ? null : report.OrderId));
                     }
                 }
 
@@ -252,6 +323,8 @@ namespace Infrastructure.Content.Services
             {
                 Id = entity.Id.ToString(),
                 OrderId = entity.OrderId,
+                AssignmentId = entity.AssignmentId,
+                PackageRequestId = entity.PackageRequestId,
                 TaskSheetId = entity.TaskSheetId,
                 CaregiverId = entity.CaregiverId,
                 IncidentType = entity.IncidentType,

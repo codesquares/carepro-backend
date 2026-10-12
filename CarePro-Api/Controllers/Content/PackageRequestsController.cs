@@ -27,17 +27,20 @@ namespace CarePro_Api.Controllers.Content
         private readonly IPackageRequestService _service;
         private readonly IPackageContractService _contractService;
         private readonly ITaskSheetService _taskSheetService;
+        private readonly IVisitAbsenceService _visitAbsenceService;
         private readonly ILogger<PackageRequestsController> _logger;
 
         public PackageRequestsController(
             IPackageRequestService service,
             IPackageContractService contractService,
             ITaskSheetService taskSheetService,
+            IVisitAbsenceService visitAbsenceService,
             ILogger<PackageRequestsController> logger)
         {
             _service = service;
             _contractService = contractService;
             _taskSheetService = taskSheetService;
+            _visitAbsenceService = visitAbsenceService;
             _logger = logger;
         }
 
@@ -180,6 +183,21 @@ namespace CarePro_Api.Controllers.Content
                 return Ok(new { success = true, data = visits, count = visits.Count });
             }
             catch (Exception ex) { return HandleException(ex, "GetPackageRequestVisits"); }
+        }
+
+        /// <summary>The client's own view of "can't attend" notices given by their caregiver(s) on this request, newest day first.</summary>
+        [HttpGet("{id}/absence-notices")]
+        public async Task<IActionResult> GetAbsenceNotices(string id)
+        {
+            var clientId = CurrentClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Unauthorized(new { message = "Client identity not found in token." });
+            try
+            {
+                var rows = await _visitAbsenceService.GetForPackageRequestAsClientAsync(id, clientId);
+                return Ok(new { success = true, data = rows, count = rows.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetPackageRequestAbsenceNotices"); }
         }
     }
 }

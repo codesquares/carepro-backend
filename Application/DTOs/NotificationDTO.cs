@@ -293,6 +293,8 @@ namespace Application.DTOs
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
         public const string VisitCancellationRequested = "visit_cancellation_requested";
         public const string VisitRescheduled = "visit_rescheduled";
+        /// <summary>Package caregiver told client + admins they cannot attend a day (no money moves). RelatedEntityId = PackageRequestId.</summary>
+        public const string VisitAbsenceNotified = "visit_absence_notified";
 
         // ── Account Deletion (GDPR right-to-erasure) ──
         public const string AccountDeletionScheduled = "account_deletion_scheduled";
