@@ -218,12 +218,26 @@ namespace CarePro_Api.Controllers.Content
                 // Read the file into memory and convert to base64 so we can reuse the existing
                 // service pipeline (Cloudinary upload, validation, persistence, notifications).
                 // The service contract expects base64; rather than fork the pipeline we adapt here.
-                string base64Certificate;
+                byte[] certificateBytes;
                 using (var ms = new MemoryStream())
                 {
                     await formRequest.Certificate.CopyToAsync(ms);
-                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                    certificateBytes = ms.ToArray();
                 }
+
+                // Type check by declared content type AND magic bytes (never the file name): PDF, JPG, PNG only.
+                var fileError = CertificateFileValidator.Validate(certificateBytes, formRequest.Certificate.ContentType);
+                if (fileError != null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = fileError,
+                        errors = new Dictionary<string, string[]> { { nameof(formRequest.Certificate), new[] { fileError } } }
+                    });
+                }
+
+                var base64Certificate = Convert.ToBase64String(certificateBytes);
 
                 var addCertificationRequest = new AddCertificationRequest
                 {
@@ -446,12 +460,26 @@ namespace CarePro_Api.Controllers.Content
                     });
                 }
 
-                string base64Certificate;
+                byte[] certificateBytes;
                 using (var ms = new MemoryStream())
                 {
                     await formRequest.Certificate.CopyToAsync(ms);
-                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                    certificateBytes = ms.ToArray();
                 }
+
+                // PDF, JPG, PNG only - by declared content type AND magic bytes.
+                var fileError = CertificateFileValidator.Validate(certificateBytes, formRequest.Certificate.ContentType);
+                if (fileError != null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = fileError,
+                        errors = new Dictionary<string, string[]> { { nameof(formRequest.Certificate), new[] { fileError } } }
+                    });
+                }
+
+                var base64Certificate = Convert.ToBase64String(certificateBytes);
 
                 var addCertificationRequest = new AddCertificationRequest
                 {
@@ -882,7 +910,13 @@ namespace CarePro_Api.Controllers.Content
                 // Validate base64 format
                 try
                 {
-                    Convert.FromBase64String(addCertificationRequest.Certificate);
+                    var decoded = Convert.FromBase64String(addCertificationRequest.Certificate);
+                    // No content type on this path, so magic bytes only: PDF, JPG or PNG.
+                    var fileError = CertificateFileValidator.Validate(decoded, declaredContentType: null);
+                    if (fileError != null)
+                    {
+                        ModelState.AddModelError(nameof(addCertificationRequest.Certificate), fileError);
+                    }
                 }
                 catch (FormatException)
                 {

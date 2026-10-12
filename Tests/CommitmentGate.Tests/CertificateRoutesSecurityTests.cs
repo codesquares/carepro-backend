@@ -672,3 +672,105 @@ public class CertificateFileDeletionBehaviourTests : IClassFixture<CertificateHo
         Assert.True(await RowExists(keep.Id));
     }
 }
+
+/// <summary>Uploads are PDF / JPG / PNG only, by content type AND magic bytes; anything else is a clear 400, never a 500.</summary>
+public class CertificateUploadValidationTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateUploadValidationTests(CertificateHostFactory f) => _f = f;
+
+    private static readonly byte[] Jpg = { 0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 0x4A, 0x46, 0x49, 0x46, 0, 1 };
+    private static readonly byte[] Pdf = System.Text.Encoding.Latin1.GetBytes("%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF");
+
+    private async Task<(HttpStatusCode code, string body)> Upload(string cg, byte[] bytes, string fileName, string contentType, string certName = "First Aid Training Certificate")
+    {
+        var res = await _f.Client("Caregiver", cg).PostAsync("/api/Certificates", CertificateHostFactory.UploadForm(cg, bytes, fileName, contentType, certName));
+        return (res.StatusCode, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task RenamedNonImage_AsPng_Is400_NotStored_NotSentToCloudinary()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var before = _f.Cloud.Uploaded.Count;
+        var (code, body) = await Upload(cg, System.Text.Encoding.UTF8.GetBytes("this is plain text renamed to .png"), "evil.png", "image/png");
+        Assert.Equal(HttpStatusCode.BadRequest, code);
+        Assert.Contains("Only PDF, JPG or PNG", body);
+        Assert.Equal(before, _f.Cloud.Uploaded.Count);
+        using var db = _f.Db();
+        Assert.False(await db.Certifications.AnyAsync(c => c.CaregiverId == cg));
+    }
+
+    [Theory]
+    [InlineData("text/plain")]
+    [InlineData("image/gif")]
+    [InlineData("application/octet-stream")]
+    [InlineData("image/webp")]
+    public async Task WrongDeclaredContentType_Is400_EvenWithValidBytes(string contentType)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var (code, _) = await Upload(cg, CertificateHostFactory.PngBytes, "x.png", contentType);
+        Assert.Equal(HttpStatusCode.BadRequest, code);
+    }
+
+    [Fact]
+    public async Task DeclaredTypeMustMatchTheMagicBytes()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg, Pdf, "x.png", "image/png")).code);       // PDF bytes claiming PNG
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg, Jpg, "x.pdf", "application/pdf")).code); // JPG bytes claiming PDF
+    }
+
+    [Fact]
+    public async Task ExecutableAndHtml_RenamedAsPdf_AreRejected()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg, new byte[] { 0x4D, 0x5A, 0x90, 0, 3, 0, 0, 0 }, "a.pdf", "application/pdf")).code); // MZ
+        Assert.Equal(HttpStatusCode.BadRequest, (await Upload(cg, System.Text.Encoding.UTF8.GetBytes("<html><script>1</script></html>"), "a.pdf", "application/pdf")).code);
+    }
+
+    [Theory]
+    [InlineData("png")]
+    [InlineData("jpg")]
+    [InlineData("pdf")]
+    public async Task RealPdfJpgPng_AreAccepted_AndTheFileNameIsNotTrusted(string kind)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var (bytes, ct) = kind switch { "png" => (CertificateHostFactory.PngBytes, "image/png"), "jpg" => (Jpg, "image/jpeg"), _ => (Pdf, "application/pdf") };
+        // A misleading extension is fine: the bytes and content type are what count.
+        var (code, body) = await Upload(cg, bytes, "scan.bin", ct);
+        Assert.True(code == HttpStatusCode.OK, body);
+    }
+
+    [Fact]
+    public async Task JsonBase64Path_RejectsNonImages_WithA400()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var payload = new { CaregiverId = cg, CertificateName = "First Aid Training Certificate", CertificateIssuer = "x", YearObtained = "2024-01-01T00:00:00Z",
+            Certificate = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("not an image")) };
+        var res = await _f.Client("Caregiver", cg).PostAsync("/api/Certificates",
+            new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains("Only PDF, JPG or PNG", await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task EmptyFile_Is400()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var res = await _f.Client("Caregiver", cg).PostAsync("/api/Certificates", CertificateHostFactory.UploadForm(cg, Array.Empty<byte>()));
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminUploadRoute_AlsoRejectsNonImages()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var res = await _f.Client("Admin:HR", "hr").PostAsync($"/api/Certificates/admin/{cg}",
+            CertificateHostFactory.UploadForm(null, System.Text.Encoding.UTF8.GetBytes("nope"), "a.png", "image/png"));
+        // Whatever the route's role gate says, a non-image must never reach storage.
+        Assert.NotEqual(HttpStatusCode.OK, res.StatusCode);
+        using var db = _f.Db();
+        Assert.False(await db.Certifications.AnyAsync(c => c.CaregiverId == cg));
+    }
+}

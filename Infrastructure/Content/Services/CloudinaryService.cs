@@ -560,6 +560,15 @@ namespace Infrastructure.Content.Services
                 return (uploadResult.SecureUrl.AbsoluteUri, uploadResult.PublicId);
             }
 
+            // Cloudinary answers 400 when it cannot read the file (e.g. "Invalid PDF file" for a damaged document that still
+            // starts with the right magic bytes). That is the caller's file, not a server fault: surface it as a 400.
+            if (uploadResult.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            {
+                throw new ArgumentException(
+                    "The file could not be read - it may be damaged. Please upload a clear PDF, JPG or PNG of your certificate.",
+                    "Certificate");
+            }
+
             throw new Exception($"Certificate upload failed. Status: {uploadResult.StatusCode}, Error: {uploadResult.Error?.Message}");
         }
 

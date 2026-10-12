@@ -20,7 +20,7 @@ namespace Infrastructure.Content.Helpers
     /// </summary>
     public static class PoliceClearanceFileValidator
     {
-        private static ClearanceFileKind Detect(byte[] b)
+        public static ClearanceFileKind Detect(byte[] b)
         {
             if (b.Length >= 5 && b[0] == 0x25 && b[1] == 0x50 && b[2] == 0x44 && b[3] == 0x46 && b[4] == 0x2D) return ClearanceFileKind.Pdf; // %PDF-
             if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return ClearanceFileKind.Jpeg;
@@ -36,7 +36,7 @@ namespace Infrastructure.Content.Helpers
             _ => ("application/octet-stream", "")
         };
 
-        private static ClearanceFileKind KindFromDeclared(string? declared)
+        public static ClearanceFileKind KindFromDeclared(string? declared)
         {
             var ct = (declared ?? string.Empty).Split(';')[0].Trim().ToLowerInvariant();
             return ct switch
