@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Domain.Entities;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace CarePro_Api.Controllers.Content
 {
@@ -43,6 +45,38 @@ namespace CarePro_Api.Controllers.Content
 
         private async Task<bool> IsOperationsAdminAsync() =>
             (await authorizationService.AuthorizeAsync(User, "OperationsPolicy")).Succeeded;
+
+        private string CurrentAdminEmail() =>
+            User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirst("email")?.Value ?? string.Empty;
+
+        /// <summary>
+        /// Records an admin action on a certificate in AdminAuditLogs. The acting admin always comes from the JWT.
+        /// A failure to write the audit row is logged but does not undo an action that already happened.
+        /// </summary>
+        private async Task WriteAdminAuditAsync(string action, string certificateId, string caregiverId, string reason, string? afterJson = null)
+        {
+            try
+            {
+                careProDbContext.AdminAuditLogs.Add(new AdminAuditLog
+                {
+                    Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+                    AdminId = CurrentUserId() ?? string.Empty,
+                    AdminEmail = CurrentAdminEmail(),
+                    TargetEntityType = "Certificate",
+                    TargetEntityId = certificateId,
+                    TargetUserId = caregiverId,
+                    Action = action,
+                    AfterJson = afterJson,
+                    Reason = reason,
+                    Timestamp = DateTime.UtcNow
+                });
+                await careProDbContext.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to write the admin audit log entry '{Action}' for certificate {CertificateId}", action, certificateId);
+            }
+        }
 
         private IActionResult ForbiddenResult(string message) =>
             StatusCode(StatusCodes.Status403Forbidden, new { success = false, message });
@@ -329,7 +363,8 @@ namespace CarePro_Api.Controllers.Content
         /// log entry capturing the acting admin's id.
         /// </summary>
         [HttpPost("admin/{caregiverId}")]
-        [Authorize(Roles = "Admin,SuperAdmin")]
+        // [Authorize(Roles = "Admin,SuperAdmin")] // was: every admin department (Finance included) could upload on a caregiver's behalf
+        [Authorize(Policy = "OperationsPolicy")]
         [Consumes("application/json")]
         [Obsolete("Use the multipart/form-data variant of POST api/Certificates/admin/{caregiverId}. This base64/JSON path is kept as a fallback for legacy clients and will be removed.")]
         public async Task<IActionResult> AdminAddCertificateAsync(string caregiverId, [FromBody] AddCertificationRequest addCertificationRequest)
@@ -360,10 +395,13 @@ namespace CarePro_Api.Controllers.Content
 
                 var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
 
-                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier); // was: NameIdentifier only (not what the login token carries)
+                var adminId = CurrentUserId();
                 logger.LogInformation(
                     "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' on behalf of caregiver {CaregiverId} at {Timestamp}",
                     adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+                await WriteAdminAuditAsync("CertificateAdminUpload", result.CertificateId ?? string.Empty, caregiverId,
+                    "Admin uploaded a certificate on behalf of the caregiver (json)", $"{{\"certificateName\":{JsonSerializer.Serialize(addCertificationRequest.CertificateName)}}}");
 
                 return Ok(new
                 {
@@ -422,7 +460,8 @@ namespace CarePro_Api.Controllers.Content
         /// Same semantics as <see cref="AdminAddCertificateAsync"/>.
         /// </summary>
         [HttpPost("admin/{caregiverId}")]
-        [Authorize(Roles = "Admin,SuperAdmin")]
+        // [Authorize(Roles = "Admin,SuperAdmin")] // was: every admin department (Finance included) could upload on a caregiver's behalf
+        [Authorize(Policy = "OperationsPolicy")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(12_582_912)] // 12 MB request body cap (10 MB file + multipart overhead)
         [RequestFormLimits(MultipartBodyLengthLimit = 12_582_912)]
@@ -500,10 +539,13 @@ namespace CarePro_Api.Controllers.Content
 
                 var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
 
-                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier); // was: NameIdentifier only (not what the login token carries)
+                var adminId = CurrentUserId();
                 logger.LogInformation(
                     "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' (multipart) on behalf of caregiver {CaregiverId} at {Timestamp}",
                     adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+                await WriteAdminAuditAsync("CertificateAdminUpload", result.CertificateId ?? string.Empty, caregiverId,
+                    "Admin uploaded a certificate on behalf of the caregiver (multipart)", $"{{\"certificateName\":{JsonSerializer.Serialize(addCertificationRequest.CertificateName)}}}");
 
                 return Ok(new
                 {

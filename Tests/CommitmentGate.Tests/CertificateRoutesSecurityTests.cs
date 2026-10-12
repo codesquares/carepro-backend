@@ -774,3 +774,61 @@ public class CertificateUploadValidationTests : IClassFixture<CertificateHostFac
         Assert.False(await db.Certifications.AnyAsync(c => c.CaregiverId == cg));
     }
 }
+
+/// <summary>Admin upload on a caregiver's behalf is an Operations action (HR / ComplianceAndLegal / CareLeads / SuperAdmin) and is audited.</summary>
+public class CertificateAdminUploadTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateAdminUploadTests(CertificateHostFactory f) => _f = f;
+
+    private Task<HttpResponseMessage> Post(HttpClient c, string cg, string certName = "First Aid Training Certificate")
+        => c.PostAsync($"/api/Certificates/admin/{cg}", CertificateHostFactory.UploadForm(null, certName: certName));
+
+    [Theory]
+    [InlineData("Admin:HR", HttpStatusCode.OK)]
+    [InlineData("Admin:CareLeads", HttpStatusCode.OK)]
+    [InlineData("Admin:ComplianceAndLegal", HttpStatusCode.OK)]
+    [InlineData("Admin:Finance", HttpStatusCode.Forbidden)]
+    [InlineData("Admin:MarketingAndSales", HttpStatusCode.Forbidden)]
+    [InlineData("Caregiver", HttpStatusCode.Forbidden)]
+    [InlineData(null, HttpStatusCode.Unauthorized)]
+    public async Task AdminUpload_Matrix(string? role, HttpStatusCode expected)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var res = await Post(_f.Client(role, "actor-1", "actor@carepro.test"), cg);
+        Assert.Equal(expected, res.StatusCode);
+        using var db = _f.Db();
+        Assert.Equal(expected == HttpStatusCode.OK, await db.Certifications.AnyAsync(c => c.CaregiverId == cg));
+    }
+
+    [Fact]
+    public async Task AdminUpload_WritesAnAuditEntry_WithTheJwtAdmin()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var res = await Post(_f.Client("Admin:HR", "hr-actor", "hr@carepro.test"), cg);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var db = _f.Db();
+        var cert = await db.Certifications.FirstAsync(c => c.CaregiverId == cg);
+        var audit = await db.AdminAuditLogs.FirstAsync(a => a.TargetEntityId == cert.Id.ToString());
+        Assert.Equal(("hr-actor", "hr@carepro.test", "CertificateAdminUpload", cg, "Certificate"),
+            (audit.AdminId, audit.AdminEmail, audit.Action, audit.TargetUserId, audit.TargetEntityType));
+    }
+
+    [Fact]
+    public async Task Denied_AdminUpload_WritesNoAudit_AndStoresNothing()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        await Post(_f.Client("Admin:Finance", "fin"), cg);
+        using var db = _f.Db();
+        Assert.False(await db.AdminAuditLogs.AnyAsync(a => a.TargetUserId == cg));
+    }
+
+    [Fact]
+    public async Task AdminUpload_RejectsNonImages_WithA400()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var res = await _f.Client("Admin:HR", "hr").PostAsync($"/api/Certificates/admin/{cg}",
+            CertificateHostFactory.UploadForm(null, System.Text.Encoding.UTF8.GetBytes("nope"), "a.png", "image/png"));
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+}
