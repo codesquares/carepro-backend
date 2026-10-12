@@ -11,6 +11,8 @@ using Microsoft.Extensions.Options;
 
 namespace Infrastructure.Content.Services
 {
+    public enum CloudinaryDeleteOutcome { Deleted, NotFound, Failed }
+
     public class CloudinaryService
     {
         private readonly Cloudinary _cloudinary;
@@ -177,7 +179,7 @@ namespace Infrastructure.Content.Services
             if (uploadResult.StatusCode == System.Net.HttpStatusCode.OK)
             {
                 // Log the URL for debugging
-                Console.WriteLine($"Cloudinary Upload Success - URL: {uploadResult.SecureUrl}");
+                // Console.WriteLine($"Cloudinary Upload Success - URL: {uploadResult.SecureUrl}");  // removed: logged a file URL
                 Console.WriteLine($"Cloudinary Upload Success - PublicId: {uploadResult.PublicId}");
 
                 return (uploadResult.SecureUrl.AbsoluteUri, uploadResult.PublicId);
@@ -193,7 +195,8 @@ namespace Infrastructure.Content.Services
         {
             try
             {
-                Console.WriteLine($"Attempting to download from URL: {cloudinaryUrl}");
+                // Console.WriteLine($"Attempting to download from URL: {cloudinaryUrl}");  // removed: logged a file URL
+                Console.WriteLine("Attempting to download file from Cloudinary");
 
                 using var httpClient = new HttpClient();
 
@@ -242,7 +245,7 @@ namespace Infrastructure.Content.Services
                 // Try the basic URL first
                 var baseUrl = $"https://res.cloudinary.com/{_cloudName}/raw/upload/{publicId}";
 
-                Console.WriteLine($"Generated signed URL: {baseUrl}");
+                // Console.WriteLine($"Generated signed URL: {baseUrl}");  // removed: logged a file URL
                 return baseUrl;
             }
             catch (Exception ex)
@@ -261,7 +264,8 @@ namespace Infrastructure.Content.Services
             try
             {
                 var signedUrl = GenerateSignedUrl(publicId);
-                Console.WriteLine($"Trying signed URL: {signedUrl}");
+                // Console.WriteLine($"Trying signed URL: {signedUrl}");  // removed: logged a file URL
+                Console.WriteLine("Trying signed URL");
 
                 using var httpClient = new HttpClient();
                 httpClient.Timeout = TimeSpan.FromMinutes(2);
@@ -312,13 +316,15 @@ namespace Infrastructure.Content.Services
                 {
                     try
                     {
-                        Console.WriteLine($"Trying alternative URL: {url}");
+                        // Console.WriteLine($"Trying alternative URL: {url}");  // removed: logged a file URL
+                        Console.WriteLine("Trying an alternative URL");
                         var response = await httpClient.GetAsync(url);
 
                         if (response.IsSuccessStatusCode)
                         {
                             var fileBytes = await response.Content.ReadAsByteArrayAsync();
-                            Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes from: {url}");
+                            // Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes from: {url}");  // removed: logged a file URL
+                            Console.WriteLine($"Successfully downloaded {fileBytes.Length} bytes via an alternative URL");
                             return fileBytes;
                         }
 
@@ -326,7 +332,8 @@ namespace Infrastructure.Content.Services
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Alternative URL {url} failed: {ex.Message}");
+                        // Console.WriteLine($"Alternative URL {url} failed: {ex.Message}");  // removed: logged a file URL
+                        Console.WriteLine($"Alternative URL failed: {ex.Message}");
                     }
                 }
 
@@ -336,6 +343,43 @@ namespace Infrastructure.Content.Services
             {
                 throw new Exception($"Failed to download file using alternative URLs: {ex.Message}", ex);
             }
+        }
+
+        /// <summary>Seam over the SDK's destroy call (tests record the resource type and script the answer).</summary>
+        protected virtual Task<DeletionResult> DestroyAsync(DeletionParams deletionParams) => _cloudinary.DestroyAsync(deletionParams);
+
+        /// <summary>
+        /// Resource types to try, in order, when deleting a certificate file. UploadCertificateAsync stores certificates
+        /// (PDFs included) as <c>image</c>; older records may be <c>raw</c>. The stored URL says which ("/raw/upload/" vs
+        /// "/image/upload/"); the other type is tried second so a record with an unrecognised/missing URL still gets cleaned up.
+        /// </summary>
+        public static ResourceType[] CertificateDeleteResourceTypes(string? storedUrl) =>
+            !string.IsNullOrWhiteSpace(storedUrl) && storedUrl.Contains("/raw/upload/", StringComparison.OrdinalIgnoreCase)
+                ? new[] { ResourceType.Raw, ResourceType.Image }
+                : new[] { ResourceType.Image, ResourceType.Raw };
+
+        /// <summary>
+        /// Deletes a certificate file with the resource type it was uploaded under, and says what happened:
+        /// Deleted (Cloudinary answered "ok"), NotFound (neither type has it - already gone), or Failed (an error from
+        /// Cloudinary or the network - the file may still exist). The CDN copy is invalidated.
+        /// </summary>
+        public virtual async Task<CloudinaryDeleteOutcome> DeleteCertificateFileAsync(string publicId, string? storedUrl)
+        {
+            var failed = false;
+            foreach (var type in CertificateDeleteResourceTypes(storedUrl))
+            {
+                try
+                {
+                    var result = await DestroyAsync(new DeletionParams(publicId) { ResourceType = type, Invalidate = true });
+                    if (result.Result == "ok") return CloudinaryDeleteOutcome.Deleted;
+                    if (result.Result != "not found" || result.Error != null) failed = true;
+                }
+                catch
+                {
+                    failed = true;
+                }
+            }
+            return failed ? CloudinaryDeleteOutcome.Failed : CloudinaryDeleteOutcome.NotFound;
         }
 
         public virtual async Task<bool> DeleteFileAsync(string publicId)
@@ -376,7 +420,7 @@ namespace Infrastructure.Content.Services
                     throw new Exception("Resource not found or URL is null");
                 }
 
-                Console.WriteLine($"Retrieved resource URL: {resource.SecureUrl}");
+                // Console.WriteLine($"Retrieved resource URL: {resource.SecureUrl}");  // removed: logged a file URL
 
                 // Download using HttpClient with Cloudinary authentication
                 using var httpClient = new HttpClient();
@@ -430,14 +474,15 @@ namespace Infrastructure.Content.Services
                 if (resourceResponse.IsSuccessStatusCode)
                 {
                     var resourceJson = await resourceResponse.Content.ReadAsStringAsync();
-                    Console.WriteLine($"Resource API response: {resourceJson}");
+                    // Console.WriteLine($"Resource API response: {resourceJson}");  // removed: logged a file URL
+                    Console.WriteLine("Resource API response received");
 
                     // Parse the JSON to extract the secure_url
                     var resourceData = System.Text.Json.JsonDocument.Parse(resourceJson);
                     if (resourceData.RootElement.TryGetProperty("secure_url", out var secureUrlElement))
                     {
                         var secureUrl = secureUrlElement.GetString();
-                        Console.WriteLine($"Found secure URL: {secureUrl}");
+                        // Console.WriteLine($"Found secure URL: {secureUrl}");  // removed: logged a file URL
 
                         // Now download the actual file
                         var fileResponse = await httpClient.GetAsync(secureUrl);
@@ -509,7 +554,7 @@ namespace Infrastructure.Content.Services
 
             if (uploadResult.StatusCode == System.Net.HttpStatusCode.OK)
             {
-                Console.WriteLine($"Certificate Upload Success - URL: {uploadResult.SecureUrl}");
+                // Console.WriteLine($"Certificate Upload Success - URL: {uploadResult.SecureUrl}");  // removed: logged a file URL
                 Console.WriteLine($"Certificate Upload Success - PublicId: {uploadResult.PublicId}");
 
                 return (uploadResult.SecureUrl.AbsoluteUri, uploadResult.PublicId);

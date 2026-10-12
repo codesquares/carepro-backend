@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using MongoDB.Bson;
@@ -45,6 +46,31 @@ public sealed class FakeCertCloudinary : CloudinaryService
         Deleted.Add(publicId);
         return Task.FromResult(true);
     }
+
+    public CloudinaryDeleteOutcome NextDeleteOutcome { get; set; } = CloudinaryDeleteOutcome.Deleted;
+    public List<(string PublicId, string? Url)> CertificateDeletes { get; } = new();
+
+    public override Task<CloudinaryDeleteOutcome> DeleteCertificateFileAsync(string publicId, string? storedUrl)
+    {
+        CertificateDeletes.Add((publicId, storedUrl));
+        return Task.FromResult(NextDeleteOutcome);
+    }
+}
+
+/// <summary>Captures log lines so tests can prove what is (and is not) logged.</summary>
+public sealed class CapturingLoggerProvider : ILoggerProvider
+{
+    public System.Collections.Concurrent.ConcurrentQueue<(LogLevel Level, string Message)> Lines { get; } = new();
+    public ILogger CreateLogger(string categoryName) => new L(this);
+    public void Dispose() { }
+    private sealed class L : ILogger
+    {
+        private readonly CapturingLoggerProvider _p; public L(CapturingLoggerProvider p) => _p = p;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => _p.Lines.Enqueue((logLevel, formatter(state, exception)));
+    }
 }
 
 public sealed class CertificateHostFactory : WebApplicationFactory<Program>
@@ -52,9 +78,11 @@ public sealed class CertificateHostFactory : WebApplicationFactory<Program>
     private readonly string _dbName = $"carepro_cert_http_{Guid.NewGuid():N}";
     public FakeCertCloudinary Cloud { get; } = new();
     public Mock<IEmailService> Email { get; } = new();
+    public CapturingLoggerProvider Logs { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureLogging(l => l.AddProvider(Logs));
         builder.ConfigureTestServices(services =>
         {
             services.AddAuthentication(o =>
@@ -457,5 +485,190 @@ public class CertificateReviewNotesTests : IClassFixture<CertificateHostFactory>
         using var db = _f.Db();
         var note = await db.Notifications.FirstAsync(n => n.RecipientId == cg && n.RelatedEntityId == cert.Id.ToString());
         Assert.Contains("Reason: Certificate is for a different person.", note.Content);
+    }
+}
+
+/// <summary>Resource-type selection for certificate file deletion (image uploads vs old raw records).</summary>
+public class CertificateFileDeletionResourceTypeTests
+{
+    private sealed class ScriptedCloudinary : CloudinaryService
+    {
+        private readonly Queue<Func<CloudinaryDotNet.Actions.DeletionResult>> _answers;
+        public List<CloudinaryDotNet.Actions.ResourceType> Calls { get; } = new();
+        public List<bool> Invalidate { get; } = new();
+        public ScriptedCloudinary(params Func<CloudinaryDotNet.Actions.DeletionResult>[] answers)
+            : base(new Cloudinary(new Account("c", "k", "s")), Options.Create(new CloudinarySettings { CloudName = "c", ApiKey = "k", ApiSecret = "s" }))
+            => _answers = new Queue<Func<CloudinaryDotNet.Actions.DeletionResult>>(answers);
+        protected override Task<CloudinaryDotNet.Actions.DeletionResult> DestroyAsync(CloudinaryDotNet.Actions.DeletionParams p)
+        {
+            Calls.Add(p.ResourceType); Invalidate.Add(p.Invalidate);
+            return Task.FromResult(_answers.Dequeue()());
+        }
+    }
+
+    private static Func<CloudinaryDotNet.Actions.DeletionResult> Ok => () => new() { Result = "ok" };
+    private static Func<CloudinaryDotNet.Actions.DeletionResult> Missing => () => new() { Result = "not found" };
+    private static Func<CloudinaryDotNet.Actions.DeletionResult> Error => () => new() { Result = "error", Error = new CloudinaryDotNet.Actions.Error { Message = "boom" } };
+    private static Func<CloudinaryDotNet.Actions.DeletionResult> Throws => () => throw new HttpRequestException("network");
+
+    private const string ImageUrl = "https://res.cloudinary.com/c/image/upload/v1/certificates/a.png";
+    private const string RawUrl = "https://res.cloudinary.com/c/raw/upload/v1/certificates/a.pdf";
+
+    [Theory]
+    [InlineData(ImageUrl, "Image,Raw")]
+    [InlineData(RawUrl, "Raw,Image")]
+    [InlineData(null, "Image,Raw")]
+    [InlineData("", "Image,Raw")]
+    [InlineData("https://elsewhere.example/x", "Image,Raw")]
+    public void ResourceTypeOrder_FollowsHowTheFileWasUploaded(string? url, string expected)
+        => Assert.Equal(expected, string.Join(",", CloudinaryService.CertificateDeleteResourceTypes(url)));
+
+    [Fact]
+    public async Task ImageUpload_IsDeletedAsImage_InOneCall_WithCdnInvalidation()
+    {
+        var c = new ScriptedCloudinary(Ok);
+        Assert.Equal(CloudinaryDeleteOutcome.Deleted, await c.DeleteCertificateFileAsync("certificates/a", ImageUrl));
+        Assert.Equal(new[] { CloudinaryDotNet.Actions.ResourceType.Image }, c.Calls);
+        Assert.Equal(new[] { true }, c.Invalidate);
+    }
+
+    [Fact]
+    public async Task RawRecord_IsDeletedAsRaw_FirstTry()
+    {
+        var c = new ScriptedCloudinary(Ok);
+        Assert.Equal(CloudinaryDeleteOutcome.Deleted, await c.DeleteCertificateFileAsync("certificates/a", RawUrl));
+        Assert.Equal(new[] { CloudinaryDotNet.Actions.ResourceType.Raw }, c.Calls);
+    }
+
+    [Fact]
+    public async Task WrongTypeFirst_FallsBackToTheOtherType()
+    {
+        var c = new ScriptedCloudinary(Missing, Ok);
+        Assert.Equal(CloudinaryDeleteOutcome.Deleted, await c.DeleteCertificateFileAsync("certificates/a", ImageUrl));
+        Assert.Equal(new[] { CloudinaryDotNet.Actions.ResourceType.Image, CloudinaryDotNet.Actions.ResourceType.Raw }, c.Calls);
+    }
+
+    [Fact]
+    public async Task NotFoundUnderBothTypes_IsNotFound_NotFailure()
+    {
+        var c = new ScriptedCloudinary(Missing, Missing);
+        Assert.Equal(CloudinaryDeleteOutcome.NotFound, await c.DeleteCertificateFileAsync("certificates/a", ImageUrl));
+    }
+
+    [Theory]
+    [InlineData("error")]
+    [InlineData("throws")]
+    public async Task ErrorOrException_IsFailed(string kind)
+    {
+        var bad = kind == "error" ? Error : Throws;
+        var c = new ScriptedCloudinary(bad, Missing);
+        Assert.Equal(CloudinaryDeleteOutcome.Failed, await c.DeleteCertificateFileAsync("certificates/a", ImageUrl));
+    }
+}
+
+/// <summary>Deleting a certificate really deletes the file, and never claims success when it did not.</summary>
+public class CertificateFileDeletionBehaviourTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateFileDeletionBehaviourTests(CertificateHostFactory f) => _f = f;
+
+    private async Task<bool> RowExists(ObjectId id) { using var db = _f.Db(); return await db.Certifications.AnyAsync(c => c.Id == id); }
+
+    [Fact]
+    public async Task Delete_CallsTheFileDelete_WithPublicIdAndStoredUrl_ThenRemovesTheRow()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var pid = $"certificates/{Guid.NewGuid():N}";
+        var cert = _f.SeedCertificate(cg, publicId: pid);
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Deleted;
+
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains(_f.Cloud.CertificateDeletes, d => d.PublicId == pid && d.Url == cert.CloudinaryUrl);
+        Assert.False(await RowExists(cert.Id));
+    }
+
+    [Fact]
+    public async Task Delete_WhenTheFileCannotBeRemoved_Is502_KeepsTheRow_AndLogsThePublicIdNotTheUrl()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var pid = $"certificates/{Guid.NewGuid():N}";
+        var url = $"https://res.cloudinary.com/c/image/upload/v1/{pid}.png";
+        var cert = _f.SeedCertificate(cg, publicId: pid, url: url);
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Failed;
+
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Deleted;
+
+        Assert.Equal(HttpStatusCode.BadGateway, res.StatusCode);
+        Assert.DoesNotContain("deleted successfully", await res.Content.ReadAsStringAsync());
+        Assert.True(await RowExists(cert.Id));
+        var warnings = _f.Logs.Lines.Where(l => l.Level == LogLevel.Warning && l.Message.Contains(pid)).ToList();
+        Assert.NotEmpty(warnings);
+        Assert.DoesNotContain(_f.Logs.Lines, l => l.Message.Contains("res.cloudinary.com") && l.Message.Contains(pid));
+    }
+
+    [Fact]
+    public async Task Delete_WhenTheFileIsAlreadyGone_StillSucceeds()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, publicId: $"certificates/{Guid.NewGuid():N}");
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.NotFound;
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Deleted;
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.False(await RowExists(cert.Id));
+    }
+
+    [Fact]
+    public async Task Delete_LeavesTheFileAlone_WhenAnotherRecordStillPointsAtIt()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cg2 = _f.SeedCaregiver().Id.ToString();
+        var pid = $"certificates/{Guid.NewGuid():N}";
+        var mine = _f.SeedCertificate(cg, publicId: pid);
+        var other = _f.SeedCertificate(cg2, publicId: pid);
+        var before = _f.Cloud.CertificateDeletes.Count(d => d.PublicId == pid);
+
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{mine.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(before, _f.Cloud.CertificateDeletes.Count(d => d.PublicId == pid));
+        Assert.False(await RowExists(mine.Id));
+        Assert.True(await RowExists(other.Id));
+    }
+
+    [Fact]
+    public async Task OwnerCanDeleteAnApprovedCertificate_CurrentBehaviour_NoStatusRule()
+    {
+        // Documents today's rule (there is none): an approved certificate can be deleted by its owner. Flip this
+        // test if the owner decides approved certificates must be admin-only to remove.
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, status: DocumentVerificationStatus.Verified, publicId: $"certificates/{Guid.NewGuid():N}");
+        var res = await _f.Client("Caregiver", cg).DeleteAsync($"/api/Certificates/{cert.Id}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task BulkDelete_DeletesEachFileOnce_AndKeepsRecordsWhoseFileFailed()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var pid = $"certificates/{Guid.NewGuid():N}";
+        var a = _f.SeedCertificate(cg, "CPR Certification", pid);
+        var b = _f.SeedCertificate(cg, "Dementia Care Certificate", pid);   // same file twice: not "still referenced" while both go
+        var res = await _f.Client("Admin:HR", "hr").DeleteAsync($"/api/Certificates/caregiver/{cg}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.False(await RowExists(a.Id));
+        Assert.False(await RowExists(b.Id));
+        Assert.Contains(_f.Cloud.CertificateDeletes, d => d.PublicId == pid);
+
+        var cg2 = _f.SeedCaregiver().Id.ToString();
+        var keep = _f.SeedCertificate(cg2, publicId: $"certificates/{Guid.NewGuid():N}");
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Failed;
+        var res2 = await _f.Client("Admin:HR", "hr").DeleteAsync($"/api/Certificates/caregiver/{cg2}");
+        _f.Cloud.NextDeleteOutcome = CloudinaryDeleteOutcome.Deleted;
+        Assert.Equal(HttpStatusCode.BadGateway, res2.StatusCode);
+        Assert.True(await RowExists(keep.Id));
     }
 }

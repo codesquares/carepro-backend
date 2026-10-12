@@ -18,6 +18,12 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
 {
+    /// <summary>The stored file could not be removed, so the certificate record was kept.</summary>
+    public class CertificateFileDeletionException : Exception
+    {
+        public CertificateFileDeletionException(string message) : base(message) { }
+    }
+
     public class CertificationService : ICertificationService
     {
         private readonly CareProDbContext careProDbContext;
@@ -450,12 +456,10 @@ namespace Infrastructure.Content.Services
 
             try
             {
-                // Delete from Cloudinary if CloudinaryPublicId exists
-                if (!string.IsNullOrEmpty(certificate.CloudinaryPublicId))
-                {
-                    await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId);
-                    logger.LogInformation($"Deleted certificate image from Cloudinary: {certificate.CloudinaryPublicId}");
-                }
+                // Delete the file FIRST and check the result. If Cloudinary fails, the row is kept and the caller gets an
+                // error, so we never report success while the file (a caregiver's credential) is still publicly served.
+                // was: await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId); // wrong resource type (raw), result ignored
+                await RemoveCertificateFileAsync(certificate, Array.Empty<ObjectId>());
 
                 // Delete from database
                 careProDbContext.Certifications.Remove(certificate);
@@ -467,6 +471,39 @@ namespace Infrastructure.Content.Services
             {
                 logger.LogError(ex, "Error deleting certificate {CertificateId}", certificateId);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Removes the stored file for a certificate. NotFound counts as success (already gone). A file that another
+        /// certificate row (outside <paramref name="alsoDeleting"/>) still points at is left alone. A Cloudinary failure
+        /// throws <see cref="CertificateFileDeletionException"/> and logs a warning with the public id (never the URL).
+        /// </summary>
+        private async Task RemoveCertificateFileAsync(Certification certificate, IReadOnlyCollection<ObjectId> alsoDeleting)
+        {
+            var publicId = certificate.CloudinaryPublicId;
+            if (string.IsNullOrWhiteSpace(publicId)) return;
+
+            var stillReferenced = await careProDbContext.Certifications
+                .AnyAsync(c => c.CloudinaryPublicId == publicId && c.Id != certificate.Id && !alsoDeleting.Contains(c.Id));
+            if (stillReferenced)
+            {
+                logger.LogInformation("Certificate file {PublicId} is still referenced by another certificate; leaving the stored file in place", publicId);
+                return;
+            }
+
+            var outcome = await cloudinaryService.DeleteCertificateFileAsync(publicId, certificate.CloudinaryUrl);
+            switch (outcome)
+            {
+                case CloudinaryDeleteOutcome.Deleted:
+                    logger.LogInformation("Deleted certificate file from Cloudinary: {PublicId}", publicId);
+                    break;
+                case CloudinaryDeleteOutcome.NotFound:
+                    logger.LogInformation("Certificate file {PublicId} was already absent from Cloudinary", publicId);
+                    break;
+                default:
+                    logger.LogWarning("Failed to delete certificate file from Cloudinary: {PublicId}. The certificate record was kept.", publicId);
+                    throw new CertificateFileDeletionException("The certificate file could not be removed from storage; nothing was deleted. Please try again.");
             }
         }
 
@@ -496,27 +533,34 @@ namespace Infrastructure.Content.Services
                     return;
                 }
 
-                // Delete from Cloudinary if applicable
+                // Delete the files first; a row whose file could not be removed is KEPT so nothing is orphaned silently.
+                var deletingIds = certificates.Select(c => c.Id).ToList();
+                var deletable = new List<Certification>();
+                var kept = 0;
                 foreach (var certificate in certificates)
                 {
                     try
                     {
-                        if (!string.IsNullOrEmpty(certificate.CloudinaryPublicId))
-                        {
-                            await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId);
-                        }
+                        await RemoveCertificateFileAsync(certificate, deletingIds);
+                        deletable.Add(certificate);
                     }
-                    catch (Exception ex)
+                    catch (CertificateFileDeletionException)
                     {
-                        logger.LogWarning(ex, "Failed to delete image from Cloudinary for certificate {CertificateId}", certificate.Id);
+                        kept++; // already logged with the public id
                     }
                 }
 
                 // Delete from database
-                careProDbContext.Certifications.RemoveRange(certificates);
+                careProDbContext.Certifications.RemoveRange(deletable);
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Deleted {certificates.Count} certificates for caregiver", caregiverId);
+                LogAuditEvent($"Deleted {deletable.Count} certificates for caregiver", caregiverId);
+
+                if (kept > 0)
+                {
+                    throw new CertificateFileDeletionException(
+                        $"{kept} certificate file(s) could not be removed from storage; those records were kept. Please try again.");
+                }
             }
             catch (Exception ex)
             {

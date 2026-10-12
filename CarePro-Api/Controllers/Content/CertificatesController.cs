@@ -722,6 +722,10 @@ namespace CarePro_Api.Controllers.Content
                     message = "All certificates deleted successfully"
                 });
             }
+            catch (CertificateFileDeletionException ex)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = ex.Message });
+            }
             catch (ApplicationException appEx) when (appEx.Message.Contains("legacy data schema"))
             {
                 return StatusCode(422, new { 
@@ -779,6 +783,11 @@ namespace CarePro_Api.Controllers.Content
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
+            }
+            catch (CertificateFileDeletionException ex)
+            {
+                // The file is still in storage, so the record was kept: say so instead of reporting success.
+                return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = ex.Message });
             }
             catch (Exception ex)
             {
