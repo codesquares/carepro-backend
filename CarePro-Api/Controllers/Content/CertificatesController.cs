@@ -16,7 +16,9 @@ namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(Roles = "Caregiver,Admin")]
+    // [Authorize(Roles = "Caregiver,Admin")] // was class-level: ANDed with every action's own attribute, so SuperAdmin (who is in
+    // OperationsPolicy) was rejected on every route. Now: any signed-in user at class level, and EVERY action states its own rule.
+    [Authorize]
     public class CertificatesController : ControllerBase
     {
         private readonly CareProDbContext careProDbContext;
@@ -644,7 +646,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get all certificates for a caregiver
         /// </summary>
         [HttpGet]
-        [Authorize(Roles = "Caregiver,Admin")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
         public async Task<IActionResult> GetAllCertificatesAsync(string? caregiverId = null)
         {
             try
@@ -722,7 +724,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get a specific certificate by ID
         /// </summary>
         [HttpGet("{certificateId}")]
-        [Authorize(Roles = "Caregiver,Admin")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
         public async Task<IActionResult> GetCertificateAsync(string certificateId)
         {
             try
@@ -819,7 +821,7 @@ namespace CarePro_Api.Controllers.Content
         /// Delete a specific certificate
         /// </summary>
         [HttpDelete("{certificateId}")]
-        [Authorize(Roles = "Caregiver,Admin")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
         public async Task<IActionResult> DeleteCertificateAsync(string certificateId)
         {
             try

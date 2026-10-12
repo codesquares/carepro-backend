@@ -788,6 +788,7 @@ public class CertificateAdminUploadTests : IClassFixture<CertificateHostFactory>
     [InlineData("Admin:HR", HttpStatusCode.OK)]
     [InlineData("Admin:CareLeads", HttpStatusCode.OK)]
     [InlineData("Admin:ComplianceAndLegal", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
     [InlineData("Admin:Finance", HttpStatusCode.Forbidden)]
     [InlineData("Admin:MarketingAndSales", HttpStatusCode.Forbidden)]
     [InlineData("Caregiver", HttpStatusCode.Forbidden)]
@@ -830,5 +831,72 @@ public class CertificateAdminUploadTests : IClassFixture<CertificateHostFactory>
         var res = await _f.Client("Admin:HR", "hr").PostAsync($"/api/Certificates/admin/{cg}",
             CertificateHostFactory.UploadForm(null, System.Text.Encoding.UTF8.GetBytes("nope"), "a.png", "image/png"));
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+}
+
+/// <summary>SuperAdmin passes on api/Certificates exactly where OperationsPolicy passes - and nowhere else.</summary>
+public class CertificateSuperAdminTests : IClassFixture<CertificateHostFactory>
+{
+    private readonly CertificateHostFactory _f;
+    public CertificateSuperAdminTests(CertificateHostFactory f) => _f = f;
+
+    [Fact]
+    public async Task SuperAdmin_CanReadListAndById_AndDelete()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, publicId: $"certificates/{Guid.NewGuid():N}");
+        var sa = _f.Client("SuperAdmin", "sa-1", "sa@carepro.test");
+        Assert.Equal(HttpStatusCode.OK, (await sa.GetAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await sa.GetAsync($"/api/Certificates?caregiverId={cg}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await sa.DeleteAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task SuperAdmin_CanUseTheOperationsOnlyRoutes()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg, publicId: $"certificates/{Guid.NewGuid():N}");
+        var sa = _f.Client("SuperAdmin", "sa-1");
+        Assert.Equal(HttpStatusCode.OK, (await sa.DeleteAsync($"/api/Certificates/caregiver/{cg}")).StatusCode);
+        // retry-verification: allowed through the policy (the outcome may be anything but a 401/403)
+        var retry = (await sa.PostAsync($"/api/Certificates/{cert.Id}/retry-verification", null)).StatusCode;
+        Assert.NotEqual(HttpStatusCode.Forbidden, retry);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, retry);
+    }
+
+    [Fact]
+    public async Task SuperAdmin_IsNotLetInWhereOperationsPolicyDoesNotApply()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var sa = _f.Client("SuperAdmin", "sa-1");
+        // the caregiver-only upload route is not an Operations route
+        Assert.Equal(HttpStatusCode.Forbidden, (await sa.PostAsync("/api/Certificates", CertificateHostFactory.UploadForm(cg))).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Admin:Finance")]
+    [InlineData("Admin:MarketingAndSales")]
+    public async Task OtherDepartments_AreStillForbidden_OnEveryOperationsRoute(string role)
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var c = _f.Client(role, "x");
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync($"/api/Certificates?caregiverId={cg}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.DeleteAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.DeleteAsync($"/api/Certificates/caregiver/{cg}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsync($"/api/Certificates/{cert.Id}/retry-verification", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ClientRole_IsRejected_OnTheCertificateRoutes()
+    {
+        var cg = _f.SeedCaregiver().Id.ToString();
+        var cert = _f.SeedCertificate(cg);
+        var c = _f.Client("Client", "cl-1");
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.DeleteAsync($"/api/Certificates/{cert.Id}")).StatusCode);
+        // GET types is [AllowAnonymous] by design (signup prefetch) and stays that way
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/Certificates/types")).StatusCode);
     }
 }
