@@ -211,6 +211,12 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<VisitAbsenceNotice>().ToCollection("VisitAbsenceNotices");
             modelBuilder.Entity<VisitAbsenceNotice>().HasKey(n => n.Id);
             modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.Id).HasElementName("_id");
+            // A caregiver withdrawal and a staff status change must not both win; and the 24h re-alert is claimed once.
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.Status).IsConcurrencyToken();
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.EscalatedAt).IsConcurrencyToken();
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().ToCollection("VisitAbsenceNoticeEvents");
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().HasKey(e => e.Id);
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().Property(e => e.Id).HasElementName("_id");
 
             modelBuilder.Entity<IncidentReport>().ToCollection("IncidentReports");
             modelBuilder.Entity<IncidentReport>().HasKey(ir => ir.Id);
@@ -352,6 +358,7 @@ namespace Infrastructure.Content.Data
         public DbSet<ObservationReport> ObservationReports { get; set; }
         public DbSet<IncidentReport> IncidentReports { get; set; }
         public DbSet<VisitAbsenceNotice> VisitAbsenceNotices { get; set; }
+        public DbSet<VisitAbsenceNoticeEvent> VisitAbsenceNoticeEvents { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
         public DbSet<ClientWallet> ClientWallets { get; set; }

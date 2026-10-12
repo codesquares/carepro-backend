@@ -179,6 +179,17 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex) { return HandleException(ex, "CreateAbsenceNotice"); }
         }
 
+        /// <summary>Withdraw a notice before the day and before staff arranged cover/credit. A repeat withdrawal is a 409.</summary>
+        [HttpPost("{id}/absence-notices/{noticeId}/withdraw")]
+        public async Task<IActionResult> WithdrawAbsenceNotice(string id, string noticeId)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try { return Ok(await _visitAbsenceService.WithdrawAsync(id, noticeId, caregiverId)); }
+            catch (Exception ex) { return HandleException(ex, "WithdrawAbsenceNotice"); }
+        }
+
         [HttpGet("{id}/absence-notices")]
         public async Task<IActionResult> GetAbsenceNotices(string id)
         {
