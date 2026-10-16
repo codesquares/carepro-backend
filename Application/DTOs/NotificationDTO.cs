@@ -133,6 +133,22 @@ namespace Application.DTOs
         public const string CertificateManualRejection = "certificate_manual_rejection";
         public const string CertificateReview = "certificate_review";
 
+        // ── Police clearance (caregiver vetting step) ──
+        /// <summary>To Approved admins (in-app only): a caregiver submitted a police clearance for review.</summary>
+        public const string PoliceClearanceSubmitted = "police_clearance_submitted";
+        /// <summary>To the caregiver (in-app + email): staff approved their police clearance.</summary>
+        public const string PoliceClearanceApproved = "police_clearance_approved";
+        /// <summary>To the caregiver (in-app + email, with the reason): staff rejected their police clearance.</summary>
+        public const string PoliceClearanceRejected = "police_clearance_rejected";
+        /// <summary>To the caregiver (in-app + email, with the reason): a previously approved clearance was revoked.</summary>
+        public const string PoliceClearanceRevoked = "police_clearance_revoked";
+        /// <summary>To Approved admins (in-app only): a clearance was rejected/revoked after enforcement for a caregiver who has active assignments — a human must decide.</summary>
+        public const string PoliceClearanceAssignmentsAtRisk = "police_clearance_assignments_at_risk";
+
+        // ── Vetting enforcement notice ──
+        /// <summary>To a caregiver (in-app + email): vetting steps are missing and an enforcement date is coming.</summary>
+        public const string VettingEnforcementNotice = "vetting_enforcement_notice";
+
         // ── Subscriptions ──
         public const string SubscriptionCreated = "subscription_created";
         public const string SubscriptionCancellationScheduled = "subscription_cancellation_scheduled";
@@ -216,6 +232,10 @@ namespace Application.DTOs
         public const string PackagePaymentRequestFailed = "package_payment_request_failed";
         /// <summary>To ops staff: a confirmed package's contract was not generated or delivered — manual follow-up.</summary>
         public const string PackageContractDeliveryFailed = "package_contract_delivery_failed";
+        /// <summary>To ops staff: a client cancelled within the cancellation window — a manual refund decision is needed.</summary>
+        public const string PackageRequestCancelledByClient = "package_request_cancelled_by_client";
+        /// <summary>To ops staff: a package-visit check-in was flagged with a HARD reason (far from service location) — review it.</summary>
+        public const string PackageVisitFlagged = "package_visit_flagged";
 
         // ── Phase 6: Auto-generated package contract ──
         /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
@@ -273,6 +293,8 @@ namespace Application.DTOs
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
         public const string VisitCancellationRequested = "visit_cancellation_requested";
         public const string VisitRescheduled = "visit_rescheduled";
+        /// <summary>Package caregiver told client + admins they cannot attend a day (no money moves). RelatedEntityId = PackageRequestId.</summary>
+        public const string VisitAbsenceNotified = "visit_absence_notified";
 
         // ── Account Deletion (GDPR right-to-erasure) ──
         public const string AccountDeletionScheduled = "account_deletion_scheduled";

@@ -96,6 +96,24 @@ namespace Domain.Entities
         public bool IsCompleted { get; set; }
         public decimal? FinalRating { get; set; }
 
+        // ── Client cancellation window (package contracts) ──
+        // Flat nullable fields so contracts created before the window existed still load (null = no window).
+        /// <summary>When the contract was sent to the parties — the start of the cancellation window.</summary>
+        public DateTime? ContractSentAt { get; set; }
+        public DateTime? CancellationWindowEndsAt { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        /// <summary>Who cancelled, e.g. "Client:&lt;clientId&gt;".</summary>
+        public string? CancelledBy { get; set; }
+        /// <summary>Set (to the window end) once the window passed without a cancellation: agreement by non-cancellation.</summary>
+        public DateTime? AcceptedByNonCancellationAt { get; set; }
+
+        // ── Explicit client agreement ("I agree" tick). Optional: care never depends on it. ──
+        public DateTime? ClientAgreedAt { get; set; }
+        /// <summary>When the "confirm your service location" nudge was sent (once per contract).</summary>
+        public DateTime? LocationNudgeSentAt { get; set; }
+        /// <summary>Client id taken from the JWT at the time of the tick (never from the request body).</summary>
+        public string? ClientAgreedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }

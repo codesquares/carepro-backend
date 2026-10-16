@@ -115,7 +115,7 @@ public class AssignmentNoGigGateTests
     }
 
     [Fact]
-    public async Task OtherReadinessCallers_AreUnchanged_StillRequireAnActiveGig()
+    public async Task NoReadinessCaller_RequiresAnActiveGig_GigsAreRetired()
     {
         using var db = CreateDb();
         var noGigs = Caregiver(db);
@@ -126,12 +126,13 @@ public class AssignmentNoGigGateTests
         await db.SaveChangesAsync();
         var svc = Readiness(db);
 
-        // GetReadinessAsync with no override (Brevo sync, vetting endpoint, post-payment check): unchanged
-        Assert.Contains(CaregiverReadinessReasons.NoActiveGig, (await svc.GetReadinessAsync(noGigs.Id.ToString(), Category)).IneligibilityReasons);
-        Assert.Contains(CaregiverReadinessReasons.NoActiveGig, (await svc.GetReadinessAsync(publishedOnly.Id.ToString(), Category)).IneligibilityReasons);
+        // Gigs are retired: no caller (Brevo sync, vetting endpoint, post-payment check) treats a missing gig as a blocker.
+        Assert.DoesNotContain(CaregiverReadinessReasons.NoActiveGig, (await svc.GetReadinessAsync(noGigs.Id.ToString(), Category)).IneligibilityReasons);
+        Assert.DoesNotContain(CaregiverReadinessReasons.NoActiveGig, (await svc.GetReadinessAsync(publishedOnly.Id.ToString(), Category)).IneligibilityReasons);
+        Assert.True((await svc.GetReadinessAsync(noGigs.Id.ToString(), Category)).IsReady);
         Assert.True((await svc.GetReadinessAsync(activeMatching.Id.ToString(), Category)).IsReady);
 
-        // Bulk (matching service): unchanged
+        // Bulk (matching service): HasActiveGig stays an informational flag only, never a reason
         var bulk = await svc.GetReadinessBulkAsync(new[] { noGigs.Id.ToString(), publishedOnly.Id.ToString(), activeMatching.Id.ToString() }, Category);
         Assert.False(bulk[noGigs.Id.ToString()].HasActiveGig);
         Assert.False(bulk[publishedOnly.Id.ToString()].HasActiveGig);

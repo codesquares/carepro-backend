@@ -150,6 +150,11 @@ builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
 builder.Services.AddScoped<ICaregiverVettingService, CaregiverVettingService>();
 builder.Services.AddScoped<IGuarantorService, GuarantorService>();
+builder.Services.AddScoped<IPoliceClearanceFileStore, CloudinaryPoliceClearanceFileStore>();
+builder.Services.AddScoped<IPoliceClearanceNotifier, PoliceClearanceNotifier>();
+builder.Services.AddScoped<IPoliceClearanceService, PoliceClearanceService>();
+builder.Services.AddScoped<IPoliceClearanceAdminService, PoliceClearanceAdminService>();
+builder.Services.AddScoped<IVettingNoticeService, VettingNoticeService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
@@ -217,6 +222,7 @@ builder.Services.AddScoped<IOpsAlertService, OpsAlertService>();
 builder.Services.AddScoped<IPackageRequestService, PackageRequestService>();
 builder.Services.AddScoped<IPackageContractService, PackageContractService>();
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<IPackageVisitAdminService, PackageVisitAdminService>();
 
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
@@ -262,6 +268,7 @@ builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
 builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
+builder.Services.AddScoped<IVisitAbsenceService, VisitAbsenceService>();
 builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
 builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
 
@@ -305,6 +312,9 @@ builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationT
 builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
+builder.Services.AddHostedService<ContractCancellationWindowProcessor>();
+builder.Services.AddHostedService<VisitAbsenceEscalationProcessor>();
+builder.Services.AddHostedService<AssignmentRecoveryProcessor>();
 
 // GDPR: Hard-delete gigs past 30-day grace period (runs daily)
 builder.Services.AddHostedService<GigHardDeleteProcessor>();

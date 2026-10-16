@@ -126,8 +126,38 @@ namespace Infrastructure.Content.Services
             var clientName = clients.ToDictionary(
                 c => c.Id.ToString(), c => $"{c.FirstName} {c.LastName}".Trim());
 
+            var requestIds = requests.Select(r => r.Id.ToString()).ToList();
+            // Project only the window/agreement fields: cheaper, and immune to unrelated legacy fields on old contract
+            // documents (a full Contract read fails on rows whose other string fields were stored as ObjectId).
+            Dictionary<string, AdminContractStatusDTO> contractsByRequest;
+            try
+            {
+                contractsByRequest = (await _db.Contracts
+                        .Where(c => c.PackageRequestId != null && requestIds.Contains(c.PackageRequestId))
+                        .Select(c => new
+                        {
+                            c.PackageRequestId, c.ContractSentAt, c.CancellationWindowEndsAt, c.CancelledAt, c.CancelledBy,
+                            c.ClientAgreedAt, c.AcceptedByNonCancellationAt
+                        })
+                        .ToListAsync())
+                    .GroupBy(c => c.PackageRequestId!)
+                    .ToDictionary(g => g.Key, g => new AdminContractStatusDTO
+                    {
+                        ContractSentAt = g.First().ContractSentAt, CancellationWindowEndsAt = g.First().CancellationWindowEndsAt,
+                        CancelledAt = g.First().CancelledAt, CancelledBy = g.First().CancelledBy,
+                        ClientAgreedAt = g.First().ClientAgreedAt, AcceptedByNonCancellationAt = g.First().AcceptedByNonCancellationAt,
+                    });
+            }
+            catch (Exception ex)
+            {
+                // The request list must never fail because of contract-summary enrichment.
+                _logger.LogError(ex, "Could not load contract summaries for the admin package-request list");
+                contractsByRequest = new Dictionary<string, AdminContractStatusDTO>();
+            }
+
             return requests.Select(e => new AdminPackageRequestDTO
             {
+                Contract = contractsByRequest.TryGetValue(e.Id.ToString(), out var ct) ? ct : null,
                 Id = e.Id.ToString(),
                 ClientId = e.ClientId,
                 ClientName = clientName.GetValueOrDefault(e.ClientId, "(unknown)"),
@@ -168,8 +198,17 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            var locationNeeded = false;
+            if (string.Equals(e.Status, PackageRequestStatuses.Confirmed, StringComparison.Ordinal))
+            {
+                var loc = await _db.Contracts.Where(c => c.PackageRequestId == e.Id.ToString())
+                    .Select(c => new { c.ServiceLocationSetByClient, c.CancelledAt }).FirstOrDefaultAsync();
+                locationNeeded = loc != null && loc.CancelledAt == null && loc.ServiceLocationSetByClient != true;
+            }
+
             return new PackageRequestDTO
             {
+                ServiceLocationNeeded = locationNeeded,
                 Id = e.Id.ToString(),
                 ClientId = e.ClientId,
                 PackageId = e.PackageId,

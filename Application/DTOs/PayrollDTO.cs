@@ -23,6 +23,10 @@ namespace Application.DTOs
         public DateTime? CreditedToWalletAt { get; set; }
         public string? ApprovedByAdminEmail { get; set; }
         public DateTime? ApprovedAt { get; set; }
+        /// <summary>Draft only: how many of this assignment's visits in the pay period still carry an uncleared HARD GPS flag.</summary>
+        public int UnclearedHardFlagCount { get; set; }
+        /// <summary>Approved: how many uncleared flags the admin confirmed approving over.</summary>
+        public int? ApprovedWithUnclearedFlags { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
     }
@@ -56,5 +60,12 @@ namespace Application.DTOs
 
         [StringLength(1000, MinimumLength = 5)]
         public string? OverrideReason { get; set; }
+
+        /// <summary>
+        /// Required when the payroll has uncleared HARD-flagged visits: must equal the current count
+        /// ("Approve with N uncleared flagged visits"). Soft gate — approval is allowed, but only knowingly.
+        /// </summary>
+        [Range(0, 10000)]
+        public int? AcknowledgeUnclearedFlaggedVisits { get; set; }
     }
 }

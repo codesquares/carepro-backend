@@ -100,6 +100,8 @@ namespace Application.DTOs
         public string BillingType { get; set; } = string.Empty;
         /// <summary>Non-null only once a caregiver has accepted — this is all the client sees before then.</summary>
         public ConfirmedCaregiverDTO? ConfirmedCaregiver { get; set; }
+        /// <summary>True once confirmed, with a contract whose service location the client has not confirmed (drives the client's "confirm your precise location" prompt). Never gates care.</summary>
+        public bool ServiceLocationNeeded { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -119,8 +121,21 @@ namespace Application.DTOs
     /// browse/filter requests before searching candidates for one — there was previously
     /// no admin-facing way to discover a PackageRequestId at all.
     /// </summary>
+    /// <summary>Admin-facing summary of the cancellation-window / agreement state of a request's contract.</summary>
+    public class AdminContractStatusDTO
+    {
+        public DateTime? ContractSentAt { get; set; }
+        public DateTime? CancellationWindowEndsAt { get; set; }
+        public DateTime? CancelledAt { get; set; }
+        public string? CancelledBy { get; set; }
+        public DateTime? ClientAgreedAt { get; set; }
+        public DateTime? AcceptedByNonCancellationAt { get; set; }
+    }
+
     public class AdminPackageRequestDTO
     {
+        /// <summary>Null until a contract has been generated for this request.</summary>
+        public AdminContractStatusDTO? Contract { get; set; }
         public string Id { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
         public string ClientName { get; set; } = string.Empty;
@@ -138,6 +153,28 @@ namespace Application.DTOs
 
     // ─────────────────── 4.2  Assignment ───────────────────
 
+    /// <summary>
+    /// Staff-written summary of the care job, shown to the caregiver before they accept. Must not contain the
+    /// client's phone or street address — those are released only after acceptance.
+    /// </summary>
+    public class CareBriefDTO
+    {
+        [StringLength(2000)]
+        public string? CareNeedsSummary { get; set; }
+
+        [StringLength(300)]
+        public string? Schedule { get; set; }
+
+        public DateTime? StartDate { get; set; }
+
+        [StringLength(100)]
+        public string? Duration { get; set; }
+
+        /// <summary>City or neighborhood only.</summary>
+        [StringLength(120)]
+        public string? Area { get; set; }
+    }
+
     public class AssignCaregiverRequest
     {
         [Required]
@@ -151,6 +188,13 @@ namespace Application.DTOs
 
         /// <summary>"staff" (default) or "system".</summary>
         public string? AssignedBy { get; set; }
+
+        /// <summary>Optional care brief shown to the caregiver before acceptance.</summary>
+        public CareBriefDTO? CareBrief { get; set; }
+
+        /// <summary>Optional FULL service address (staff-entered). Shared with the caregiver only after they accept.</summary>
+        [StringLength(300)]
+        public string? ServiceAddress { get; set; }
     }
 
     public class DeclineAssignmentRequest
@@ -179,6 +223,8 @@ namespace Application.DTOs
         public double? MatchScore { get; set; }
         public DateTime? RespondedAt { get; set; }
         public string? DeclineReason { get; set; }
+        public CareBriefDTO? CareBrief { get; set; }
+        public string? ServiceAddress { get; set; }
     }
 
     /// <summary>Row in the admin "Pending Acceptance" view — longest-pending first.</summary>
@@ -243,6 +289,15 @@ namespace Application.DTOs
         public DateTime AssignedAt { get; set; }
         public DateTime? RespondedAt { get; set; }
         public string? DeclineReason { get; set; }
+        /// <summary>Staff-written care brief; null for assignments created before the brief existed.</summary>
+        public CareBriefDTO? CareBrief { get; set; }
+        /// <summary>
+        /// False while the client's details are still withheld (PendingAcceptance / Declined / never-accepted):
+        /// <see cref="ClientName"/> is then the FIRST NAME only and <see cref="ClientId"/> is empty.
+        /// </summary>
+        public bool ClientDetailsReleased { get; set; }
+        /// <summary>Full service address — populated ONLY once <see cref="ClientDetailsReleased"/> (after acceptance); null before.</summary>
+        public string? ServiceAddress { get; set; }
     }
 
     public class AssignmentActionResult

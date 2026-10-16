@@ -17,6 +17,13 @@ namespace Application.DTOs
     /// </summary>
     public class ContractGenerationDataDTO
     {
+        /// <summary>Package contracts only: length of the client's cancellation window in hours (0 = no window / legacy contract).</summary>
+        public int CancellationWindowHours { get; set; }
+        /// <summary>Package contracts only: when the contract was sent (start of the cancellation window).</summary>
+        public DateTime? ContractSentAt { get; set; }
+        /// <summary>Package contracts only: when the cancellation window closes (stored value, not recomputed).</summary>
+        public DateTime? CancellationWindowEndsAt { get; set; }
+
         // Party Information
         public string ClientId { get; set; } = string.Empty;
         public string ClientFullName { get; set; } = string.Empty;

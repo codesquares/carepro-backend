@@ -30,19 +30,20 @@ namespace Infrastructure.Content.Services
 
             // Header
             sb.AppendLine("<h1>CAREPRO CARE SERVICE AGREEMENT</h1>");
-            sb.AppendLine("<div class='subtitle'>Facilitated through the CarePro Platform</div>");
+            sb.AppendLine($"<div class='subtitle'>{Application.Content.ContractWording.Subtitle}</div>");
 
             // Meta
             sb.AppendLine("<div class='meta'>");
             sb.AppendLine($"<strong>Contract Reference:</strong> {Sanitize(data.ContractId)}<br/>");
             sb.AppendLine($"<strong>Order Reference:</strong> {Sanitize(data.OrderId)}<br/>");
-            sb.AppendLine($"<strong>Date:</strong> {data.GeneratedAt:dddd, MMMM dd, yyyy 'at' HH:mm} UTC");
+            sb.AppendLine($"<strong>Date:</strong> {Application.Content.LagosTime.Format(data.GeneratedAt)}");
             sb.AppendLine("</div>");
 
             // Section 1: Parties
             sb.AppendLine("<h2>Section 1: Parties to This Agreement</h2>");
+            sb.AppendLine($"<p>{Application.Content.ContractWording.PartiesIntro}</p>");
             sb.AppendLine("<table>");
-            sb.AppendLine("<tr><th></th><th>Client (Care Recipient)</th><th>Caregiver (Service Provider)</th></tr>");
+            sb.AppendLine($"<tr><th></th><th>{Application.Content.ContractWording.ClientColumnHeading}</th><th>{Application.Content.ContractWording.CaregiverColumnHeading}</th></tr>");
             sb.AppendLine($"<tr><td><strong>Full Name</strong></td><td>{Sanitize(data.ClientFullName)}</td><td>{Sanitize(data.CaregiverFullName)}</td></tr>");
             sb.AppendLine($"<tr><td><strong>ID</strong></td><td>{Sanitize(data.ClientId)}</td><td>{Sanitize(data.CaregiverId)}</td></tr>");
             sb.AppendLine($"<tr><td><strong>Phone</strong></td><td>{Sanitize(data.ClientPhone ?? "On file")}</td><td>{Sanitize(data.CaregiverPhone ?? "On file")}</td></tr>");
@@ -51,11 +52,9 @@ namespace Infrastructure.Content.Services
             sb.AppendLine("</table>");
 
             // Section 2: Platform Relationship
-            sb.AppendLine("<h2>Section 2: Platform Relationship</h2>");
-            sb.AppendLine("<p>CarePro is a technology platform that connects clients seeking care services with independent caregivers. " +
-                "Caregivers are independent contractors and market participants offering their services on the CarePro platform. " +
-                "CarePro does not employ caregivers and is not a party to the care relationship between client and caregiver. " +
-                "CarePro facilitates the matching, payment processing, and contract management only.</p>");
+            // Wording comes from the single shared source (Application.Content.ContractWording).
+            sb.AppendLine($"<h2>{Application.Content.ContractWording.PlatformRelationshipHeading}</h2>");
+            sb.AppendLine($"<p>{Application.Content.ContractWording.PlatformRelationshipText}</p>");
 
             // Section 3: Service Details
             sb.AppendLine("<h2>Section 3: Service Details</h2>");
@@ -189,7 +188,7 @@ namespace Infrastructure.Content.Services
 
             sb.AppendLine("<h3>11.1 Safety</h3>");
             sb.AppendLine("<ul>");
-            sb.AppendLine("<li>The Caregiver has been verified through CarePro's onboarding and background check process.</li>");
+            sb.AppendLine($"<li>{Application.Content.ContractWording.CaregiverVettingClaim}</li>");
             sb.AppendLine("<li>Both parties must maintain a safe environment for care delivery.</li>");
             sb.AppendLine("<li>Emergency situations should be handled by contacting emergency services first, then reporting through CarePro.</li>");
             sb.AppendLine("</ul>");
@@ -223,17 +222,24 @@ namespace Infrastructure.Content.Services
             // Section 13: Limitation of Liability
             sb.AppendLine("<h2>Section 13: Limitation of Liability</h2>");
             sb.AppendLine("<ul>");
-            sb.AppendLine("<li>CarePro operates as a marketplace platform and is not liable for the actions or omissions of either party.</li>");
-            sb.AppendLine("<li>The Caregiver operates as an independent contractor and is solely responsible for the quality of care provided.</li>");
+            sb.AppendLine($"<li>{Application.Content.ContractWording.LiabilityLine1}</li>");
+            sb.AppendLine($"<li>{Application.Content.ContractWording.LiabilityLine2}</li>");
             sb.AppendLine("</ul>");
 
             // Section 14: Acknowledgment
             sb.AppendLine("<h2>Section 14: Acknowledgment</h2>");
-            sb.AppendLine("<p>Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement.</p>");
+            sb.AppendLine($"<p>{Application.Content.ContractWording.AcknowledgmentText}</p>");
+            if (data.CancellationWindowHours > 0 && data.ContractSentAt.HasValue)
+            {
+                sb.AppendLine($"<h3>{Application.Content.ContractWording.CancellationHeading}</h3>");
+                sb.AppendLine($"<p>{Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value)}</p>");
+                if (data.CancellationWindowEndsAt.HasValue)
+                    sb.AppendLine($"<p>{Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value)}</p>");
+            }
 
             sb.AppendLine("<div class='signature-block'>");
-            sb.AppendLine($"<div class='signature-line'><strong>Client:</strong> {Sanitize(data.ClientFullName)}<br/>Date: {data.GeneratedAt:MMMM dd, yyyy}</div>");
-            sb.AppendLine($"<div class='signature-line'><strong>Caregiver:</strong> {Sanitize(data.CaregiverFullName)}<br/>Date: {data.GeneratedAt:MMMM dd, yyyy}</div>");
+            sb.AppendLine($"<div class='signature-line'><strong>Client:</strong> {Sanitize(data.ClientFullName)}<br/>Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}</div>");
+            sb.AppendLine($"<div class='signature-line'><strong>{Application.Content.ContractWording.CaregiverSignatureLabel}:</strong> {Sanitize(data.CaregiverFullName)}<br/>Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}</div>");
             sb.AppendLine("</div>");
 
             sb.AppendLine("</body></html>");

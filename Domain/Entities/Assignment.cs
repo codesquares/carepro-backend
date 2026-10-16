@@ -44,6 +44,33 @@ namespace Domain.Entities
         public string? CancelledByAdminId { get; set; }
         public string? CancelReason { get; set; }
 
+        // ── Care brief (staff-written, shown to the caregiver BEFORE acceptance) ──
+        // Flat nullable fields (not a nested document) so assignments created before the brief existed
+        // still load — a missing field is simply null. Deliberately free of client contact details.
+        public string? BriefCareNeeds { get; set; }
+        public string? BriefSchedule { get; set; }
+        public DateTime? BriefStartDate { get; set; }
+        public string? BriefDuration { get; set; }
+        /// <summary>General area only (city / neighborhood) — never a street address.</summary>
+        public string? BriefArea { get; set; }
+
+        /// <summary>
+        /// FULL service address, staff-entered at assignment time. Released to the caregiver only after acceptance
+        /// (never in the pre-acceptance DTO) and copied onto the contract so it can be geocoded for check-in verification.
+        /// </summary>
+        public string? ServiceAddress { get; set; }
+
+        // ── Downstream-completion markers (race/half-done safety) ──
+        // A status change (accept / decline / staff cancel) is claimed atomically first; the follow-on work (request status,
+        // notifications, emails, contract) happens after. These record how far that got so a retry or the recovery sweeper can finish
+        // it without repeating it. Legacy rows have all three null and are never touched by recovery.
+        /// <summary>Set with the status claim. Non-null + <see cref="DownstreamDoneAt"/> null = follow-on work not yet finished.</summary>
+        public DateTime? DownstreamPendingSince { get; set; }
+        /// <summary>Atomic claim of the follow-on notifications (concurrency token): set once the request status is settled; whoever sets it sends them, exactly once.</summary>
+        public DateTime? DownstreamDoneAt { get; set; }
+        /// <summary>Set (atomically) the one time recovery alerted admins that it could not finish this assignment.</summary>
+        public DateTime? RecoveryAlertedAt { get; set; }
+
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

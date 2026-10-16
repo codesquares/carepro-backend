@@ -63,6 +63,8 @@ namespace CarePro_Api.Controllers.Content
                     return Conflict(new { message = cnr.Message, errorCode = cnr.ErrorCode, reasons = cnr.Reasons });
                 case ArgumentException ae:
                     return BadRequest(new { message = ae.Message });
+                case AssignmentConflictException ace:
+                    return Conflict(new { message = ace.Message, errorCode = ace.ErrorCode });
                 case InvalidOperationException ioe:
                     return Conflict(new { message = ioe.Message });
                 case KeyNotFoundException knf:
@@ -141,7 +143,7 @@ namespace CarePro_Api.Controllers.Content
             {
                 var dto = await _assignmentService.AssignAsync(
                     request.PackageRequestId, request.CaregiverId,
-                    adminId, adminEmail, request.AssignedBy ?? "staff", request.MatchScore);
+                    adminId, adminEmail, request.AssignedBy ?? "staff", request.MatchScore, request.CareBrief, request.ServiceAddress);
                 return Ok(new { success = true, data = dto });
             }
             catch (Exception ex) { return HandleException(ex, "Assign"); }

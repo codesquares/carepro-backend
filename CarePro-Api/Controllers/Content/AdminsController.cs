@@ -895,6 +895,16 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
+        // Reviewer identity comes from the JWT. An AdminId in the request body is attacker-controlled
+        // (any Operations admin could record a review as someone else) and is ignored.
+        private string? CurrentAdminId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private string CurrentAdminEmail() =>
+            User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirst("email")?.Value ?? string.Empty;
+
         /// <summary>
         /// Manually approve a certificate
         /// </summary>
@@ -909,15 +919,26 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { success = false, message = "Certificate ID is required" });
                 }
 
-                if (string.IsNullOrWhiteSpace(request?.AdminId))
+                // if (string.IsNullOrWhiteSpace(request?.AdminId)) // was: reviewer id taken from the body
+                // {
+                //     return BadRequest(new { success = false, message = "Admin ID is required" });
+                // }
+                var reviewerId = CurrentAdminId();
+                if (string.IsNullOrWhiteSpace(reviewerId))
                 {
-                    return BadRequest(new { success = false, message = "Admin ID is required" });
+                    return Unauthorized(new { success = false, message = "Unable to identify the reviewing admin." });
                 }
+                if (!string.IsNullOrWhiteSpace(request?.AdminId) && request.AdminId != reviewerId)
+                {
+                    logger.LogWarning("Certificate approve: body AdminId differs from the JWT admin {AdminId}; the body value is ignored", reviewerId);
+                }
+                logger.LogInformation("Certificate {CertificateId} approval requested by admin {AdminId} ({AdminEmail})", certificateId, reviewerId, CurrentAdminEmail());
 
                 var result = await certificationService.ManuallyApproveCertificateAsync(
                     certificateId, 
-                    request.AdminId, 
-                    request.ApprovalNotes);
+                    // request.AdminId, // was: body-supplied
+                    reviewerId, 
+                    request?.ApprovalNotes);
                 
                 return Ok(result);
             }
@@ -951,19 +972,30 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { success = false, message = "Certificate ID is required" });
                 }
 
-                if (string.IsNullOrWhiteSpace(request?.AdminId))
+                // if (string.IsNullOrWhiteSpace(request?.AdminId)) // was: reviewer id taken from the body
+                // {
+                //     return BadRequest(new { success = false, message = "Admin ID is required" });
+                // }
+                var reviewerId = CurrentAdminId();
+                if (string.IsNullOrWhiteSpace(reviewerId))
                 {
-                    return BadRequest(new { success = false, message = "Admin ID is required" });
+                    return Unauthorized(new { success = false, message = "Unable to identify the reviewing admin." });
                 }
 
-                if (string.IsNullOrWhiteSpace(request.RejectionReason))
+                if (string.IsNullOrWhiteSpace(request?.RejectionReason))
                 {
                     return BadRequest(new { success = false, message = "Rejection reason is required" });
                 }
+                if (!string.IsNullOrWhiteSpace(request.AdminId) && request.AdminId != reviewerId)
+                {
+                    logger.LogWarning("Certificate reject: body AdminId differs from the JWT admin {AdminId}; the body value is ignored", reviewerId);
+                }
+                logger.LogInformation("Certificate {CertificateId} rejection requested by admin {AdminId} ({AdminEmail})", certificateId, reviewerId, CurrentAdminEmail());
 
                 var result = await certificationService.ManuallyRejectCertificateAsync(
                     certificateId, 
-                    request.AdminId, 
+                    // request.AdminId, // was: body-supplied
+                    reviewerId, 
                     request.RejectionReason);
                 
                 return Ok(result);
@@ -1002,18 +1034,28 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { success = false, message = "Certificate ID is required" });
                 }
 
-                if (string.IsNullOrWhiteSpace(request.AdminId))
+                // if (string.IsNullOrWhiteSpace(request.AdminId)) // was: reviewer id taken from the body
+                // {
+                //     return BadRequest(new { success = false, message = "Admin ID is required" });
+                // }
+                var reviewerId = CurrentAdminId();
+                if (string.IsNullOrWhiteSpace(reviewerId))
                 {
-                    return BadRequest(new { success = false, message = "Admin ID is required" });
+                    return Unauthorized(new { success = false, message = "Unable to identify the reviewing admin." });
                 }
+                if (!string.IsNullOrWhiteSpace(request.AdminId) && request.AdminId != reviewerId)
+                {
+                    logger.LogWarning("Certificate review: body AdminId differs from the JWT admin {AdminId}; the body value is ignored", reviewerId);
+                }
+                request.AdminId = reviewerId;
 
                 if (!request.Approved && string.IsNullOrWhiteSpace(request.AdminNotes))
                 {
                     return BadRequest(new { success = false, message = "Admin notes are required when rejecting a certificate" });
                 }
 
-                logger.LogInformation("Admin {AdminId} reviewing certificate {CertificateId}. Approved: {Approved}",
-                    request.AdminId, request.CertificateId, request.Approved);
+                logger.LogInformation("Admin {AdminId} ({AdminEmail}) reviewing certificate {CertificateId}. Approved: {Approved}",
+                    request.AdminId, CurrentAdminEmail(), request.CertificateId, request.Approved);
 
                 var result = await certificationService.ReviewCertificateAsync(request);
                 

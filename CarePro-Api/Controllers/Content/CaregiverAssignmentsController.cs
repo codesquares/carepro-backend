@@ -22,17 +22,20 @@ namespace CarePro_Api.Controllers.Content
         private readonly IAssignmentService _assignmentService;
         private readonly IPackageContractService _contractService;
         private readonly ITaskSheetService _taskSheetService;
+        private readonly IVisitAbsenceService _visitAbsenceService;
         private readonly ILogger<CaregiverAssignmentsController> _logger;
 
         public CaregiverAssignmentsController(
             IAssignmentService assignmentService,
             IPackageContractService contractService,
             ITaskSheetService taskSheetService,
+            IVisitAbsenceService visitAbsenceService,
             ILogger<CaregiverAssignmentsController> logger)
         {
             _assignmentService = assignmentService;
             _contractService = contractService;
             _taskSheetService = taskSheetService;
+            _visitAbsenceService = visitAbsenceService;
             _logger = logger;
         }
 
@@ -45,8 +48,13 @@ namespace CarePro_Api.Controllers.Content
         {
             switch (ex)
             {
+                // Accept re-check (police clearance). Same 409 shape as the staff assign route.
+                case Domain.Entities.CaregiverNotReadyException cnr:
+                    return Conflict(new { message = cnr.Message, errorCode = cnr.ErrorCode, reasons = cnr.Reasons });
                 case ArgumentException ae:
                     return BadRequest(new { message = ae.Message });
+                case Domain.Entities.AssignmentConflictException ace:
+                    return Conflict(new { message = ace.Message, errorCode = ace.ErrorCode });
                 case InvalidOperationException ioe:
                     return Conflict(new { message = ioe.Message });
                 case KeyNotFoundException knf:
@@ -155,6 +163,45 @@ namespace CarePro_Api.Controllers.Content
                 return Ok(new { success = true, data = visits, count = visits.Count });
             }
             catch (Exception ex) { return HandleException(ex, "GetAssignmentVisits"); }
+        }
+
+        /// <summary>Caregiver tells the client and CarePro they cannot attend a day. Informational only — no money moves.</summary>
+        [HttpPost("{id}/absence-notices")]
+        public async Task<IActionResult> CreateAbsenceNotice(string id, [FromBody] CreateVisitAbsenceRequest request)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                return StatusCode(201, await _visitAbsenceService.CreateAsync(id, request, caregiverId));
+            }
+            catch (Exception ex) { return HandleException(ex, "CreateAbsenceNotice"); }
+        }
+
+        /// <summary>Withdraw a notice before the day and before staff arranged cover/credit. A repeat withdrawal is a 409.</summary>
+        [HttpPost("{id}/absence-notices/{noticeId}/withdraw")]
+        public async Task<IActionResult> WithdrawAbsenceNotice(string id, string noticeId)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try { return Ok(await _visitAbsenceService.WithdrawAsync(id, noticeId, caregiverId)); }
+            catch (Exception ex) { return HandleException(ex, "WithdrawAbsenceNotice"); }
+        }
+
+        [HttpGet("{id}/absence-notices")]
+        public async Task<IActionResult> GetAbsenceNotices(string id)
+        {
+            var caregiverId = CurrentCaregiverId();
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { message = "Caregiver identity not found in token." });
+            try
+            {
+                var rows = await _visitAbsenceService.GetForAssignmentAsync(id, caregiverId);
+                return Ok(new { success = true, data = rows, count = rows.Count });
+            }
+            catch (Exception ex) { return HandleException(ex, "GetAbsenceNotices"); }
         }
 
         [HttpPost("{id}/accept")]

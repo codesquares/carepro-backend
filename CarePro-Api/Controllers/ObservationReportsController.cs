@@ -64,7 +64,7 @@ namespace CarePro_Api.Controllers
         /// </summary>
         [HttpGet]
         [Authorize(Roles = "Caregiver, Client, Admin, SuperAdmin")]
-        public async Task<IActionResult> GetByOrder([FromQuery] string orderId, [FromQuery] string? taskSheetId)
+        public async Task<IActionResult> GetByOrder([FromQuery] string? orderId, [FromQuery] string? assignmentId, [FromQuery] string? packageRequestId, [FromQuery] string? taskSheetId)
         {
             try
             {
@@ -75,8 +75,17 @@ namespace CarePro_Api.Controllers
                 if (string.IsNullOrEmpty(userId) && !isAdmin)
                     return Unauthorized(new { error = "Authorization required." });
 
-                var result = await _observationReportService.GetByOrderAsync(orderId, taskSheetId, userId ?? "", isAdmin, isClient);
-                return Ok(result);
+                // Exactly one scope: the legacy order, a package assignment, or (client only) a package request.
+                if (!string.IsNullOrEmpty(orderId))
+                    return Ok(await _observationReportService.GetByOrderAsync(orderId, taskSheetId, userId ?? "", isAdmin, isClient));
+                if (!string.IsNullOrEmpty(assignmentId))
+                    return Ok(await _observationReportService.GetByAssignmentAsync(assignmentId, taskSheetId, userId ?? "", isAdmin, isClient));
+                if (!string.IsNullOrEmpty(packageRequestId))
+                {
+                    if (!isClient) return StatusCode(403, new { error = "Only the owning client can list reports by package request." });
+                    return Ok(await _observationReportService.GetByPackageRequestAsClientAsync(packageRequestId, taskSheetId, userId ?? ""));
+                }
+                return BadRequest(new { error = "orderId, assignmentId or packageRequestId is required." });
             }
             catch (UnauthorizedAccessException ex)
             {

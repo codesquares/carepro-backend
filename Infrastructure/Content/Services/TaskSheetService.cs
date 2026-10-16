@@ -253,6 +253,8 @@ namespace Infrastructure.Content.Services
                     c.PackageRequestId == assignment.PackageRequestId && c.Status == ContractStatus.Generated)
                 ?? throw new KeyNotFoundException("No active contract found for this package assignment.");
 
+            CancellationWindowGuard.EnsureCareMayBegin(contract, DateTime.UtcNow);
+
             var nigerianTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Lagos");
             var todayNigeria = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, nigerianTimeZone).Date;
 
@@ -509,6 +511,9 @@ namespace Infrastructure.Content.Services
                     .FirstOrDefaultAsync(a => a.Id.ToString() == taskSheet.AssignmentId)
                     ?? throw new KeyNotFoundException($"Assignment '{taskSheet.AssignmentId}' not found.");
                 notifyClientId = assignment.ClientId;
+
+                var pkgContract = await _dbContext.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == assignment.PackageRequestId);
+                if (pkgContract != null) CancellationWindowGuard.EnsureCareMayBegin(pkgContract, DateTime.UtcNow);
             }
             else
             {

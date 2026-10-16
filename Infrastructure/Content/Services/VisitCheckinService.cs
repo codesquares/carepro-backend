@@ -10,6 +10,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using MongoDB.Bson;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
@@ -22,6 +24,7 @@ namespace Infrastructure.Content.Services
         private readonly IHostEnvironment _environment;
         private readonly IMediator _mediator;
         private readonly ILogger<VisitCheckinService> _logger;
+        private readonly IOpsAlertService? _opsAlerts;
 
         public VisitCheckinService(
             CareProDbContext dbContext,
@@ -29,8 +32,10 @@ namespace Infrastructure.Content.Services
             IConfiguration configuration,
             IHostEnvironment environment,
             IMediator mediator,
-            ILogger<VisitCheckinService> logger)
+            ILogger<VisitCheckinService> logger,
+            IOpsAlertService? opsAlerts = null)
         {
+            _opsAlerts = opsAlerts;
             _dbContext = dbContext;
             _geocodingService = geocodingService;
             _configuration = configuration;
@@ -94,6 +99,12 @@ namespace Infrastructure.Content.Services
 
                 if (assignment.Status != AssignmentStatuses.Accepted)
                     throw new InvalidOperationException("This assignment has not been accepted yet.");
+
+                // Care can't begin while the client's cancellation window is open (or after a cancel). Checked HERE —
+                // before auto-activation, the schedule guard and any GPS/proximity work — so a blocked caregiver gets
+                // the window message rather than a location error, and nothing is mutated.
+                var windowContract = await _dbContext.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == assignment.PackageRequestId);
+                if (windowContract != null) CancellationWindowGuard.EnsureCareMayBegin(windowContract, DateTime.UtcNow);
 
                 notifyClientId = assignment.ClientId;
             }
@@ -162,6 +173,7 @@ namespace Infrastructure.Content.Services
                 approvedContract = await _dbContext.Contracts.FirstOrDefaultAsync(c =>
                         c.PackageRequestId == assignment.PackageRequestId && c.Status == ContractStatus.Generated)
                     ?? throw CheckinValidationException.NoApprovedContract("No active contract found for this package assignment.");
+                CancellationWindowGuard.EnsureCareMayBegin(approvedContract, DateTime.UtcNow);
             }
             else
             {
@@ -181,14 +193,23 @@ namespace Infrastructure.Content.Services
             // ValidateProximityForPackageAsync for why.
             double? distanceMeters;
             bool isFlaggedForDistanceReview = false;
+            List<string>? flagReasons = null;
             if (order != null)
             {
                 distanceMeters = await ValidateProximity(request.Latitude, request.Longitude, order, caregiverId);
             }
             else
             {
-                (distanceMeters, isFlaggedForDistanceReview) = await ValidateProximityForPackageAsync(
+                // Package visits: measure, record and flag — NEVER block. A check-in carries a list of reasons;
+                // IsFlaggedForDistanceReview stays true whenever any HARD reason is present (existing consumers).
+                var (dist, locationState) = await ResolvePackageProximityAsync(
                     request.Latitude, request.Longitude, approvedContract, caregiverId);
+                distanceMeters = dist;
+                flagReasons = CheckinFlagEvaluator.Evaluate(dist, request.Accuracy, locationState, FlagThresholds());
+                isFlaggedForDistanceReview = CheckinFlagReasons.HasHard(flagReasons);
+                if (flagReasons.Count > 0)
+                    _logger.LogWarning("Check-in flag reasons [{Reasons}] for caregiver {CaregiverId}, package request {PackageRequestId} (distance {Distance}m, accuracy {Accuracy}m, location {State}). Recorded, not blocked.",
+                        string.Join(",", flagReasons), caregiverId, approvedContract.PackageRequestId, dist?.ToString("F0") ?? "n/a", request.Accuracy, locationState);
             }
 
             var thresholdSeconds = _configuration.GetValue<int>("VisitCheckin:TimestampDiscrepancyThresholdSeconds", 300);
@@ -222,11 +243,18 @@ namespace Infrastructure.Content.Services
                 IsLateCheckin = isLateCheckin,
                 MinutesLate = minutesLate,
                 IsFlaggedForDistanceReview = isFlaggedForDistanceReview,
+                FlagReasons = flagReasons,
                 CreatedAt = DateTime.UtcNow
             };
 
             await _dbContext.VisitCheckins.AddAsync(checkin);
             await _dbContext.SaveChangesAsync();
+
+            if (assignment != null)
+            {
+                await NudgeClientToConfirmLocationOnceAsync(approvedContract, flagReasons, caregiverId);
+                await NotifyAdminsOfHardFlagAsync(checkin, taskSheet, flagReasons);
+            }
 
             _logger.LogInformation("Caregiver {CaregiverId} checked in for TaskSheet {TaskSheetId}. Distance: {Distance}m",
                 caregiverId, request.TaskSheetId, distanceMeters?.ToString("F0") ?? "unknown");
@@ -268,7 +296,8 @@ namespace Infrastructure.Content.Services
                 IsLateCheckin = isLateCheckin,
                 MinutesLate = minutesLate,
                 HasTimestampDiscrepancy = hasTimestampDiscrepancy,
-                IsFlaggedForDistanceReview = isFlaggedForDistanceReview
+                IsFlaggedForDistanceReview = isFlaggedForDistanceReview,
+                FlagReasons = flagReasons ?? new List<string>()
             };
         }
 
@@ -294,7 +323,8 @@ namespace Infrastructure.Content.Services
                 TimestampDiscrepancySeconds = checkin.TimestampDiscrepancySeconds,
                 IsLateCheckin = checkin.IsLateCheckin,
                 MinutesLate = checkin.MinutesLate,
-                IsFlaggedForDistanceReview = checkin.IsFlaggedForDistanceReview ?? false
+                IsFlaggedForDistanceReview = checkin.IsFlaggedForDistanceReview ?? false,
+                FlagReasons = checkin.FlagReasons ?? new List<string>()
             };
         }
 
@@ -523,6 +553,111 @@ namespace Infrastructure.Content.Services
             return Math.Round(distanceMeters, 1);
         }
 
+        private CheckinFlagThresholds FlagThresholds() => new(
+            _configuration.GetValue<int>("VisitCheckin:PackageFlagDistanceMeters", 3000),
+            _configuration.GetValue<int>("VisitCheckin:PackageGeocodedFlagDistanceMeters", 10000),
+            _configuration.GetValue<int>("VisitCheckin:LowAccuracyFlagMeters", 1500));
+
+        /// <summary>
+        /// Package-flow proximity: works out where the service location is (client-confirmed GPS, geocoded address, or
+        /// nothing) and the distance to it. Never blocks. Deciding what to flag is <see cref="CheckinFlagEvaluator"/>'s job.
+        /// </summary>
+        private async Task<(double? distanceMeters, ServiceLocationState state)> ResolvePackageProximityAsync(double caregiverLat, double caregiverLng, Contract contract, string caregiverId)
+        {
+            double? serviceLat = null;
+            double? serviceLng = null;
+            var state = ServiceLocationState.None;
+
+            if (contract.ServiceLatitude.HasValue && contract.ServiceLongitude.HasValue)
+            {
+                serviceLat = contract.ServiceLatitude;
+                serviceLng = contract.ServiceLongitude;
+                state = contract.ServiceLocationSetByClient == true ? ServiceLocationState.ClientConfirmed : ServiceLocationState.GeocodedOnly;
+            }
+            else if (!string.IsNullOrEmpty(contract.ServiceAddress))
+            {
+                try
+                {
+                    var geocoded = await _geocodingService.GeocodeAsync(contract.ServiceAddress);
+                    serviceLat = geocoded.Latitude;
+                    serviceLng = geocoded.Longitude;
+                    state = ServiceLocationState.GeocodedOnly;
+
+                    contract.ServiceLatitude = serviceLat;
+                    contract.ServiceLongitude = serviceLng;
+                    contract.ServiceLocationSetByClient = false;
+                    _dbContext.Contracts.Update(contract);
+                    await _dbContext.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to geocode contract service address for package assignment (PackageRequestId {PackageRequestId})",
+                        contract.PackageRequestId);
+                }
+            }
+
+            if (!serviceLat.HasValue || !serviceLng.HasValue)
+                return (null, ServiceLocationState.None);
+
+            var meters = CalculateHaversineDistance(caregiverLat, caregiverLng, serviceLat.Value, serviceLng.Value) * 1000;
+            return (Math.Round(meters, 1), state);
+        }
+
+        /// <summary>
+        /// Once per contract (not per visit): if the first check-ins happen without a client-confirmed location, send the
+        /// existing "confirm your service location" nudge. Confirmation is never a condition for care.
+        /// </summary>
+        private async Task NudgeClientToConfirmLocationOnceAsync(Contract contract, List<string>? reasons, string caregiverId)
+        {
+            if (reasons == null || contract.ServiceLocationSetByClient == true || contract.LocationNudgeSentAt != null) return;
+            if (!reasons.Contains(CheckinFlagReasons.LocationNotConfirmed) && !reasons.Contains(CheckinFlagReasons.LocationGeocodedOnly)) return;
+            if (string.IsNullOrEmpty(contract.ClientId)) return;
+            try
+            {
+                contract.LocationNudgeSentAt = DateTime.UtcNow;
+                _dbContext.Contracts.Update(contract);
+                await _dbContext.SaveChangesAsync();   // mark first so a retry/second visit can't send it twice
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: contract.ClientId,
+                    SenderId: caregiverId,
+                    Type: NotificationTypes.ServiceLocationNotSet,
+                    Content: "Your caregiver has checked in. To let us verify visits against your address, please confirm your precise service location in the app.",
+                    Title: "Action Needed: Confirm Your Service Location",
+                    RelatedEntityId: contract.PackageRequestId ?? contract.Id));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send service-location nudge for contract {ContractId}", contract.Id);
+            }
+        }
+
+        /// <summary>
+        /// One in-app notification (to Approved admins, via the shared helper) when a HARD flag is recorded. Soft reasons never notify.
+        /// Called only from check-in creation, and guarded by <c>AdminNotifiedAt</c>, so repeated saves can't notify twice.
+        /// </summary>
+        private async Task NotifyAdminsOfHardFlagAsync(VisitCheckin checkin, TaskSheet taskSheet, List<string>? reasons)
+        {
+            if (_opsAlerts == null || !CheckinFlagReasons.HasHard(reasons) || checkin.AdminNotifiedAt != null) return;
+            try
+            {
+                checkin.AdminNotifiedAt = DateTime.UtcNow;
+                _dbContext.VisitCheckins.Update(checkin);
+                await _dbContext.SaveChangesAsync();
+                await _opsAlerts.NotifyAdminsAsync(
+                    NotificationTypes.PackageVisitFlagged,
+                    "Check-in flagged for review",
+                    $"Visit #{taskSheet.SheetNumber} check-in was flagged ({string.Join(", ", reasons!.Where(CheckinFlagReasons.IsHard))}): " +
+                    $"{(checkin.DistanceFromServiceAddress.HasValue ? $"{checkin.DistanceFromServiceAddress.Value:F0} m from the service location" : "no distance")}, " +
+                    $"GPS accuracy {checkin.Accuracy:F0} m. The check-in was recorded, not blocked.",
+                    checkin.Id.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to notify admins about flagged check-in {CheckinId}", checkin.Id);
+            }
+        }
+
+        /* RETIRED — replaced by ResolvePackageProximityAsync + CheckinFlagEvaluator (flag reasons). Preserved for reference.
         /// <summary>
         /// Package-assignment equivalent of <see cref="ValidateProximity"/> (Phase 9.5) —
         /// same GPS-verification logic, sourced from the Contract already fetched by the
@@ -636,6 +771,8 @@ namespace Infrastructure.Content.Services
 
             return (Math.Round(distanceMeters, 1), isFlaggedForReview);
         }
+
+        */
 
         private static double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
         {

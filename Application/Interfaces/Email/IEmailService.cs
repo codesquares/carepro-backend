@@ -21,6 +21,9 @@ namespace Application.Interfaces.Email
         // Pass gateUserId/gateNotificationType together to actually enforce ShouldSendEmailToUserAsync
         // before sending; omit them (as most callers already correctly gated upstream do) to keep the
         // existing header-only behavior.
+        /// <summary>Operational (Always-Send) vetting enforcement notice: complete HTML + plain-text bodies, no unsubscribe header, no marketing.</summary>
+        Task SendVettingNoticeEmailAsync(string toEmail, string subject, string htmlBody, string textBody);
+
         Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content,
             bool includeUnsubscribeHeader = false, string? gateUserId = null, string? gateNotificationType = null);
         
@@ -52,7 +55,7 @@ namespace Application.Interfaces.Email
             ContractDetails? contractDetails, EmailType reminderLevel);
 
         // Contract PDF email
-        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes);
+        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null);
 
         // Payment receipt PDF email
         Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes);

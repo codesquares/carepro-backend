@@ -78,9 +78,10 @@ namespace Infrastructure.Content.Services
                 // ── Alert all SuperAdmin users about this repeat offender (real-time via SignalR) ──
                 try
                 {
-                    var superAdmins = await _dbContext.AdminUsers
-                        .Where(a => !a.IsDeleted && a.Role == "SuperAdmin")
-                        .ToListAsync();
+                    // var superAdmins = await _dbContext.AdminUsers
+                    //     .Where(a => !a.IsDeleted && a.Role == "SuperAdmin")
+                    //     .ToListAsync();   // bypassed the Approved-admin rule
+                    var superAdmins = await AdminRecipients.GetApprovedAsync(_dbContext, a => a.Role == "SuperAdmin");
 
                     var alertContent = $"User {senderId} was blocked from sending a message ({recentViolationCount + 1} violations in {ViolationWindowDays} days). Detected: {string.Join(", ", patternDescriptions)}";
 

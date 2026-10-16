@@ -29,7 +29,7 @@ namespace Infrastructure.Content.Services
                     {
                         col.Item().AlignCenter().Text("CAREPRO CARE SERVICE AGREEMENT")
                             .Bold().FontSize(16).FontColor(Colors.Blue.Darken2);
-                        col.Item().AlignCenter().Text("Facilitated through the CarePro Platform")
+                        col.Item().AlignCenter().Text(Application.Content.ContractWording.Subtitle)
                             .FontSize(9).FontColor(Colors.Grey.Darken1);
                         col.Item().PaddingTop(6).LineHorizontal(1).LineColor(Colors.Blue.Darken2);
                     });
@@ -52,12 +52,13 @@ namespace Infrastructure.Content.Services
                             meta.Item().Text(t =>
                             {
                                 t.Span("Date: ").Bold();
-                                t.Span(data.GeneratedAt.ToString("dddd, MMMM dd, yyyy 'at' HH:mm") + " UTC");
+                                t.Span(Application.Content.LagosTime.Format(data.GeneratedAt));
                             });
                         });
 
                         // Section 1: Parties
                         SectionHeader(col, "Section 1: Parties to This Agreement");
+                        col.Item().Text(Application.Content.ContractWording.PartiesIntro).FontSize(10);
                         col.Item().Table(table =>
                         {
                             table.ColumnsDefinition(columns =>
@@ -68,8 +69,8 @@ namespace Infrastructure.Content.Services
                             });
 
                             HeaderCell(table, "");
-                            HeaderCell(table, "Client (Care Recipient)");
-                            HeaderCell(table, "Caregiver (Service Provider)");
+                            HeaderCell(table, Application.Content.ContractWording.ClientColumnHeading);
+                            HeaderCell(table, Application.Content.ContractWording.CaregiverColumnHeading);
 
                             BodyCell(table, "Full Name", true);
                             BodyCell(table, data.ClientFullName);
@@ -92,11 +93,9 @@ namespace Infrastructure.Content.Services
                         });
 
                         // Section 2: Platform Relationship
-                        SectionHeader(col, "Section 2: Platform Relationship");
-                        col.Item().Text("CarePro is a technology platform that connects clients seeking care services with independent caregivers. " +
-                            "Caregivers are independent contractors and market participants offering their services on the CarePro platform. " +
-                            "CarePro does not employ caregivers and is not a party to the care relationship between client and caregiver. " +
-                            "CarePro facilitates the matching, payment processing, and contract management only.").FontSize(10);
+                        // Wording comes from the single shared source (Application.Content.ContractWording).
+                        SectionHeader(col, Application.Content.ContractWording.PlatformRelationshipHeading);
+                        col.Item().Text(Application.Content.ContractWording.PlatformRelationshipText).FontSize(10);
 
                         // Section 3: Service Details
                         SectionHeader(col, "Section 3: Service Details");
@@ -311,7 +310,7 @@ namespace Infrastructure.Content.Services
                         SectionHeader(col, "Section 11: Safety & Confidentiality");
                         col.Item().Text("11.1 Safety").Bold().FontSize(10);
                         BulletList(col,
-                            "The Caregiver has been verified through CarePro's onboarding and background check process.",
+                            Application.Content.ContractWording.CaregiverVettingClaim,
                             "Both parties must maintain a safe environment for care delivery.",
                             "Emergency situations should be handled by contacting emergency services first, then reporting through CarePro.");
 
@@ -340,12 +339,19 @@ namespace Infrastructure.Content.Services
                         // Section 13: Limitation of Liability
                         SectionHeader(col, "Section 13: Limitation of Liability");
                         BulletList(col,
-                            "CarePro operates as a marketplace platform and is not liable for the actions or omissions of either party.",
-                            "The Caregiver operates as an independent contractor and is solely responsible for the quality of care provided.");
+                            Application.Content.ContractWording.LiabilityLine1,
+                            Application.Content.ContractWording.LiabilityLine2);
 
                         // Section 14: Acknowledgment
                         SectionHeader(col, "Section 14: Acknowledgment");
-                        col.Item().Text("Both parties acknowledge they have read, understood, and agree to all terms of this Care Service Agreement.");
+                        col.Item().Text(Application.Content.ContractWording.AcknowledgmentText);
+                        if (data.CancellationWindowHours > 0 && data.ContractSentAt.HasValue)
+                        {
+                            col.Item().PaddingTop(4).Text(Application.Content.ContractWording.CancellationHeading).Bold().FontSize(10);
+                            col.Item().Text(Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value));
+                            if (data.CancellationWindowEndsAt.HasValue)
+                                col.Item().Text(Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value));
+                        }
 
                         // Signature block
                         col.Item().PaddingTop(30).Row(row =>
@@ -358,7 +364,7 @@ namespace Infrastructure.Content.Services
                                     t.Span("Client: ").Bold();
                                     t.Span(data.ClientFullName);
                                 });
-                                sig.Item().Text($"Date: {data.GeneratedAt:MMMM dd, yyyy}").FontSize(9);
+                                sig.Item().Text($"Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}").FontSize(9);
                             });
 
                             row.ConstantItem(40); // spacer
@@ -368,10 +374,10 @@ namespace Infrastructure.Content.Services
                                 sig.Item().LineHorizontal(0.5f);
                                 sig.Item().PaddingTop(2).Text(t =>
                                 {
-                                    t.Span("Caregiver: ").Bold();
+                                    t.Span(Application.Content.ContractWording.CaregiverSignatureLabel + ": ").Bold();
                                     t.Span(data.CaregiverFullName);
                                 });
-                                sig.Item().Text($"Date: {data.GeneratedAt:MMMM dd, yyyy}").FontSize(9);
+                                sig.Item().Text($"Date: {Application.Content.LagosTime.FromUtc(data.GeneratedAt):MMMM dd, yyyy}").FontSize(9);
                             });
                         });
                     });

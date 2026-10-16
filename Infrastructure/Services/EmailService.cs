@@ -742,7 +742,14 @@ namespace Infrastructure.Services
             await SendEmailAsync(emailMessage);
         }
 
-        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes)
+        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
+        {
+            var emailMessage = BuildContractPdfEmailMessage(toEmail, firstName, contractId, gigTitle, pdfBytes, acknowledgementText);
+            await SendEmailAsync(emailMessage);
+        }
+
+        /// <summary>Builds (does not send) the contract email — separated so the exact rendered body can be inspected/tested.</summary>
+        public MimeMessage BuildContractPdfEmailMessage(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
         {
             var emailMessage = new MimeMessage();
             emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
@@ -761,6 +768,7 @@ namespace Infrastructure.Services
                             <p><strong>Service:</strong> {gigTitle}</p>
                             <p><strong>Contract ID:</strong> {contractId}</p>
                         </div>
+                        {(string.IsNullOrWhiteSpace(acknowledgementText) ? "" : $"<div style='background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f59e0b;'><p><strong>{Application.Content.ContractWording.CancellationHeading}</strong></p>{string.Concat(acknowledgementText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => $"<p>{System.Net.WebUtility.HtmlEncode(l)}</p>"))}</div>")}
                         <p>You can also view and download the contract anytime from your CarePro dashboard.</p>
                         <p>Thanks,<br />The CarePro Team</p>
                     </div>"
@@ -769,7 +777,7 @@ namespace Infrastructure.Services
             builder.Attachments.Add($"CarePro-Contract-{contractId}.pdf", pdfBytes, new MimeKit.ContentType("application", "pdf"));
 
             emailMessage.Body = builder.ToMessageBody();
-            await SendEmailAsync(emailMessage);
+            return emailMessage;
         }
 
         public async Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes)
@@ -1010,9 +1018,31 @@ Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/prom
             await SendEmailAsync(message);
         }
 
+        public async Task SendVettingNoticeEmailAsync(string toEmail, string subject, string htmlBody, string textBody)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+            message.Body = new BodyBuilder { HtmlBody = htmlBody, TextBody = textBody }.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Centralized SMTP send with full logging
         private async Task SendEmailAsync(MimeMessage message)
         {
+            // Mail sink (local/test only): write the message to disk and never touch SMTP.
+            var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+            if (!string.IsNullOrWhiteSpace(emailSettings.SinkDirectory)
+                && !env.Equals("Production", StringComparison.OrdinalIgnoreCase) && !env.Equals("Staging", StringComparison.OrdinalIgnoreCase))
+            {
+                System.IO.Directory.CreateDirectory(emailSettings.SinkDirectory);
+                var file = System.IO.Path.Combine(emailSettings.SinkDirectory, $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.eml");
+                using (var fs = System.IO.File.Create(file)) message.WriteTo(fs);
+                _logger.LogInformation("Mail sink: message written to the sink directory (not sent).");
+                return;
+            }
+
             var to = message.To.ToString();
             var subject = message.Subject;
             var smtpUsername = string.IsNullOrEmpty(emailSettings.SmtpUsername) ? emailSettings.FromEmail : emailSettings.SmtpUsername;

@@ -1,3 +1,4 @@
+using Domain.Entities;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
@@ -128,6 +129,10 @@ namespace CarePro_Api.Controllers
             {
                 return StatusCode(403, new { error = ex.Message });
             }
+            catch (CancellationWindowOpenException ex)
+            {
+                return Conflict(new { error = ex.Message, errorCode = ex.ErrorCode, windowEndsAt = ex.WindowEndsAt });
+            }
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new { error = ex.Message });
@@ -166,6 +171,10 @@ namespace CarePro_Api.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return StatusCode(403, new { error = ex.Message });
+            }
+            catch (CancellationWindowOpenException ex)
+            {
+                return Conflict(new { error = ex.Message, errorCode = ex.ErrorCode, windowEndsAt = ex.WindowEndsAt });
             }
             catch (InvalidOperationException ex)
             {
@@ -207,6 +216,10 @@ namespace CarePro_Api.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return StatusCode(403, new { error = ex.Message });
+            }
+            catch (CancellationWindowOpenException ex)
+            {
+                return Conflict(new { error = ex.Message, errorCode = ex.ErrorCode, windowEndsAt = ex.WindowEndsAt });
             }
             catch (InvalidOperationException ex)
             {

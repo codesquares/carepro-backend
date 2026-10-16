@@ -95,6 +95,12 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<Contract>().ToCollection("Contracts");
             modelBuilder.Entity<Contract>().HasKey(c => c.Id);
             modelBuilder.Entity<Contract>().Property(c => c.Id).HasElementName("_id");
+            // Optimistic-concurrency tokens for the cancellation-window outcome: cancel, the sweeper (agreement by
+            // non-cancellation) and the client "I agree" tick all update these. A save whose originally-read value no
+            // longer matches the stored document fails with DbUpdateConcurrencyException instead of overwriting.
+            modelBuilder.Entity<Contract>().Property(c => c.CancelledAt).IsConcurrencyToken();
+            modelBuilder.Entity<Contract>().Property(c => c.AcceptedByNonCancellationAt).IsConcurrencyToken();
+            modelBuilder.Entity<Contract>().Property(c => c.ClientAgreedAt).IsConcurrencyToken();
             modelBuilder.Entity<TrainingMaterial>().ToCollection("TrainingMaterials");
             modelBuilder.Entity<TrainingMaterial>().HasKey(tm => tm.Id);
             modelBuilder.Entity<TrainingMaterial>().Property(tm => tm.Id).HasElementName("_id");
@@ -106,10 +112,16 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<PackageRequest>().ToCollection("PackageRequests");
             modelBuilder.Entity<PackageRequest>().HasKey(pr => pr.Id);
             modelBuilder.Entity<PackageRequest>().Property(pr => pr.Id).HasElementName("_id");
+            // Race guard (same pattern as PoliceClearance.Status): a write whose expected Status no longer matches the stored
+            // document fails with DbUpdateConcurrencyException instead of overwriting — one winner for assign/accept/decline/cancel.
+            modelBuilder.Entity<PackageRequest>().Property(pr => pr.Status).IsConcurrencyToken();
 
             modelBuilder.Entity<Assignment>().ToCollection("Assignments");
             modelBuilder.Entity<Assignment>().HasKey(a => a.Id);
             modelBuilder.Entity<Assignment>().Property(a => a.Id).HasElementName("_id");
+            modelBuilder.Entity<Assignment>().Property(a => a.Status).IsConcurrencyToken();
+            modelBuilder.Entity<Assignment>().Property(a => a.DownstreamDoneAt).IsConcurrencyToken();   // atomic claim of the follow-on notifications
+            modelBuilder.Entity<Assignment>().Property(a => a.RecoveryAlertedAt).IsConcurrencyToken();   // alert admins at most once   // see PackageRequest.Status above
             modelBuilder.Entity<EmailNotificationLog>().ToCollection("EmailNotificationLogs");
             modelBuilder.Entity<EmailNotificationLog>().HasKey(enl => enl.Id);
             modelBuilder.Entity<EmailNotificationLog>().Property(enl => enl.Id).HasElementName("_id");
@@ -196,6 +208,16 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<ObservationReport>().HasKey(or => or.Id);
             modelBuilder.Entity<ObservationReport>().Property(or => or.Id).HasElementName("_id");
 
+            modelBuilder.Entity<VisitAbsenceNotice>().ToCollection("VisitAbsenceNotices");
+            modelBuilder.Entity<VisitAbsenceNotice>().HasKey(n => n.Id);
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.Id).HasElementName("_id");
+            // A caregiver withdrawal and a staff status change must not both win; and the 24h re-alert is claimed once.
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.Status).IsConcurrencyToken();
+            modelBuilder.Entity<VisitAbsenceNotice>().Property(n => n.EscalatedAt).IsConcurrencyToken();
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().ToCollection("VisitAbsenceNoticeEvents");
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().HasKey(e => e.Id);
+            modelBuilder.Entity<VisitAbsenceNoticeEvent>().Property(e => e.Id).HasElementName("_id");
+
             modelBuilder.Entity<IncidentReport>().ToCollection("IncidentReports");
             modelBuilder.Entity<IncidentReport>().HasKey(ir => ir.Id);
             modelBuilder.Entity<IncidentReport>().Property(ir => ir.Id).HasElementName("_id");
@@ -224,6 +246,22 @@ namespace Infrastructure.Content.Data
             modelBuilder.Entity<GigTemplateCategory>().ToCollection("GigTemplateCategories");
             modelBuilder.Entity<GigTemplateCategory>().HasKey(gt => gt.Id);
             modelBuilder.Entity<GigTemplateCategory>().Property(gt => gt.Id).HasElementName("_id");
+
+            modelBuilder.Entity<PoliceClearance>().ToCollection("PoliceClearances");
+            modelBuilder.Entity<PoliceClearance>().HasKey(pc => pc.Id);
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Id).HasElementName("_id");
+            // Review race guard (same pattern as Contract): two staff reviewing the same record both read
+            // Status=pending; the second SaveChanges no longer matches the stored value and throws
+            // DbUpdateConcurrencyException instead of overwriting the first decision.
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Status).IsConcurrencyToken();
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.ReviewedAt).IsConcurrencyToken();
+            // Superseded is a token too, so two simultaneous resubmissions cannot both supersede the same record.
+            modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Superseded).IsConcurrencyToken();
+
+            modelBuilder.Entity<VettingNotice>().ToCollection("VettingNotices");
+            modelBuilder.Entity<VettingNotice>().HasKey(n => n.Id);
+            modelBuilder.Entity<VettingNotice>().Property(n => n.Id).HasElementName("_id");
+            modelBuilder.Entity<VettingNotice>().Property(n => n.Result).IsConcurrencyToken();
 
             modelBuilder.Entity<AdminAuditLog>().ToCollection("AdminAuditLogs");
             modelBuilder.Entity<AdminAuditLog>().HasKey(a => a.Id);
@@ -319,6 +357,8 @@ namespace Infrastructure.Content.Data
         public DbSet<VisitCheckin> VisitCheckins { get; set; }
         public DbSet<ObservationReport> ObservationReports { get; set; }
         public DbSet<IncidentReport> IncidentReports { get; set; }
+        public DbSet<VisitAbsenceNotice> VisitAbsenceNotices { get; set; }
+        public DbSet<VisitAbsenceNoticeEvent> VisitAbsenceNoticeEvents { get; set; }
         public DbSet<Dispute> Disputes { get; set; }
         public DbSet<ChatViolation> ChatViolations { get; set; }
         public DbSet<ClientWallet> ClientWallets { get; set; }
@@ -330,6 +370,8 @@ namespace Infrastructure.Content.Data
         public DbSet<CaregiverQualification> CaregiverQualifications { get; set; }
         public DbSet<CaregiverWorkExperience> CaregiverWorkExperiences { get; set; }
         public DbSet<Guarantor> Guarantors { get; set; }
+        public DbSet<VettingNotice> VettingNotices { get; set; }
+        public DbSet<PoliceClearance> PoliceClearances { get; set; }
         public DbSet<CaregiverAddressHistory> CaregiverAddressHistories { get; set; }
         public DbSet<CaregiverSocialMediaHandle> CaregiverSocialMediaHandles { get; set; }
         public DbSet<Package> Packages { get; set; }

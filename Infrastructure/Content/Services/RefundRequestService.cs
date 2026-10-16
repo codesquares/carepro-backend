@@ -87,9 +87,11 @@ namespace Infrastructure.Content.Services
             // ── Alert Finance/SuperAdmin admins about the new refund request ──
             try
             {
-                var financeAdmins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
-                    .ToListAsync();
+                // var financeAdmins = await _dbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var financeAdmins = await AdminRecipients.GetApprovedAsync(_dbContext,
+                    a => a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance);
 
                 foreach (var admin in financeAdmins)
                 {

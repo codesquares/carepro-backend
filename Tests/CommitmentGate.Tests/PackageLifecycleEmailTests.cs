@@ -268,9 +268,9 @@ public class PackageLifecycleEmailTests
             false, null, null), Times.Once);
         // …alongside the contract PDF, to both parties, with real PDF bytes
         rig.Email.Verify(e => e.SendContractPdfEmailAsync(cg.Email, "Ngozi", It.IsAny<string>(), It.IsAny<string>(),
-            It.Is<byte[]>(b => b.Length > 1000)), Times.Once);
+            It.Is<byte[]>(b => b.Length > 1000), It.IsAny<string?>()), Times.Once);
         rig.Email.Verify(e => e.SendContractPdfEmailAsync(client.Email, "Amara", It.IsAny<string>(), It.IsAny<string>(),
-            It.Is<byte[]>(b => b.Length > 1000)), Times.Once);
+            It.Is<byte[]>(b => b.Length > 1000), It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
@@ -304,7 +304,7 @@ public class PackageLifecycleEmailTests
         var client = SeedClient(db); var pkg = SeedPackage(db); var cg = SeedCaregiver(db); var admin = SeedAdmin(db);
         await db.SaveChangesAsync();
         var rig = NewRig(db);
-        rig.Email.Setup(e => e.SendContractPdfEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>()))
+        rig.Email.Setup(e => e.SendContractPdfEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<string?>()))
             .ThrowsAsync(new InvalidOperationException("smtp down"));
         var contracts = new PackageContractService(db, new ContractTemplateService(), new ContractPdfService(),
             rig.Mediator.Object, rig.Email.Object, rig.Ops, Mock.Of<ILogger<PackageContractService>>());

@@ -905,14 +905,20 @@ namespace Infrastructure.Content.Services
                 var content = $"{clientName} has raised a {dispute.Category.Replace("_", " ")} dispute on {disputeTarget} for {caseRef}. Reason: {dispute.Reason}";
 
                 // ── Notify SuperAdmin + HR/ComplianceAndLegal/CareLeads admins ──
-                var admins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted && (
-                        a.Role == "SuperAdmin" ||
-                        (a.Role == "Admin" && (
-                            a.Department == AdminDepartments.HR ||
-                            a.Department == AdminDepartments.ComplianceAndLegal ||
-                            a.Department == AdminDepartments.CareLeads))))
-                    .ToListAsync();
+                // var admins = await _dbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted && (
+                //         a.Role == "SuperAdmin" ||
+                //         (a.Role == "Admin" && (
+                //             a.Department == AdminDepartments.HR ||
+                //             a.Department == AdminDepartments.ComplianceAndLegal ||
+                //             a.Department == AdminDepartments.CareLeads))))
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var admins = await AdminRecipients.GetApprovedAsync(_dbContext, a =>
+                    a.Role == "SuperAdmin" ||
+                    (a.Role == "Admin" && (
+                        a.Department == AdminDepartments.HR ||
+                        a.Department == AdminDepartments.ComplianceAndLegal ||
+                        a.Department == AdminDepartments.CareLeads)));
 
                 var emailContent = $"<p><strong>Raised By:</strong> {clientName}</p>" +
                                    $"<p><strong>Dispute Type:</strong> {dispute.DisputeType}</p>" +

@@ -1,3 +1,4 @@
+using Domain.Entities;
 using Application.DTOs;
 using Application.Interfaces.Content;
 using Microsoft.AspNetCore.Authorization;
@@ -124,6 +125,11 @@ namespace CarePro_Api.Controllers
 
                 return Ok(new { success = true, message = "Payroll record approved and wallet credited", data = result });
             }
+            catch (UnclearedFlaggedVisitsException ex)
+            {
+                var visits = await _payrollService.GetUnclearedFlaggedVisitsAsync(id);
+                return Conflict(new { success = false, message = ex.Message, errorCode = UnclearedFlaggedVisitsException.Code, count = ex.Count, visits });
+            }
             catch (ArgumentException ex)
             {
                 return BadRequest(new { success = false, message = ex.Message });
@@ -140,6 +146,15 @@ namespace CarePro_Api.Controllers
             {
                 return StatusCode(500, new { success = false, message = "An error occurred while approving the payroll record", error = ex.Message });
             }
+        }
+
+        /// <summary>The uncleared HARD-flagged visits behind this payroll (for the review screen).</summary>
+        [HttpGet("{id}/flagged-visits")]
+        public async Task<IActionResult> GetFlaggedVisits(string id)
+        {
+            try { return Ok(new { success = true, data = await _payrollService.GetUnclearedFlaggedVisitsAsync(id) }); }
+            catch (ArgumentException ex) { return BadRequest(new { success = false, message = ex.Message }); }
+            catch (KeyNotFoundException ex) { return NotFound(new { success = false, message = ex.Message }); }
         }
 
         /// <summary>Marks an Approved payroll record Paid (reconciliation status only).</summary>

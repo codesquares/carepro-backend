@@ -30,6 +30,8 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly IOpsAlertService _opsAlerts;
         private readonly ILogger<PackageContractService> _logger;
+        private readonly int _cancellationWindowHours;
+        private readonly IGeocodingService? _geocoding;
 
         /// <summary>Nominal contract period when the package itself defines no fixed duration.</summary>
         private const int DefaultContractWeeks = 4;
@@ -41,8 +43,14 @@ namespace Infrastructure.Content.Services
             IMediator mediator,
             IEmailService emailService,
             IOpsAlertService opsAlerts,
-            ILogger<PackageContractService> logger)
+            ILogger<PackageContractService> logger,
+            Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+            IGeocodingService? geocoding = null)
         {
+            _geocoding = geocoding;
+            // Client cancellation window — configurable (PackageContract:CancellationWindowHours), default 48.
+            _cancellationWindowHours =
+                int.TryParse(configuration?["PackageContract:CancellationWindowHours"], out var configured) && configured >= 0 ? configured : 48; // 0 = no window
             _db = db;
             _templateService = templateService;
             _pdfService = pdfService;
@@ -84,11 +92,34 @@ namespace Infrastructure.Content.Services
             Caregiver? caregiver = ObjectId.TryParse(request.ConfirmedCaregiverId, out var cgOid)
                 ? await _db.CareGivers.FirstOrDefaultAsync(c => c.Id == cgOid) : null;
 
-            var start = (request.ConfirmedAt ?? DateTime.UtcNow).Date.AddDays(1);
+            // The cancellation window starts when the contract is sent (now). Care is blocked until it ends, so the
+            // contract start date is the LATER of (day after confirmation) and (the window-end date).
+            var sentAt = DateTime.UtcNow;
+            var windowEnd = sentAt.AddHours(_cancellationWindowHours);
+            var start = (request.ConfirmedAt ?? sentAt).Date.AddDays(1);
+            if (_cancellationWindowHours > 0 && windowEnd.Date > start) start = windowEnd.Date;
             var end = start.AddDays(DefaultContractWeeks * 7);
             var contractId = ObjectId.GenerateNewId().ToString();
 
             var data = BuildGenerationData(contractId, request, package, client, caregiver, start, end);
+
+            // Service address: the staff-entered full address from the accepted assignment wins over anything else
+            // (paid-flow requests usually have no Location at all). Geocoded now (best effort) so check-ins can be
+            // compared against it from the first visit; client confirmation of precise GPS is still encouraged.
+            var staffAddress = (await _db.Assignments.FirstOrDefaultAsync(a => a.PackageRequestId == packageRequestId && a.Status == AssignmentStatuses.Accepted))?.ServiceAddress;
+            var serviceAddress = !string.IsNullOrWhiteSpace(staffAddress) ? staffAddress : request.Location;
+            double? geoLat = null, geoLng = null;
+            if (!string.IsNullOrWhiteSpace(staffAddress)) data.ServiceAddress = staffAddress;
+            if (!string.IsNullOrWhiteSpace(serviceAddress) && _geocoding != null)
+            {
+                try { var g = await _geocoding.GeocodeAsync(serviceAddress); geoLat = g.Latitude; geoLng = g.Longitude; }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not geocode service address for package request {RequestId}; will retry at first check-in", packageRequestId); }
+            }
+
+            // Cancellation window starts when the contract is sent (now) and runs for the configured hours.
+            data.CancellationWindowHours = _cancellationWindowHours;
+            data.ContractSentAt = sentAt;
+            data.CancellationWindowEndsAt = windowEnd;
 
             // Reused, unmodified — renders CarePro's standard terms + the package details.
             var termsHtml = _templateService.RenderContract(data);
@@ -105,7 +136,10 @@ namespace Infrastructure.Content.Services
                 SelectedPackage = data.Package,
                 Tasks = new List<ClientTask>(),
                 Schedule = new List<ScheduledVisit>(),
-                ServiceAddress = request.Location,
+                ServiceAddress = serviceAddress,
+                ServiceLatitude = geoLat,
+                ServiceLongitude = geoLng,
+                ServiceLocationSetByClient = geoLat.HasValue ? false : null,
                 GeneratedTerms = termsHtml,
                 TotalAmount = package.BasePrice,
                 Status = ContractStatus.Generated,   // exists & active; no approval/negotiation step
@@ -113,6 +147,8 @@ namespace Infrastructure.Content.Services
                 SubmittedAt = request.ConfirmedAt ?? DateTime.UtcNow,
                 ContractStartDate = start,
                 ContractEndDate = end,
+                ContractSentAt = sentAt,
+                CancellationWindowEndsAt = windowEnd,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
             };
@@ -155,6 +191,17 @@ namespace Infrastructure.Content.Services
             var contract = await _db.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == packageRequestId);
             if (contract == null) return null;
 
+            // Lazily record agreement-by-non-cancellation if the window has passed (the background sweeper does the same).
+            if (FinalizeIfExpired(contract, DateTime.UtcNow))
+            {
+                try { await _db.SaveChangesAsync(); }
+                catch (DbUpdateConcurrencyException)
+                {
+                    _db.ChangeTracker.Clear(); // lost a race with a cancel / the sweeper — show what is stored
+                    contract = await _db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+                }
+            }
+
             PackageRequest? request = ObjectId.TryParse(packageRequestId, out var oid)
                 ? await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == oid) : null;
             return Map(contract, request, newlyGenerated: false);
@@ -181,6 +228,12 @@ namespace Infrastructure.Content.Services
                 contract.Id, request, package, client, caregiver,
                 contract.ContractStartDate, contract.ContractEndDate);
             data.GeneratedAt = contract.CreatedAt;
+            if (contract.ContractSentAt.HasValue && contract.CancellationWindowEndsAt.HasValue)
+            {
+                data.ContractSentAt = contract.ContractSentAt;
+                data.CancellationWindowEndsAt = contract.CancellationWindowEndsAt;
+                data.CancellationWindowHours = (int)Math.Round((contract.CancellationWindowEndsAt.Value - contract.ContractSentAt.Value).TotalHours);
+            }
 
             // Reused, unmodified.
             return _pdfService.GeneratePdf(data);
@@ -218,8 +271,13 @@ namespace Infrastructure.Content.Services
                 if (string.IsNullOrWhiteSpace(email)) continue;
                 try
                 {
+                    // The cancellation acknowledgement is addressed to the client only; the caregiver's copy omits the callout.
                     await _emailService.SendContractPdfEmailAsync(
-                        email, firstName ?? "there", contractId, agreementTitle, pdfBytes);
+                        email, firstName ?? "there", contractId, agreementTitle, pdfBytes,
+                        string.Equals(email, client?.Email, StringComparison.OrdinalIgnoreCase) && data.ContractSentAt.HasValue && data.CancellationWindowHours > 0
+                            ? Application.Content.ContractWording.CancellationAcknowledgement(data.CancellationWindowHours, data.ContractSentAt.Value)
+                              + (data.CancellationWindowEndsAt.HasValue ? "\n" + Application.Content.ContractWording.CancellationClosesLine(data.CancellationWindowEndsAt.Value) : "")
+                            : null);
                 }
                 catch (Exception ex)
                 {
@@ -227,6 +285,226 @@ namespace Infrastructure.Content.Services
                     await AlertContractDeliveryFailedAsync(contractId, agreementTitle, $"the agreement email to {email} failed");
                 }
             }
+        }
+
+        /// <summary>
+        /// Records agreement by non-cancellation once the window has ended with no cancellation. The stored
+        /// timestamp is the window END (deterministic), not "whenever we noticed". Returns true if it changed anything.
+        /// </summary>
+        private static bool FinalizeIfExpired(Contract c, DateTime now)
+        {
+            if (c.PackageRequestId == null || c.ContractSentAt == null || c.CancellationWindowEndsAt == null) return false;
+            if (c.CancelledAt != null || c.AcceptedByNonCancellationAt != null) return false;
+            if (now < c.CancellationWindowEndsAt.Value) return false;
+            c.AcceptedByNonCancellationAt = c.CancellationWindowEndsAt;
+            c.UpdatedAt = now;
+            return true;
+        }
+
+        public async Task<int> FinalizeExpiredWindowsAsync()
+        {
+            var candidates = (await _db.Contracts
+                    .Where(c => c.PackageRequestId != null && c.CancelledAt == null && c.AcceptedByNonCancellationAt == null)
+                    .ToListAsync())
+                .Where(c => c.CancellationWindowEndsAt != null)
+                .ToList();
+            var now = DateTime.UtcNow;
+            var changed = 0;
+            foreach (var c in candidates)
+            {
+                if (!FinalizeIfExpired(c, now)) continue;
+                try { await _db.SaveChangesAsync(); changed++; }
+                catch (DbUpdateConcurrencyException)
+                {
+                    // A concurrent cancel/agree/sweep touched this contract — leave it to that writer.
+                    _db.Entry(c).State = EntityState.Detached; // keep the other candidates tracked
+                }
+            }
+            return changed;
+        }
+
+        public async Task<PackageContractDTO> CancelByClientAsync(string packageRequestId, string clientId)
+        {
+            if (!ObjectId.TryParse(packageRequestId, out var prOid)) throw new ArgumentException("Invalid package request id.");
+            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == prOid && p.DeletedAt == null)
+                ?? throw new KeyNotFoundException("Package request not found.");
+            if (!string.Equals(request.ClientId, clientId, StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("This request doesn't belong to you.");
+
+            var contract = await _db.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == packageRequestId)
+                ?? throw new InvalidOperationException("There is no agreement to cancel yet.");
+
+            if (contract.ContractSentAt == null || contract.CancellationWindowEndsAt == null)
+                throw new InvalidOperationException("This agreement has no cancellation window.");
+
+            var now = DateTime.UtcNow;
+            var wonTheGate = false;
+
+            // Snapshot BEFORE contending for the gate: if this call wins, it must notify these caregivers even when a
+            // concurrent (losing) call has already flipped the assignments to Cancelled by the time we get to step 2.
+            var toNotify = await _db.Assignments
+                .Where(a => a.PackageRequestId == packageRequestId
+                            && (a.Status == AssignmentStatuses.Accepted || a.Status == AssignmentStatuses.PendingAcceptance))
+                .Select(a => new { a.Id, a.CaregiverId })
+                .ToListAsync();
+
+            if (contract.CancelledAt == null)
+            {
+                if (contract.AcceptedByNonCancellationAt != null || now >= contract.CancellationWindowEndsAt.Value)
+                {
+                    if (FinalizeIfExpired(contract, now))
+                    {
+                        try { await _db.SaveChangesAsync(); } catch (DbUpdateConcurrencyException) { /* someone else recorded it */ }
+                    }
+                    throw new InvalidOperationException(
+                        $"The cancellation window ended on {Application.Content.ContractWording.FormatUtc(contract.CancellationWindowEndsAt.Value)}. This order can no longer be cancelled here.");
+                }
+
+                // STEP 1 — the contract is the single arbiter. CancelledAt / AcceptedByNonCancellationAt are
+                // optimistic-concurrency tokens, so if the sweeper (or a second cancel) wrote first, this save fails
+                // and we never half-cancel.
+                contract.Status = ContractStatus.Cancelled;
+                contract.CancelledAt = now;
+                contract.CancelledBy = $"Client:{clientId}";
+                contract.UpdatedAt = now;
+                try
+                {
+                    await _db.SaveChangesAsync();
+                    wonTheGate = true;
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    _db.ChangeTracker.Clear();
+                    contract = await _db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+                    request = await _db.PackageRequests.FirstAsync(p => p.Id == prOid);
+                    if (contract.CancelledAt == null)
+                        throw new InvalidOperationException(
+                            $"The cancellation window ended on {Application.Content.ContractWording.FormatUtc(contract.CancellationWindowEndsAt!.Value)}. This order can no longer be cancelled here.");
+                    // else: a concurrent cancel by the same client won — fall through to the idempotent path.
+                }
+            }
+            else if (!string.Equals(contract.CancelledBy, $"Client:{clientId}", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("This order has already been cancelled.");
+            }
+
+            // STEP 2 — dependants. Idempotent and re-runnable: a repeat/double call (or a retry after a crash between
+            // steps) only transitions what is not yet cancelled, and only newly-transitioned rows trigger notifications.
+            PackageSubscription? subscription = null;
+            var stoppedSubscription = false;
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (request.Status != PackageRequestStatuses.Cancelled)
+                    {
+                        request.Status = PackageRequestStatuses.Cancelled;
+                        request.UpdatedAt = now;
+                    }
+
+                    var assignments = await _db.Assignments
+                        .Where(a => a.PackageRequestId == packageRequestId
+                                    && (a.Status == AssignmentStatuses.Accepted || a.Status == AssignmentStatuses.PendingAcceptance))
+                        .ToListAsync();
+                    foreach (var a in assignments)
+                    {
+                        a.Status = AssignmentStatuses.Cancelled;
+                        a.CancelReason = "Cancelled by the client during the cancellation window.";
+                        a.UpdatedAt = now;
+                    }
+
+                    // Stop future recurring charges (does NOT move money; no refund is automated).
+                    subscription = await _db.PackageSubscriptions.FirstOrDefaultAsync(s => s.PackageRequestId == packageRequestId);
+                    stoppedSubscription = false;
+                    if (subscription != null && subscription.Status != SubscriptionStatus.Cancelled && subscription.Status != SubscriptionStatus.Terminated)
+                    {
+                        subscription.Status = SubscriptionStatus.Cancelled;
+                        subscription.AutoRenew = false;
+                        subscription.NextChargeDate = null;
+                        subscription.CancelAtPeriodEnd = false;
+                        subscription.CancellationRequestedAt = now;
+                        subscription.CancellationReason = "Order cancelled by the client within the cancellation window.";
+                        subscription.CancelledBy = $"Client:{clientId}";
+                        subscription.TerminatedAt = now;
+                        subscription.UpdatedAt = now;
+                        stoppedSubscription = true;
+                    }
+
+                    await _db.SaveChangesAsync();
+                    break;
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < 4)
+                {
+                    // Assignment/PackageRequest status tokens (assign/accept/decline race guard): a concurrent writer moved the
+                    // same rows to the same terminal state. Reload and re-apply — only still-open rows transition.
+                    _db.ChangeTracker.Clear();
+                    request = await _db.PackageRequests.FirstAsync(p => p.Id == prOid);
+                    contract = await _db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+                }
+            }
+
+            // Notifications — caregiver in-app only (no new email type). Only the call that won the contract gate
+            // notifies; concurrent/duplicate calls reconcile state silently, so there is exactly one notification.
+            foreach (var a in wonTheGate ? toNotify : new())
+            {
+                await _mediator.Send(new SendNotificationCommand(
+                    RecipientId: a.CaregiverId,
+                    SenderId: "system",
+                    Type: NotificationTypes.PackageAssignmentCancelled,
+                    Content: "The client cancelled this order during the cancellation window, so the assignment has ended.",
+                    Title: "Assignment cancelled by client",
+                    RelatedEntityId: a.Id.ToString()));
+            }
+
+            // Admin alert — exactly once, by the call that actually won the contract gate.
+            if (wonTheGate)
+            {
+                Client? client = ObjectId.TryParse(clientId, out var cOid) ? await _db.Clients.FirstOrDefaultAsync(c => c.Id == cOid) : null;
+                var clientLabel = client != null ? $"{client.FirstName} {client.LastName}".Trim() : "(unknown)";
+                var subNote = subscription == null
+                    ? "No recurring subscription."
+                    : $"Recurring subscription {subscription.Id} existed — future charges were stopped automatically (no money moved).";
+                await _opsAlerts.NotifyAdminsAsync(
+                    NotificationTypes.PackageRequestCancelledByClient,
+                    "Client cancelled within the window — refund decision needed",
+                    $"Client {clientLabel} (id {clientId}) cancelled {request.PackageCategory} ({request.PackageTierLabel}) request {request.Id} " +
+                    $"within the {_cancellationWindowHours}-hour window. Amount paid: ₦{contract.TotalAmount:N0}. {subNote} " +
+                    "No refund has been issued automatically — please review and refund manually if due.",
+                    request.Id.ToString());
+            }
+
+            _logger.LogInformation("Client {ClientId} cancelled package request {RequestId} (first={First}, subscriptionStopped={Stopped})",
+                clientId, packageRequestId, wonTheGate, stoppedSubscription);
+            return Map(contract, request, newlyGenerated: false);
+        }
+
+        public async Task<PackageContractDTO> AgreeByClientAsync(string packageRequestId, string clientId)
+        {
+            if (!ObjectId.TryParse(packageRequestId, out var prOid)) throw new ArgumentException("Invalid package request id.");
+            var request = await _db.PackageRequests.FirstOrDefaultAsync(p => p.Id == prOid && p.DeletedAt == null)
+                ?? throw new KeyNotFoundException("Package request not found.");
+            if (!string.Equals(request.ClientId, clientId, StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("This request doesn't belong to you.");
+            var contract = await _db.Contracts.FirstOrDefaultAsync(c => c.PackageRequestId == packageRequestId)
+                ?? throw new InvalidOperationException("There is no agreement to confirm yet.");
+            if (contract.CancelledAt != null)
+                throw new InvalidOperationException("This order was cancelled.");
+
+            // Idempotent: a second tick keeps the first timestamp. The tick never touches the window or unblocks care.
+            if (contract.ClientAgreedAt == null)
+            {
+                contract.ClientAgreedAt = DateTime.UtcNow;
+                contract.ClientAgreedBy = clientId; // from the JWT, never the body
+                contract.UpdatedAt = contract.ClientAgreedAt.Value;
+                try { await _db.SaveChangesAsync(); }
+                catch (DbUpdateConcurrencyException)
+                {
+                    _db.ChangeTracker.Clear(); // a concurrent tick (or cancel) won — report whatever is stored now
+                    contract = await _db.Contracts.FirstAsync(c => c.PackageRequestId == packageRequestId);
+                    if (contract.CancelledAt != null) throw new InvalidOperationException("This order was cancelled.");
+                }
+            }
+            return Map(contract, request, newlyGenerated: false);
         }
 
         private Task AlertContractDeliveryFailedAsync(string contractId, string agreementTitle, string reason)
@@ -317,6 +595,25 @@ namespace Infrastructure.Content.Services
             ServiceAddress = c.ServiceAddress,
             ServiceLocationSetByClient = c.ServiceLocationSetByClient,
             ServiceLocationSetAt = c.ServiceLocationSetAt,
+            ContractSentAt = c.ContractSentAt,
+            CancellationWindowEndsAt = c.CancellationWindowEndsAt,
+            CancellationWindowHours = c.ContractSentAt.HasValue && c.CancellationWindowEndsAt.HasValue
+                ? (int)Math.Round((c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalHours) : 0,
+            CancellationWindowOpen = c.CancelledAt == null && c.CancellationWindowEndsAt.HasValue && DateTime.UtcNow < c.CancellationWindowEndsAt.Value,
+            CancelledAt = c.CancelledAt,
+            CancelledBy = c.CancelledBy,
+            ClientAgreedAt = c.ClientAgreedAt,
+            ClientAgreedBy = c.ClientAgreedBy,
+            AcceptedByNonCancellationAt = c.AcceptedByNonCancellationAt,
+            CancellationAcknowledgement = c.ContractSentAt.HasValue && c.CancellationWindowEndsAt.HasValue
+                && (c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalMinutes >= 30
+                ? Application.Content.ContractWording.CancellationAcknowledgement(
+                    (int)Math.Round((c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalHours), c.ContractSentAt.Value)
+                : null,
+            CancellationClosesLine = c.ContractSentAt.HasValue && c.CancellationWindowEndsAt.HasValue
+                && (c.CancellationWindowEndsAt.Value - c.ContractSentAt.Value).TotalMinutes >= 30
+                ? Application.Content.ContractWording.CancellationClosesLine(c.CancellationWindowEndsAt.Value)
+                : null,
         };
     }
 }

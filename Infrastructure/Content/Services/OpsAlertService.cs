@@ -34,10 +34,12 @@ namespace Infrastructure.Content.Services
                 // Same rule as the login gate (AuthService): only Approved admins have working access, and
                 // a null/blank Status (accounts predating the field) counts as Approved. Filtered in memory —
                 // the Mongo LINQ provider doesn't reliably translate StringComparison overloads.
-                var admins = (await _db.AdminUsers.Where(a => !a.IsDeleted).ToListAsync())
-                    .Where(a => string.IsNullOrWhiteSpace(a.Status)
-                                || string.Equals(a.Status, AdminUserStatus.Approved, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                // (Rule now lives in AdminRecipients so every admin-bound notification shares it.)
+                // var admins = (await _db.AdminUsers.Where(a => !a.IsDeleted).ToListAsync())
+                //     .Where(a => string.IsNullOrWhiteSpace(a.Status)
+                //                 || string.Equals(a.Status, AdminUserStatus.Approved, StringComparison.OrdinalIgnoreCase))
+                //     .ToList();
+                var admins = await AdminRecipients.GetApprovedAsync(_db);
                 if (admins.Count == 0)
                     _logger.LogError("Ops alert '{Type}' has no admin recipients: {Content}", type, content);
 

@@ -66,5 +66,56 @@ namespace CarePro_Api.Middleware.RateLimiting
                 return await _fallback.CheckAndRecordAsync(key, bucket, ct);
             }
         }
+
+        public async Task<(bool IsBlocked, int RetryAfterSeconds)> CheckBlockedAsync(string key, CancellationToken ct = default)
+        {
+            try
+            {
+                var ttl = await _redis.GetDatabase().KeyTimeToLiveAsync($"{key}:blocked");
+                return ttl.HasValue && ttl.Value > TimeSpan.Zero ? (true, (int)Math.Ceiling(ttl.Value.TotalSeconds)) : (false, 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis block check failed for key {Key}; falling back to in-memory store", key);
+                return await _fallback.CheckBlockedAsync(key, ct);
+            }
+        }
+
+        public async Task<(bool IsBlocked, int RetryAfterSeconds)> RecordFailureAsync(string key, RateLimitBucket bucket, CancellationToken ct = default)
+        {
+            try
+            {
+                var db = _redis.GetDatabase();
+                var failKey = $"{key}:fail";
+                var count = await db.StringIncrementAsync(failKey);
+                if (count == 1) await db.KeyExpireAsync(failKey, TimeSpan.FromSeconds(bucket.WindowSeconds));
+                if (count >= bucket.MaxRequests)
+                {
+                    await db.StringSetAsync($"{key}:blocked", "1", TimeSpan.FromSeconds(bucket.BlockDurationSeconds));
+                    await db.KeyDeleteAsync(failKey);
+                    return (true, bucket.BlockDurationSeconds);
+                }
+                return (false, 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis failure record failed for key {Key}; falling back to in-memory store", key);
+                return await _fallback.RecordFailureAsync(key, bucket, ct);
+            }
+        }
+
+        public async Task ResetAsync(string key, CancellationToken ct = default)
+        {
+            try
+            {
+                var db = _redis.GetDatabase();
+                await db.KeyDeleteAsync(new RedisKey[] { $"{key}:fail", $"{key}:blocked" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis reset failed for key {Key}; falling back to in-memory store", key);
+                await _fallback.ResetAsync(key, ct);
+            }
+        }
     }
 }

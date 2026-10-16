@@ -105,7 +105,8 @@ namespace Infrastructure.Content.Services
             {
                 ["IS_VERIFIED"] = readiness.IsIdentityVerified,
                 ["READY_FOR_HIRE"] = readiness.IsReady,
-                ["HAS_ACTIVE_GIG"] = readiness.HasActiveGig,
+                // RETIRED — gigs are retired for caregivers; HAS_ACTIVE_GIG no longer synced to Brevo.
+                // ["HAS_ACTIVE_GIG"] = readiness.HasActiveGig,
                 ["FIRSTNAME"] = caregiver.FirstName ?? string.Empty,
                 ["LASTNAME"] = caregiver.LastName ?? string.Empty,
             };
@@ -121,7 +122,8 @@ namespace Infrastructure.Content.Services
             }
 
             Toggle(_settings.CaregiversUnverifiedListId, !readiness.IsIdentityVerified);
-            Toggle(_settings.CaregiversNoGigListId, !readiness.HasActiveGig);
+            // RETIRED — the "no gig" journey list is obsolete now that gigs are retired. (Setting kept in BrevoSettings.)
+            // Toggle(_settings.CaregiversNoGigListId, !readiness.HasActiveGig);
 
             await brevoService.UpsertContactAsync(caregiver.Email, attributes, addToLists, removeFromLists);
 

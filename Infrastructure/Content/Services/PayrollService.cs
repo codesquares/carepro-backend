@@ -31,6 +31,8 @@ namespace Infrastructure.Content.Services
         private readonly IEmailService _emailService;
         private readonly ILogger<PayrollService> _logger;
 
+        private readonly IPackageVisitAdminService? _visits;
+
         public PayrollService(
             CareProDbContext context,
             ITaskSheetService taskSheetService,
@@ -38,8 +40,10 @@ namespace Infrastructure.Content.Services
             IEarningsLedgerService ledgerService,
             IMediator mediator,
             IEmailService emailService,
-            ILogger<PayrollService> logger)
+            ILogger<PayrollService> logger,
+            IPackageVisitAdminService? visits = null)
         {
+            _visits = visits;
             _context = context;
             _taskSheetService = taskSheetService;
             _walletService = walletService;
@@ -143,7 +147,7 @@ namespace Infrastructure.Content.Services
                 return null;
 
             var entity = await _context.Payrolls.FirstOrDefaultAsync(p => p.Id == oid);
-            return entity != null ? MapToDTO(entity) : null;
+            return entity != null ? await EnrichAsync(entity) : null;
         }
 
         public async Task<List<PayrollDTO>> GetAllPayrollsAsync(string? caregiverId = null)
@@ -156,7 +160,9 @@ namespace Infrastructure.Content.Services
                 .OrderByDescending(p => p.PayPeriod)
                 .ThenByDescending(p => p.CreatedAt)
                 .ToListAsync();
-            return payrolls.Select(MapToDTO).ToList();
+            var result = new List<PayrollDTO>();
+            foreach (var pr in payrolls) result.Add(await EnrichAsync(pr));
+            return result;
         }
 
         public async Task<PayrollDTO> ApprovePayrollAsync(string id, ApprovePayrollRequest request, string adminId, string adminEmail)
@@ -200,6 +206,26 @@ namespace Infrastructure.Content.Services
             else
             {
                 entity.FinalAmount = entity.CalculatedAmount;
+            }
+
+            // Soft gate (not a hold): uncleared HARD GPS flags on this assignment's visits in the pay month need an explicit,
+            // recorded confirmation to approve over. Flagged visits are still paid — GPS error must not leave a caregiver unpaid.
+            var uncleared = await CountUnclearedHardFlagsAsync(entity);
+            if (uncleared.Count > 0)
+            {
+                if (request?.AcknowledgeUnclearedFlaggedVisits != uncleared.Count)
+                    throw new UnclearedFlaggedVisitsException(uncleared.Count);
+                entity.ApprovedWithUnclearedFlags = uncleared.Count;
+                _context.AdminAuditLogs.Add(new AdminAuditLog
+                {
+                    Id = ObjectId.GenerateNewId(),
+                    AdminId = adminId, AdminEmail = adminEmail,
+                    TargetEntityType = "Payroll", TargetEntityId = entity.Id.ToString(), TargetUserId = entity.CaregiverId,
+                    Action = "PayrollApprovedWithUnclearedFlags",
+                    AfterJson = JsonSerializer.Serialize(new { count = uncleared.Count, checkinIds = uncleared.Select(u => u.CheckinId) }),
+                    Reason = $"Approved with {uncleared.Count} uncleared flagged visit(s)",
+                    Timestamp = DateTime.UtcNow
+                });
             }
 
             entity.Status = PayrollStatuses.Approved;
@@ -337,6 +363,28 @@ namespace Infrastructure.Content.Services
             return true;
         }
 
+        private async Task<List<PackageVisitAdminRowDTO>> CountUnclearedHardFlagsAsync(Payroll p)
+        {
+            if (_visits == null) return new List<PackageVisitAdminRowDTO>();
+            return await _visits.GetUnclearedHardFlagsAsync(p.CaregiverId, p.PayPeriod.Year, p.PayPeriod.Month, p.AssignmentId);
+        }
+
+        /// <summary>Adds the live uncleared-flag count to Draft rows (the payroll review screen's warning).</summary>
+        private async Task<PayrollDTO> EnrichAsync(Payroll p)
+        {
+            var dto = MapToDTO(p);
+            if (p.Status == PayrollStatuses.Draft) dto.UnclearedHardFlagCount = (await CountUnclearedHardFlagsAsync(p)).Count;
+            return dto;
+        }
+
+        public async Task<List<PackageVisitAdminRowDTO>> GetUnclearedFlaggedVisitsAsync(string id)
+        {
+            if (!ObjectId.TryParse(id, out var oid)) throw new ArgumentException("Invalid payroll ID format");
+            var entity = await _context.Payrolls.FirstOrDefaultAsync(x => x.Id == oid)
+                ?? throw new KeyNotFoundException($"Payroll with ID '{id}' not found");
+            return await CountUnclearedHardFlagsAsync(entity);
+        }
+
         private static PayrollDTO MapToDTO(Payroll p) => new()
         {
             Id = p.Id.ToString(),
@@ -355,6 +403,7 @@ namespace Infrastructure.Content.Services
             CreditedToWalletAt = p.CreditedToWalletAt,
             ApprovedByAdminEmail = p.ApprovedByAdminEmail,
             ApprovedAt = p.ApprovedAt,
+            ApprovedWithUnclearedFlags = p.ApprovedWithUnclearedFlags,
             CreatedAt = p.CreatedAt,
             UpdatedAt = p.UpdatedAt,
         };

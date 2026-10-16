@@ -58,16 +58,32 @@ namespace Infrastructure.Content.Services
             if (request.Description.Length > 2000)
                 throw new ArgumentException("Description must not exceed 2000 characters.");
 
-            // Validate order and caregiver assignment
-            if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
-                throw new ArgumentException("Invalid order ID format.");
+            var hasOrder = !string.IsNullOrWhiteSpace(request.OrderId);
+            var hasAssignment = !string.IsNullOrWhiteSpace(request.AssignmentId);
+            if (hasOrder == hasAssignment)
+                throw new ArgumentException("Provide exactly one of OrderId or AssignmentId.");
 
-            var order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderObjectId);
-            if (order == null)
-                throw new KeyNotFoundException($"Order '{request.OrderId}' not found.");
+            ClientOrder? order = null;
+            Assignment? assignment = null;
+            if (hasAssignment)
+            {
+                // Package-assignment path: ownership + the sheet belonging to this assignment are checked up front.
+                assignment = await PackageReportAccess.LoadForCaregiverAsync(
+                    _dbContext, request.AssignmentId!, caregiverId, request.TaskSheetId);
+            }
+            else
+            {
+                // Validate order and caregiver assignment
+                if (!ObjectId.TryParse(request.OrderId, out var orderObjectId))
+                    throw new ArgumentException("Invalid order ID format.");
 
-            if (order.CaregiverId != caregiverId)
-                throw new UnauthorizedAccessException("Only the assigned caregiver can create observation reports for this order.");
+                order = await _dbContext.ClientOrders.FirstOrDefaultAsync(o => o.Id == orderObjectId);
+                if (order == null)
+                    throw new KeyNotFoundException($"Order '{request.OrderId}' not found.");
+
+                if (order.CaregiverId != caregiverId)
+                    throw new UnauthorizedAccessException("Only the assigned caregiver can create observation reports for this order.");
+            }
 
             // Validate photos (max 3)
             if (request.Photos != null && request.Photos.Count > 3)
@@ -95,7 +111,9 @@ namespace Infrastructure.Content.Services
             var report = new ObservationReport
             {
                 Id = ObjectId.GenerateNewId(),
-                OrderId = request.OrderId,
+                OrderId = hasAssignment ? string.Empty : request.OrderId!,
+                AssignmentId = assignment?.Id.ToString(),
+                PackageRequestId = assignment?.PackageRequestId,
                 TaskSheetId = request.TaskSheetId,
                 CaregiverId = caregiverId,
                 Category = request.Category.ToLowerInvariant(),
@@ -109,22 +127,27 @@ namespace Infrastructure.Content.Services
             await _dbContext.ObservationReports.AddAsync(report);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("Observation report created: {ReportId} for Order: {OrderId} by Caregiver: {CaregiverId}",
-                report.Id, request.OrderId, caregiverId);
+            _logger.LogInformation("Observation report created: {ReportId} for {Target} by Caregiver: {CaregiverId}",
+                report.Id, hasAssignment ? $"Assignment {report.AssignmentId}" : $"Order {request.OrderId}", caregiverId);
 
             // ── Notify client that a new observation report was filed ──
             try
             {
-                if (!string.IsNullOrEmpty(order.ClientId))
+                // Package visits carry the PackageRequestId as RelatedEntityId (OrderId stays null) so the client
+                // notification resolves to the request page — the same convention as the visit notifications.
+                var recipientClientId = hasAssignment
+                    ? await PackageReportAccess.GetClientIdAsync(_dbContext, assignment!.PackageRequestId)
+                    : order!.ClientId;
+                if (!string.IsNullOrEmpty(recipientClientId))
                 {
                     await _mediator.Send(new SendNotificationCommand(
-                        RecipientId: order.ClientId,
+                        RecipientId: recipientClientId,
                         SenderId: caregiverId,
                         Type: NotificationTypes.ObservationReportFiled,
                         Content: $"Your caregiver filed a {report.Severity}-severity observation report for your care session.",
                         Title: "Observation Report Filed",
-                        RelatedEntityId: report.Id.ToString(),
-                        OrderId: request.OrderId));
+                        RelatedEntityId: hasAssignment ? assignment!.PackageRequestId : report.Id.ToString(),
+                        OrderId: hasAssignment ? null : request.OrderId));
                 }
             }
             catch (Exception ex)
@@ -157,6 +180,34 @@ namespace Infrastructure.Content.Services
             return reports.Select(MapToDTO).ToList();
         }
 
+        public async Task<List<ObservationReportDTO>> GetByAssignmentAsync(string assignmentId, string? taskSheetId, string userId, bool isAdmin, bool isClient = false)
+        {
+            await PackageReportAccess.AuthorizeViewAsync(_dbContext, assignmentId, userId, isAdmin, isClient);
+
+            var query = _dbContext.ObservationReports.Where(r => r.AssignmentId == assignmentId);
+            if (!string.IsNullOrEmpty(taskSheetId))
+                query = query.Where(r => r.TaskSheetId == taskSheetId);
+
+            var reports = await query.OrderByDescending(r => r.CreatedAt).ToListAsync();
+            return reports.Select(MapToDTO).ToList();
+        }
+
+        public async Task<List<ObservationReportDTO>> GetByPackageRequestAsClientAsync(string packageRequestId, string? taskSheetId, string clientId)
+        {
+            if (!ObjectId.TryParse(packageRequestId, out var oid))
+                throw new ArgumentException("Invalid package request ID format.");
+            var pr = await _dbContext.PackageRequests.FirstOrDefaultAsync(r => r.Id == oid)
+                ?? throw new KeyNotFoundException($"Package request '{packageRequestId}' not found.");
+            if (pr.ClientId != clientId)
+                throw new UnauthorizedAccessException("This package request doesn't belong to you.");
+
+            var query = _dbContext.ObservationReports.Where(r => r.PackageRequestId == packageRequestId);
+            if (!string.IsNullOrEmpty(taskSheetId))
+                query = query.Where(r => r.TaskSheetId == taskSheetId);
+            var reports = await query.OrderByDescending(r => r.CreatedAt).ToListAsync();
+            return reports.Select(MapToDTO).ToList();
+        }
+
         public async Task<int> GetCountByTaskSheetIdAsync(string taskSheetId)
         {
             return await _dbContext.ObservationReports
@@ -170,6 +221,8 @@ namespace Infrastructure.Content.Services
             {
                 Id = entity.Id.ToString(),
                 OrderId = entity.OrderId,
+                AssignmentId = entity.AssignmentId,
+                PackageRequestId = entity.PackageRequestId,
                 TaskSheetId = entity.TaskSheetId,
                 CaregiverId = entity.CaregiverId,
                 Category = entity.Category,

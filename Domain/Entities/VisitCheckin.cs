@@ -61,6 +61,21 @@ namespace Domain.Entities
         /// </summary>
         public bool? IsFlaggedForDistanceReview { get; set; }
 
+        /// <summary>
+        /// Why this check-in was flagged (package visits). A list of reasons, not a boolean — see
+        /// <c>CheckinFlagReasons</c>. Null/empty on records created before reasons existed (read as "none").
+        /// <see cref="IsFlaggedForDistanceReview"/> stays true whenever any HARD reason is present.
+        /// </summary>
+        public List<string>? FlagReasons { get; set; }
+
+        // ── Admin review of the flag (flags are never deleted — cleared flags stay visible in history) ──
+        public DateTime? FlagClearedAt { get; set; }
+        public string? FlagClearedByAdminId { get; set; }
+        public string? FlagClearedByAdminEmail { get; set; }
+        public string? FlagClearNote { get; set; }
+        /// <summary>When admins were notified about a HARD flag on this check-in (dedupe guard).</summary>
+        public DateTime? AdminNotifiedAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

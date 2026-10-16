@@ -1,3 +1,4 @@
+using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,8 @@ namespace Infrastructure.Content.Services
     /// 1. Captures email/name before wiping (needed to send the final confirmation email)
     /// 2. Sends "account permanently deleted" email
     /// 3. Hard-deletes: Notifications, RefreshTokens, Location, Certifications,
-    ///    Verifications, AssessmentSessions, NotificationPreferences
+    ///    Verifications, AssessmentSessions, NotificationPreferences, PoliceClearances
+    ///    (the private clearance FILES are deleted from storage first — see ProcessSingleCaregiverAsync)
     /// 4. Anonymizes: Caregiver/Client profile (name, email, phone, address, photo),
     ///    AppUser (email, name, password, google fields)
     /// 5. Retained as-is: BillingRecords, ClientOrders, Earnings, EarningsLedger,
@@ -82,6 +84,7 @@ namespace Infrastructure.Content.Services
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<CareProDbContext>();
             var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+            var clearanceStore = scope.ServiceProvider.GetRequiredService<IPoliceClearanceFileStore>();
 
             var cutoffDate = DateTime.UtcNow.AddDays(-GracePeriodDays);
 
@@ -121,7 +124,7 @@ namespace Infrastructure.Content.Services
                 if (stoppingToken.IsCancellationRequested) break;
                 try
                 {
-                    await ProcessSingleCaregiverAsync(dbContext, emailService, caregiver);
+                    await ProcessSingleCaregiverAsync(dbContext, emailService, clearanceStore, caregiver);
                     processed++;
                 }
                 catch (Exception ex)
@@ -152,7 +155,7 @@ namespace Infrastructure.Content.Services
         }
 
         private async Task ProcessSingleCaregiverAsync(
-            CareProDbContext dbContext, IEmailService emailService, Domain.Entities.Caregiver caregiver)
+            CareProDbContext dbContext, IEmailService emailService, IPoliceClearanceFileStore clearanceStore, Domain.Entities.Caregiver caregiver)
         {
             var caregiverId = caregiver.Id.ToString();
             var capturedEmail = caregiver.Email;
@@ -244,6 +247,32 @@ namespace Infrastructure.Content.Services
             if (educations.Any()) dbContext.CaregiverEducations.RemoveRange(educations);
             if (qualifications.Any()) dbContext.CaregiverQualifications.RemoveRange(qualifications);
             if (workExperiences.Any()) dbContext.CaregiverWorkExperiences.RemoveRange(workExperiences);
+
+            // ── 7b. Police clearances: delete the private FILES from storage first, then the records ──
+            // The files are the sensitive part and live outside the database, so they are removed here explicitly (the
+            // database delete alone would orphan them). If any file cannot be deleted we throw BEFORE the records are removed
+            // or anything is saved: the per-user catch in ProcessExpiredUsersAsync logs it and the whole user is retried on the
+            // next cycle (already-deleted files come back as NotFound, which counts as done). Nothing fails silently.
+            var clearances = await dbContext.PoliceClearances.Where(c => c.CaregiverId == caregiverId).ToListAsync();
+            var undeletable = new List<string>();
+            foreach (var file in clearances.SelectMany(c => c.Files ?? new List<Domain.Entities.PoliceClearanceFile>()))
+            {
+                if (string.IsNullOrWhiteSpace(file.PublicId)) continue;
+                var outcome = await clearanceStore.DeleteAsync(file.PublicId, file.ResourceType);
+                if (outcome == ClearanceFileDeleteOutcome.Failed) undeletable.Add(file.PublicId);
+            }
+            if (undeletable.Count > 0)
+            {
+                _logger.LogError(
+                    "UserHardDeleteProcessor: Caregiver {CaregiverId} - {Count} police clearance file(s) could not be deleted from storage (public ids: {PublicIds}). The account will be retried on the next cycle.",
+                    caregiverId, undeletable.Count, string.Join(", ", undeletable));
+                throw new InvalidOperationException($"Could not delete {undeletable.Count} police clearance file(s) for caregiver {caregiverId}.");
+            }
+            if (clearances.Any())
+            {
+                dbContext.PoliceClearances.RemoveRange(clearances);
+                _logger.LogInformation("UserHardDeleteProcessor: Caregiver {CaregiverId} - Deleted {Count} police clearance record(s) and their files", caregiverId, clearances.Count);
+            }
 
             // Phase 2 vetting sub-documents — contain third-party PII (guarantors,
             // address history), so hard-delete rather than anonymise.

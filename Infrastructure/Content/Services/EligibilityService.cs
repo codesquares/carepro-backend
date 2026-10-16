@@ -336,11 +336,23 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        /// <summary>Latest non-superseded certificate per certificate name.</summary>
+        public static List<Certification> CurrentCertificates(IEnumerable<Certification> certificates) =>
+            certificates
+                .Where(c => c.SupersededAt == null)
+                .GroupBy(c => c.CertificateName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(c => c.SubmittedOn).First())
+                .ToList();
+
         private CategoryEligibilityDTO EvaluateCategoryEligibility(
             ServiceRequirement requirement,
             List<Assessment> assessments,
             List<Certification> certificates)
         {
+            // Only the CURRENT certificate of each type counts: superseded (replaced) records are history, and when more
+            // than one current record exists for a type the latest submission decides.
+            certificates = CurrentCertificates(certificates);
+
             // Use RequiredAssessment field to match assessments (falls back to ServiceCategory if "General")
             var assessmentKey = requirement.RequiredAssessment;
             var categoryAssessments = assessments
