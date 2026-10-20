@@ -30,11 +30,13 @@ namespace Domain.Entities
         /// The gateway fee is part of the charge because the client bears it (same rule the first payment and the
         /// Gig renewals follow), so the amount verified after each charge is this total.</summary>
         public decimal RecurringAmount { get; set; }
-        /// <summary>The quoted package price, before the gateway fee. 0 on records created before the fee was
-        /// split out — those carry their whole charge in <see cref="RecurringAmount"/>.</summary>
-        public decimal BaseAmount { get; set; }
-        /// <summary>Flutterwave processing fee added to each renewal charge.</summary>
-        public decimal GatewayFee { get; set; }
+        /// <summary>The quoted package price, before the gateway fee. NULL (the element is absent in the stored
+        /// document) on records created before the fee was split out — those carry their whole charge in
+        /// <see cref="RecurringAmount"/>. Must stay nullable: the Mongo EF provider throws when a stored document is
+        /// missing a required non-nullable property, which would make every such record unreadable.</summary>
+        public decimal? BaseAmount { get; set; }
+        /// <summary>Flutterwave processing fee added to each renewal charge. NULL on pre-split records (see above).</summary>
+        public decimal? GatewayFee { get; set; }
         public string Currency { get; set; } = "NGN";
         public string Email { get; set; } = string.Empty;
 

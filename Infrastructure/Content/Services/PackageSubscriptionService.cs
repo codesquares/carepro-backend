@@ -204,8 +204,9 @@ namespace Infrastructure.Content.Services
         private static PackageSubscriptionDTO MapToDTO(PackageSubscription s, Dictionary<string, PackageRequest> requests, bool includePayments)
         {
             requests.TryGetValue(s.PackageRequestId, out var request);
-            // Records created before the fee was split out carry the whole charge in RecurringAmount.
-            var baseAmount = s.BaseAmount > 0 ? s.BaseAmount : s.RecurringAmount - s.GatewayFee;
+            // Records created before the fee was split out have neither field stored: the whole charge is the base.
+            var gatewayFee = s.GatewayFee ?? 0m;
+            var baseAmount = s.BaseAmount ?? (s.RecurringAmount - gatewayFee);
             return new PackageSubscriptionDTO
             {
                 Id = s.Id.ToString(),
@@ -214,7 +215,7 @@ namespace Infrastructure.Content.Services
                 PackageTierLabel = request?.PackageTierLabel ?? string.Empty,
                 Status = s.Status.ToString(),
                 BaseAmount = baseAmount,
-                GatewayFee = s.GatewayFee,
+                GatewayFee = gatewayFee,
                 RecurringAmount = s.RecurringAmount,
                 Currency = s.Currency,
                 CurrentPeriodStart = s.CurrentPeriodStart,
