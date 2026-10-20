@@ -26,7 +26,15 @@ namespace Domain.Entities
         public string PackageRequestId { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
 
+        /// <summary>What every renewal charge sends to Flutterwave: <see cref="BaseAmount"/> + <see cref="GatewayFee"/>.
+        /// The gateway fee is part of the charge because the client bears it (same rule the first payment and the
+        /// Gig renewals follow), so the amount verified after each charge is this total.</summary>
         public decimal RecurringAmount { get; set; }
+        /// <summary>The quoted package price, before the gateway fee. 0 on records created before the fee was
+        /// split out — those carry their whole charge in <see cref="RecurringAmount"/>.</summary>
+        public decimal BaseAmount { get; set; }
+        /// <summary>Flutterwave processing fee added to each renewal charge.</summary>
+        public decimal GatewayFee { get; set; }
         public string Currency { get; set; } = "NGN";
         public string Email { get; set; } = string.Empty;
 

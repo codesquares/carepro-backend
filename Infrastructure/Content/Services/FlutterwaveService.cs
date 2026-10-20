@@ -17,7 +17,7 @@ public class FlutterwaveService
     private readonly string _secretKey;
     private readonly string _encryptionKey;
     private readonly string _webhookSecretHash;
-    private readonly string _baseUrl = "https://api.flutterwave.com";
+    private readonly string _baseUrl;
     private readonly string _frontendUrl;
     private readonly ILogger<FlutterwaveService> _logger;
 
@@ -40,6 +40,11 @@ public class FlutterwaveService
         _webhookSecretHash = configuration["Flutterwave:WebhookSecretHash"]
             ?? Environment.GetEnvironmentVariable("FLUTTERWAVE_WEBHOOK_SECRET_HASH")
             ?? string.Empty;
+
+        // Overridable so tests can point the client at a local fake; production never sets it.
+        _baseUrl = configuration["Flutterwave:BaseUrl"]?.TrimEnd('/') is { Length: > 0 } baseUrl
+            ? baseUrl
+            : "https://api.flutterwave.com";
 
         _frontendUrl = configuration["FrontendUrl"]
             ?? Environment.GetEnvironmentVariable("FRONTEND_URL")
