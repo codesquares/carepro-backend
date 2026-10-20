@@ -74,11 +74,15 @@ internal sealed class HeaderRoleAuthHandler : AuthenticationHandler<Authenticati
             return Task.FromResult(AuthenticateResult.NoResult());
 
         var value = raw.ToString();
+        // Optional: tests that need a specific principal id (ownership checks) pass X-Test-UserId.
+        var userId = Request.Headers.TryGetValue("X-Test-UserId", out var uid) && !string.IsNullOrWhiteSpace(uid)
+            ? uid.ToString()
+            : "test-admin-id";
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, "test-admin-id"),
+            new(ClaimTypes.NameIdentifier, userId),
             new(ClaimTypes.Email, "ops@carepro.test"),
-            new("userId", "test-admin-id"),
+            new("userId", userId),
         };
 
         if (value.StartsWith("Admin:", StringComparison.Ordinal))

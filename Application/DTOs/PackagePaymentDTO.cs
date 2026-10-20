@@ -79,4 +79,37 @@ namespace Application.DTOs
         public string? CardBrand { get; set; }
         public string? CardExpiry { get; set; }
     }
+
+    /// <summary>Client-facing view of a recurring package subscription. Never carries the card token.</summary>
+    public class PackageSubscriptionDTO
+    {
+        public string Id { get; set; } = string.Empty;
+        public string PackageRequestId { get; set; } = string.Empty;
+        public string PackageCategory { get; set; } = string.Empty;
+        public string PackageTierLabel { get; set; } = string.Empty;
+        /// <summary>Active, PastDue, Suspended, PendingCancellation, Charging, Cancelled, ...</summary>
+        public string Status { get; set; } = string.Empty;
+        public decimal BaseAmount { get; set; }
+        public decimal GatewayFee { get; set; }
+        /// <summary>What each renewal will charge (base + gateway fee).</summary>
+        public decimal RecurringAmount { get; set; }
+        public string Currency { get; set; } = "NGN";
+        public System.DateTime CurrentPeriodStart { get; set; }
+        public System.DateTime CurrentPeriodEnd { get; set; }
+        public System.DateTime? NextChargeDate { get; set; }
+        public int BillingCyclesCompleted { get; set; }
+        public bool AutoRenew { get; set; }
+        /// <summary>False when no card token was captured: the subscription exists but can never renew.</summary>
+        public bool HasSavedCard { get; set; }
+        public string? CardBrand { get; set; }
+        public string? CardLastFour { get; set; }
+        public string? CardExpiry { get; set; }
+        public bool CancelAtPeriodEnd { get; set; }
+        public System.DateTime? CancellationRequestedAt { get; set; }
+        public int FailedChargeAttempts { get; set; }
+        public string? LastChargeError { get; set; }
+        public System.DateTime CreatedAt { get; set; }
+        /// <summary>Newest first. Only present on the single-subscription (detail) response.</summary>
+        public System.Collections.Generic.List<PackageSubscriptionPaymentRecordDTO>? Payments { get; set; }
+    }
 }

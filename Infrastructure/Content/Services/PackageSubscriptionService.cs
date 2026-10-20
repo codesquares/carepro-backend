@@ -37,6 +37,10 @@ namespace Infrastructure.Content.Services
 
         private const double RETRY_JITTER_PERCENT = 0.20d;
 
+        // Flutterwave local card fee: 1.4% capped at 2000 NGN — same constants the Gig flow uses.
+        private const decimal FLUTTERWAVE_FEE_RATE = 0.014m;
+        private const decimal FLUTTERWAVE_FEE_CAP = 2000m;
+
         public PackageSubscriptionService(
             CareProDbContext dbContext,
             FlutterwaveService flutterwaveService,
@@ -81,12 +85,17 @@ namespace Infrastructure.Content.Services
         public async Task<PackageSubscription> CreatePackageSubscriptionAsync(CreatePackageSubscriptionRequest request)
         {
             var now = DateTime.UtcNow;
+            // request.RecurringAmount is the quoted package price. The gateway fee is added on top so every renewal
+            // charge (and the amount verified after it) is what the client was actually asked to pay.
+            var gatewayFee = CalculateGatewayFee(request.RecurringAmount);
             var subscription = new PackageSubscription
             {
                 Id = ObjectId.GenerateNewId(),
                 PackageRequestId = request.PackageRequestId,
                 ClientId = request.ClientId,
-                RecurringAmount = request.RecurringAmount,
+                BaseAmount = request.RecurringAmount,
+                GatewayFee = gatewayFee,
+                RecurringAmount = request.RecurringAmount + gatewayFee,
                 Currency = request.Currency,
                 Email = request.Email,
                 Status = SubscriptionStatus.Active,
@@ -115,6 +124,117 @@ namespace Infrastructure.Content.Services
                 subscription.Id, request.PackageRequestId, !string.IsNullOrWhiteSpace(request.FlutterwavePaymentToken));
 
             return subscription;
+        }
+
+        public decimal CalculateGatewayFee(decimal baseAmount)
+        {
+            if (baseAmount <= 0) return 0m;
+            return Math.Min(Math.Round(baseAmount * FLUTTERWAVE_FEE_RATE, 2), FLUTTERWAVE_FEE_CAP);
+        }
+
+        public async Task<List<PackageSubscriptionDTO>> GetClientSubscriptionsAsync(string clientId)
+        {
+            var subs = (await _dbContext.PackageSubscriptions
+                .Where(s => s.ClientId == clientId)
+                .ToListAsync())
+                .OrderByDescending(s => s.CreatedAt)
+                .ToList();
+            var requests = await LoadRequestsAsync(subs);
+            return subs.Select(s => MapToDTO(s, requests, includePayments: false)).ToList();
+        }
+
+        public async Task<PackageSubscriptionDTO?> GetClientSubscriptionAsync(string clientId, string packageSubscriptionId)
+        {
+            var sub = await FindOwnedAsync(clientId, packageSubscriptionId);
+            if (sub == null) return null;
+            var requests = await LoadRequestsAsync(new List<PackageSubscription> { sub });
+            return MapToDTO(sub, requests, includePayments: true);
+        }
+
+        public async Task<Result<PackageSubscriptionDTO>> CancelClientSubscriptionAsync(string clientId, string packageSubscriptionId, string? reason)
+        {
+            var sub = await FindOwnedAsync(clientId, packageSubscriptionId);
+            if (sub == null)
+                return Result<PackageSubscriptionDTO>.Failure(new List<string> { "Subscription not found." });
+
+            var alreadyStopped = sub.Status == SubscriptionStatus.PendingCancellation
+                                 || sub.Status == SubscriptionStatus.Cancelled
+                                 || sub.Status == SubscriptionStatus.Terminated;
+            if (!alreadyStopped)
+            {
+                var now = DateTime.UtcNow;
+                // Nothing more is ever charged; the period already paid for runs out on its own.
+                sub.Status = SubscriptionStatus.PendingCancellation;
+                sub.AutoRenew = false;
+                sub.CancelAtPeriodEnd = true;
+                sub.NextChargeDate = null;
+                sub.CancellationRequestedAt = now;
+                sub.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+                sub.CancelledBy = $"Client:{clientId}";
+                sub.UpdatedAt = now;
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation(
+                    "PackageSubscription {Id} cancelled by client {ClientId}; no further charges. Service runs to {PeriodEnd}.",
+                    packageSubscriptionId, clientId, sub.CurrentPeriodEnd);
+            }
+
+            var requests = await LoadRequestsAsync(new List<PackageSubscription> { sub });
+            return Result<PackageSubscriptionDTO>.Success(MapToDTO(sub, requests, includePayments: true));
+        }
+
+        private async Task<PackageSubscription?> FindOwnedAsync(string clientId, string packageSubscriptionId)
+        {
+            if (!ObjectId.TryParse(packageSubscriptionId, out var oid)) return null;
+            var sub = await _dbContext.PackageSubscriptions.FirstOrDefaultAsync(s => s.Id == oid);
+            // Same answer for "missing" and "someone else's" so ids cannot be probed.
+            return sub != null && sub.ClientId == clientId ? sub : null;
+        }
+
+        private async Task<Dictionary<string, PackageRequest>> LoadRequestsAsync(List<PackageSubscription> subs)
+        {
+            var ids = subs.Select(s => s.PackageRequestId).Distinct()
+                .Select(i => ObjectId.TryParse(i, out var o) ? o : (ObjectId?)null)
+                .Where(o => o.HasValue).Select(o => o!.Value).ToList();
+            if (ids.Count == 0) return new Dictionary<string, PackageRequest>();
+            var requests = await _dbContext.PackageRequests.Where(r => ids.Contains(r.Id)).ToListAsync();
+            return requests.ToDictionary(r => r.Id.ToString());
+        }
+
+        private static PackageSubscriptionDTO MapToDTO(PackageSubscription s, Dictionary<string, PackageRequest> requests, bool includePayments)
+        {
+            requests.TryGetValue(s.PackageRequestId, out var request);
+            // Records created before the fee was split out carry the whole charge in RecurringAmount.
+            var baseAmount = s.BaseAmount > 0 ? s.BaseAmount : s.RecurringAmount - s.GatewayFee;
+            return new PackageSubscriptionDTO
+            {
+                Id = s.Id.ToString(),
+                PackageRequestId = s.PackageRequestId,
+                PackageCategory = request?.PackageCategory ?? string.Empty,
+                PackageTierLabel = request?.PackageTierLabel ?? string.Empty,
+                Status = s.Status.ToString(),
+                BaseAmount = baseAmount,
+                GatewayFee = s.GatewayFee,
+                RecurringAmount = s.RecurringAmount,
+                Currency = s.Currency,
+                CurrentPeriodStart = s.CurrentPeriodStart,
+                CurrentPeriodEnd = s.CurrentPeriodEnd,
+                NextChargeDate = s.NextChargeDate,
+                BillingCyclesCompleted = s.BillingCyclesCompleted,
+                AutoRenew = s.AutoRenew,
+                HasSavedCard = !string.IsNullOrWhiteSpace(s.FlutterwavePaymentToken),
+                CardBrand = s.CardBrand,
+                CardLastFour = s.CardLastFour,
+                CardExpiry = s.CardExpiry,
+                CancelAtPeriodEnd = s.CancelAtPeriodEnd,
+                CancellationRequestedAt = s.CancellationRequestedAt,
+                FailedChargeAttempts = s.FailedChargeAttempts,
+                LastChargeError = s.LastChargeError,
+                CreatedAt = s.CreatedAt,
+                Payments = includePayments
+                    ? s.PaymentHistory.OrderByDescending(p => p.AttemptedAt).Select(MapPaymentRecordToDTO).ToList()
+                    : null
+            };
         }
 
         public async Task<Result<PackageSubscriptionPaymentRecordDTO>> ProcessRecurringPackageChargeAsync(string packageSubscriptionId, string initiatedBy = "system")
@@ -306,7 +426,7 @@ namespace Infrastructure.Content.Services
                     $"Your recurring package payment of {subscription.Currency} {subscription.RecurringAmount:N2} was successful. " +
                     $"Next charge: {subscription.CurrentPeriodEnd:MMM dd, yyyy}.",
                     "Payment Successful",
-                    subscription.PackageRequestId));
+                    subscription.Id.ToString()));
 
                 return Result<PackageSubscriptionPaymentRecordDTO>.Success(MapPaymentRecordToDTO(paymentRecord));
             }
@@ -351,7 +471,7 @@ namespace Infrastructure.Content.Services
                     NotificationTypes.PaymentActionRequired,
                     "Your recurring package payment needs your card authorization. Automatic retries are paused.",
                     "Payment Authorisation Required",
-                    subscription.PackageRequestId));
+                    subscription.Id.ToString()));
 
                 await _dbContext.SaveChangesAsync();
                 return;
@@ -372,7 +492,7 @@ namespace Infrastructure.Content.Services
                     NotificationTypes.SubscriptionSuspended,
                     "Your recurring package subscription has been suspended because the payment method is no longer valid. Please contact support.",
                     "Subscription Suspended",
-                    subscription.PackageRequestId));
+                    subscription.Id.ToString()));
 
                 await _dbContext.SaveChangesAsync();
                 return;
@@ -393,7 +513,7 @@ namespace Infrastructure.Content.Services
                     NotificationTypes.SubscriptionSuspended,
                     "Your recurring package subscription has been suspended due to repeated payment failures. Please contact support.",
                     "Subscription Suspended",
-                    subscription.PackageRequestId));
+                    subscription.Id.ToString()));
             }
             else
             {
@@ -415,7 +535,7 @@ namespace Infrastructure.Content.Services
                     NotificationTypes.PaymentFailed,
                     $"Your ₦{subscription.RecurringAmount:N2} recurring package payment failed: {errorMessage}. We'll retry automatically.",
                     "Payment Failed",
-                    subscription.PackageRequestId));
+                    subscription.Id.ToString()));
             }
 
             await _dbContext.SaveChangesAsync();

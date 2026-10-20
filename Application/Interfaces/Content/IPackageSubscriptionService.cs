@@ -30,5 +30,19 @@ namespace Application.Interfaces.Content
         /// a Recurring PackageRequest. Called by PackagePaymentService.CompleteRecurringPackagePaymentAsync
         /// after token capture — never called directly from a controller.</summary>
         Task<PackageSubscription> CreatePackageSubscriptionAsync(CreatePackageSubscriptionRequest request);
+
+        /// <summary>The Flutterwave processing fee (1.4%, capped at ₦2,000) that is added on top of a package
+        /// price for every charge — the first payment and each renewal.</summary>
+        decimal CalculateGatewayFee(decimal baseAmount);
+
+        /// <summary>All of one client's package subscriptions, newest first (list projection, no payment history).</summary>
+        Task<List<PackageSubscriptionDTO>> GetClientSubscriptionsAsync(string clientId);
+
+        /// <summary>One subscription with its payment history, or null when it does not exist or belongs to someone else.</summary>
+        Task<PackageSubscriptionDTO?> GetClientSubscriptionAsync(string clientId, string packageSubscriptionId);
+
+        /// <summary>Client stops auto-renewal. Service they already paid for continues to the end of the current
+        /// period; no further charge is ever made. Idempotent. Fails when the subscription is not the client's.</summary>
+        Task<Result<PackageSubscriptionDTO>> CancelClientSubscriptionAsync(string clientId, string packageSubscriptionId, string? reason);
     }
 }

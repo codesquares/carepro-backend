@@ -186,7 +186,10 @@ public class PackageSubscriptionTests
             s => s.Id == ObjectId.Parse(result.Value.PackageSubscriptionId!));
         Assert.NotNull(subscription);
         Assert.Equal(packageRequest.Id.ToString(), subscription!.PackageRequestId);
-        Assert.Equal(60000m, subscription.RecurringAmount);
+        // Quoted price + 1.4% gateway fee: that total is what every renewal charges.
+        Assert.Equal(60000m, subscription.BaseAmount);
+        Assert.Equal(840m, subscription.GatewayFee);
+        Assert.Equal(60840m, subscription.RecurringAmount);
         Assert.Equal(0, subscription.BillingCyclesCompleted);
         Assert.NotNull(subscription.NextChargeDate);
     }
