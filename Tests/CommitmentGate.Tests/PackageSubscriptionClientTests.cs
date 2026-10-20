@@ -170,22 +170,6 @@ public class PackageSubscriptionClientTests
         Assert.Equal(new[] { 2, 1 }, dto!.Payments!.Select(p => p.BillingCycleNumber).ToArray());
     }
 
-    [Fact]
-    public async Task LegacyRecord_WithoutSplitAmounts_StillShowsItsWholeChargeAsTheBase()
-    {
-        using var db = CreateDb();
-        var svc = CreateService(db);
-        var sub = await Create(svc, "client-a");
-        var stored = await db.PackageSubscriptions.FirstAsync(s => s.Id == sub.Id);
-        stored.BaseAmount = 0; stored.GatewayFee = 0; stored.RecurringAmount = 65000m;
-        await db.SaveChangesAsync();
-
-        var dto = await svc.GetClientSubscriptionAsync("client-a", sub.Id.ToString());
-
-        Assert.Equal(65000m, dto!.BaseAmount);
-        Assert.Equal(65000m, dto.RecurringAmount);
-    }
-
     // ── Cancel ────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -303,10 +287,10 @@ public sealed class FakeFlutterwave : IDisposable
 
 public class PackageSubscriptionRenewalFlowTests
 {
-    private static (CareProDbContext db, PackageSubscriptionService svc) Build(FakeFlutterwave fake, IMediator? mediator = null)
+    private static (CareProDbContext db, PackageSubscriptionService svc) Build(FakeFlutterwave fake, IMediator? mediator = null, string? dbName = null)
     {
         var options = new DbContextOptionsBuilder<CareProDbContext>()
-            .UseMongoDB("mongodb://127.0.0.1:27018", $"carepro_pkgsub_renewal_{Guid.NewGuid():N}")
+            .UseMongoDB("mongodb://127.0.0.1:27018", dbName ?? $"carepro_pkgsub_renewal_{Guid.NewGuid():N}")
             .Options;
         var db = new TestPackagePaymentDbContext(options);
         var config = new ConfigurationBuilder()
@@ -327,6 +311,67 @@ public class PackageSubscriptionRenewalFlowTests
             PackageRequestId = ObjectId.GenerateNewId().ToString(), ClientId = "client-a", RecurringAmount = 65000m,
             Email = "client@example.com", FlutterwavePaymentToken = "flw-t1nf-test-token"
         });
+
+    /// <summary>A subscription exactly as the pre-fee-split code stored it: BaseAmount / GatewayFee are not in the
+    /// document at all. (The staging subscription created before this change looks like this.)</summary>
+    private static ObjectId InsertLegacyDocument(string dbName, string clientId, decimal charge)
+    {
+        var id = ObjectId.GenerateNewId();
+        var now = DateTime.UtcNow;
+        var doc = new MongoDB.Bson.BsonDocument
+        {
+            { "_id", id },
+            { "PackageRequestId", ObjectId.GenerateNewId().ToString() },
+            { "ClientId", clientId },
+            { "RecurringAmount", MongoDB.Bson.BsonDecimal128.Create(charge) },
+            { "Currency", "NGN" },
+            { "Email", "client@example.com" },
+            { "Status", 0 },
+            { "CurrentPeriodStart", now.AddDays(-30) },
+            { "CurrentPeriodEnd", now },
+            { "NextChargeDate", now.AddMinutes(-5) },     // due right now
+            { "BillingCyclesCompleted", 0 },
+            { "AutoRenew", true },
+            { "FlutterwavePaymentToken", "flw-t1nf-legacy-token" },
+            { "CardLastFour", "4242" }, { "CardBrand", "VISA" }, { "CardExpiry", "09/30" },
+            { "FailedChargeAttempts", 0 }, { "MaxRetryAttempts", 3 },
+            { "CancelAtPeriodEnd", false },
+            { "PaymentHistory", new MongoDB.Bson.BsonArray() },
+            { "CreatedAt", now.AddDays(-30) }, { "UpdatedAt", now.AddDays(-30) }
+        };
+        new MongoDB.Driver.MongoClient("mongodb://127.0.0.1:27018").GetDatabase(dbName)
+            .GetCollection<MongoDB.Bson.BsonDocument>("PackageSubscriptions").InsertOne(doc);
+        return id;
+    }
+
+    [Fact]
+    public async Task LegacyRecord_WithNoSplitFieldsStored_IsStillReadable_ListedBilledAndCancellable_WithNoUpdateNeeded()
+    {
+        using var fake = new FakeFlutterwave();
+        var dbName = $"carepro_pkgsub_legacy_{Guid.NewGuid():N}";
+        var (db, svc) = Build(fake, dbName: dbName);
+        using var _ = db;
+        var legacyId = InsertLegacyDocument(dbName, "client-a", 65000m);
+
+        // Client views: base = the whole stored charge, no fee line.
+        var list = await svc.GetClientSubscriptionsAsync("client-a");
+        var item = Assert.Single(list);
+        Assert.Equal(65000m, item.BaseAmount);
+        Assert.Equal(0m, item.GatewayFee);
+        Assert.Equal(65000m, item.RecurringAmount);
+        Assert.NotNull(await svc.GetClientSubscriptionAsync("client-a", legacyId.ToString()));
+
+        // The billing sweep can load it, and a renewal charges exactly what it always did (no surprise fee).
+        Assert.Contains(await svc.GetPackageSubscriptionsDueForBillingAsync(), s => s.Id == legacyId);
+        var charge = await svc.ProcessRecurringPackageChargeAsync(legacyId.ToString());
+        Assert.True(charge.IsSuccess, string.Join(",", charge.Errors));
+        Assert.Equal(65000m, Assert.Single(fake.TokenizedChargeBodies).GetProperty("amount").GetDecimal());
+
+        // And the client can cancel it.
+        var cancel = await svc.CancelClientSubscriptionAsync("client-a", legacyId.ToString(), null);
+        Assert.True(cancel.IsSuccess);
+        Assert.Equal("PendingCancellation", cancel.Value!.Status);
+    }
 
     [Fact]
     public async Task Renewal_ChargesBasePlusFee_VerifiesIt_AndRollsTheSubscriptionForward()
