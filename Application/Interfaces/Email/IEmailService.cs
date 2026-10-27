@@ -21,11 +21,18 @@ namespace Application.Interfaces.Email
         // Pass gateUserId/gateNotificationType together to actually enforce ShouldSendEmailToUserAsync
         // before sending; omit them (as most callers already correctly gated upstream do) to keep the
         // existing header-only behavior.
+        /// <summary>Operational (Always-Send) vetting enforcement notice: complete HTML + plain-text bodies, no unsubscribe header, no marketing.</summary>
+        Task SendVettingNoticeEmailAsync(string toEmail, string subject, string htmlBody, string textBody);
+
         Task SendGenericNotificationEmailAsync(string toEmail, string firstName, string subject, string content,
             bool includeUnsubscribeHeader = false, string? gateUserId = null, string? gateNotificationType = null);
         
         // Payment-related notification methods
         Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId);
+        /// <summary>One combined email: payment received AND package request created (Always-Send).</summary>
+        Task SendPackagePaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string packageLabel, string transactionId);
+        /// <summary>Payment received but the package request could not be created; staff will follow up (Always-Send).</summary>
+        Task SendPackagePaymentIssueEmailAsync(string toEmail, string firstName, decimal amount, string transactionId);
         Task SendEarningsNotificationEmailAsync(string toEmail, string firstName, decimal amount, string clientName, string serviceType);
         Task SendWithdrawalRequestEmailAsync(string toEmail, string firstName, decimal amount, string status);
         Task SendPaymentFailedEmailAsync(string toEmail, string firstName, decimal amount, string reason);
@@ -48,7 +55,7 @@ namespace Application.Interfaces.Email
             ContractDetails? contractDetails, EmailType reminderLevel);
 
         // Contract PDF email
-        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes);
+        Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null);
 
         // Payment receipt PDF email
         Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes);
@@ -70,6 +77,15 @@ namespace Application.Interfaces.Email
 
         // Referral program emails
         Task SendReferralCodeEmailAsync(string toEmail, string firstName, string referralCode);
+
+        // Phase 2 vetting: guarantor self-serve confirmation link (recipient is NOT a platform user)
+        Task SendGuarantorConfirmationEmailAsync(string toEmail, string guarantorName, string caregiverName, string confirmationLink);
+
+        // Admin-triggered client gig recommendation (Always-Send — direct response to a
+        // client-initiated request, see EMAIL-COMPLIANCE-CLASSIFICATION-POLICY.md row #30)
+        Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,
+            string caregiverFirstName, string gigTitle, string? gigPhotoUrl, int price,
+            string category, string? blurb, string gigLink);
     }
 
     // Supporting classes for email service

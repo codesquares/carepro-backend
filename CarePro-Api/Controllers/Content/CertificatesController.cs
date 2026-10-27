@@ -1,4 +1,5 @@
 ﻿using Application.DTOs;
+using Domain.Entities;
 using Application.Interfaces;
 using Application.Interfaces.Content;
 using Infrastructure.Content.Data;
@@ -9,25 +10,97 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace CarePro_Api.Controllers.Content
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(Roles = "Caregiver,Admin")]
+    // [Authorize(Roles = "Caregiver,Admin")] // was class-level: ANDed with every action's own attribute, so SuperAdmin (who is in
+    // OperationsPolicy) was rejected on every route. Now: any signed-in user at class level, and EVERY action states its own rule.
+    [Authorize]
     public class CertificatesController : ControllerBase
     {
         private readonly CareProDbContext careProDbContext;
         private readonly ICertificationService certificationService;
         private readonly ILogger<CertificatesController> logger;
         private readonly ICareGiverService careGiverService;
+        private readonly IAuthorizationService authorizationService;
 
-        public CertificatesController(CareProDbContext careProDbContext, ICertificationService certificationService, ILogger<CertificatesController> logger, ICareGiverService careGiverService)
+        public CertificatesController(CareProDbContext careProDbContext, ICertificationService certificationService, ILogger<CertificatesController> logger, ICareGiverService careGiverService, IAuthorizationService authorizationService)
         {
+            this.authorizationService = authorizationService;
             this.careProDbContext = careProDbContext;
             this.certificationService = certificationService;
             this.logger = logger;
             this.careGiverService = careGiverService;
+        }
+
+        // ---- Ownership helpers -------------------------------------------------------------------------
+        // Identity ALWAYS comes from the JWT. A caregiverId in a body/query is attacker-controlled and is only
+        // ever compared against the JWT, never trusted. "Allowed admin" = the same OperationsPolicy that guards
+        // every other vetting/review route (HR, ComplianceAndLegal, CareLeads, or SuperAdmin).
+        private string? CurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private async Task<bool> IsOperationsAdminAsync() =>
+            (await authorizationService.AuthorizeAsync(User, "OperationsPolicy")).Succeeded;
+
+        private string CurrentAdminEmail() =>
+            User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirst("email")?.Value ?? string.Empty;
+
+        /// <summary>
+        /// Records an admin action on a certificate in AdminAuditLogs. The acting admin always comes from the JWT.
+        /// A failure to write the audit row is logged but does not undo an action that already happened.
+        /// </summary>
+        private async Task WriteAdminAuditAsync(string action, string certificateId, string caregiverId, string reason, string? afterJson = null)
+        {
+            try
+            {
+                careProDbContext.AdminAuditLogs.Add(new AdminAuditLog
+                {
+                    Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+                    AdminId = CurrentUserId() ?? string.Empty,
+                    AdminEmail = CurrentAdminEmail(),
+                    TargetEntityType = "Certificate",
+                    TargetEntityId = certificateId,
+                    TargetUserId = caregiverId,
+                    Action = action,
+                    AfterJson = afterJson,
+                    Reason = reason,
+                    Timestamp = DateTime.UtcNow
+                });
+                await careProDbContext.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to write the admin audit log entry '{Action}' for certificate {CertificateId}", action, certificateId);
+            }
+        }
+
+        private IActionResult ForbiddenResult(string message) =>
+            StatusCode(StatusCodes.Status403Forbidden, new { success = false, message });
+
+        private IActionResult CertificateNotFound(string certificateId) =>
+            NotFound(new { message = $"Certificate with ID '{certificateId}' not found." });
+
+        /// <summary>
+        /// Resolves the caregiver id an upload is for. Always the JWT caregiver. A different id in the body is
+        /// rejected (403) rather than silently re-targeted, so a tampered client is visible in the logs.
+        /// </summary>
+        private IActionResult? ResolveUploadCaregiver(string? bodyCaregiverId, out string caregiverId)
+        {
+            caregiverId = CurrentUserId() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(caregiverId))
+                return Unauthorized(new { success = false, message = "Unable to identify the signed-in caregiver." });
+            if (!string.IsNullOrWhiteSpace(bodyCaregiverId) && bodyCaregiverId != caregiverId)
+            {
+                logger.LogWarning("Certificate upload rejected: body CaregiverId differs from the JWT caregiver {CallerId}", caregiverId);
+                return ForbiddenResult("You can only upload certificates for your own account.");
+            }
+            return null;
         }
 
         /// <summary>
@@ -54,6 +127,14 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogWarning(
                     "Deprecated certificate upload path used: caregiver POST api/Certificates (application/json, base64). CaregiverId={CaregiverId}",
                     addCertificationRequest?.CaregiverId);
+
+                // Identity from the JWT, never the body.
+                if (addCertificationRequest != null)
+                {
+                    var denied = ResolveUploadCaregiver(addCertificationRequest.CaregiverId, out var jwtCaregiverId);
+                    if (denied != null) return denied;
+                    addCertificationRequest.CaregiverId = jwtCaregiverId;
+                }
 
                 // Validate the incoming request
                 if (!(await ValidateAddCertificateAsync(addCertificationRequest)))
@@ -145,6 +226,9 @@ namespace CarePro_Api.Controllers.Content
                     return BadRequest(new { success = false, message = "Request cannot be empty." });
                 }
 
+                var deniedUpload = ResolveUploadCaregiver(formRequest.CaregiverId, out var jwtCaregiverId);
+                if (deniedUpload != null) return deniedUpload;
+
                 if (formRequest.Certificate == null || formRequest.Certificate.Length == 0)
                 {
                     ModelState.AddModelError(nameof(formRequest.Certificate), "Certificate file is required.");
@@ -170,17 +254,32 @@ namespace CarePro_Api.Controllers.Content
                 // Read the file into memory and convert to base64 so we can reuse the existing
                 // service pipeline (Cloudinary upload, validation, persistence, notifications).
                 // The service contract expects base64; rather than fork the pipeline we adapt here.
-                string base64Certificate;
+                byte[] certificateBytes;
                 using (var ms = new MemoryStream())
                 {
                     await formRequest.Certificate.CopyToAsync(ms);
-                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                    certificateBytes = ms.ToArray();
                 }
+
+                // Type check by declared content type AND magic bytes (never the file name): PDF, JPG, PNG only.
+                var fileError = CertificateFileValidator.Validate(certificateBytes, formRequest.Certificate.ContentType);
+                if (fileError != null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = fileError,
+                        errors = new Dictionary<string, string[]> { { nameof(formRequest.Certificate), new[] { fileError } } }
+                    });
+                }
+
+                var base64Certificate = Convert.ToBase64String(certificateBytes);
 
                 var addCertificationRequest = new AddCertificationRequest
                 {
                     CertificateName = formRequest.CertificateName,
-                    CaregiverId = formRequest.CaregiverId,
+                    // CaregiverId = formRequest.CaregiverId, // was: trusted the form field (any caregiver could upload as another)
+                    CaregiverId = jwtCaregiverId,
                     CertificateIssuer = formRequest.CertificateIssuer,
                     CertificateCategory = formRequest.CertificateCategory,
                     Certificate = base64Certificate,
@@ -266,7 +365,8 @@ namespace CarePro_Api.Controllers.Content
         /// log entry capturing the acting admin's id.
         /// </summary>
         [HttpPost("admin/{caregiverId}")]
-        [Authorize(Roles = "Admin,SuperAdmin")]
+        // [Authorize(Roles = "Admin,SuperAdmin")] // was: every admin department (Finance included) could upload on a caregiver's behalf
+        [Authorize(Policy = "OperationsPolicy")]
         [Consumes("application/json")]
         [Obsolete("Use the multipart/form-data variant of POST api/Certificates/admin/{caregiverId}. This base64/JSON path is kept as a fallback for legacy clients and will be removed.")]
         public async Task<IActionResult> AdminAddCertificateAsync(string caregiverId, [FromBody] AddCertificationRequest addCertificationRequest)
@@ -297,10 +397,13 @@ namespace CarePro_Api.Controllers.Content
 
                 var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
 
-                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier); // was: NameIdentifier only (not what the login token carries)
+                var adminId = CurrentUserId();
                 logger.LogInformation(
                     "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' on behalf of caregiver {CaregiverId} at {Timestamp}",
                     adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+                await WriteAdminAuditAsync("CertificateAdminUpload", result.CertificateId ?? string.Empty, caregiverId,
+                    "Admin uploaded a certificate on behalf of the caregiver (json)", $"{{\"certificateName\":{JsonSerializer.Serialize(addCertificationRequest.CertificateName)}}}");
 
                 return Ok(new
                 {
@@ -359,7 +462,8 @@ namespace CarePro_Api.Controllers.Content
         /// Same semantics as <see cref="AdminAddCertificateAsync"/>.
         /// </summary>
         [HttpPost("admin/{caregiverId}")]
-        [Authorize(Roles = "Admin,SuperAdmin")]
+        // [Authorize(Roles = "Admin,SuperAdmin")] // was: every admin department (Finance included) could upload on a caregiver's behalf
+        [Authorize(Policy = "OperationsPolicy")]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(12_582_912)] // 12 MB request body cap (10 MB file + multipart overhead)
         [RequestFormLimits(MultipartBodyLengthLimit = 12_582_912)]
@@ -397,12 +501,26 @@ namespace CarePro_Api.Controllers.Content
                     });
                 }
 
-                string base64Certificate;
+                byte[] certificateBytes;
                 using (var ms = new MemoryStream())
                 {
                     await formRequest.Certificate.CopyToAsync(ms);
-                    base64Certificate = Convert.ToBase64String(ms.ToArray());
+                    certificateBytes = ms.ToArray();
                 }
+
+                // PDF, JPG, PNG only - by declared content type AND magic bytes.
+                var fileError = CertificateFileValidator.Validate(certificateBytes, formRequest.Certificate.ContentType);
+                if (fileError != null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = fileError,
+                        errors = new Dictionary<string, string[]> { { nameof(formRequest.Certificate), new[] { fileError } } }
+                    });
+                }
+
+                var base64Certificate = Convert.ToBase64String(certificateBytes);
 
                 var addCertificationRequest = new AddCertificationRequest
                 {
@@ -423,10 +541,13 @@ namespace CarePro_Api.Controllers.Content
 
                 var result = await certificationService.CreateCertificateAsync(addCertificationRequest);
 
-                var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                // var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier); // was: NameIdentifier only (not what the login token carries)
+                var adminId = CurrentUserId();
                 logger.LogInformation(
                     "Audit Event: Admin {AdminId} uploaded certificate '{CertificateName}' (multipart) on behalf of caregiver {CaregiverId} at {Timestamp}",
                     adminId, addCertificationRequest.CertificateName, caregiverId, DateTime.UtcNow);
+                await WriteAdminAuditAsync("CertificateAdminUpload", result.CertificateId ?? string.Empty, caregiverId,
+                    "Admin uploaded a certificate on behalf of the caregiver (multipart)", $"{{\"certificateName\":{JsonSerializer.Serialize(addCertificationRequest.CertificateName)}}}");
 
                 return Ok(new
                 {
@@ -525,11 +646,26 @@ namespace CarePro_Api.Controllers.Content
         /// Get all certificates for a caregiver
         /// </summary>
         [HttpGet]
-        [Authorize(Roles = "Caregiver,Admin")]
-        public async Task<IActionResult> GetAllCertificatesAsync(string caregiverId)
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
+        public async Task<IActionResult> GetAllCertificatesAsync(string? caregiverId = null)
         {
             try
             {
+                if (User.IsInRole("Caregiver"))
+                {
+                    var callerId = CurrentUserId();
+                    if (string.IsNullOrWhiteSpace(callerId))
+                        return Unauthorized(new { success = false, message = "Unable to identify the signed-in caregiver." });
+                    // A caregiver only ever gets their own; omitting the id means "mine".
+                    if (string.IsNullOrWhiteSpace(caregiverId)) caregiverId = callerId;
+                    else if (caregiverId != callerId)
+                        return ForbiddenResult("You can only view your own certificates.");
+                }
+                else if (!await IsOperationsAdminAsync())
+                {
+                    return ForbiddenResult("Your department is not permitted to view caregiver certificates.");
+                }
+
                 if (string.IsNullOrWhiteSpace(caregiverId))
                 {
                     return BadRequest(new { message = "CaregiverId is required" });
@@ -588,7 +724,7 @@ namespace CarePro_Api.Controllers.Content
         /// Get a specific certificate by ID
         /// </summary>
         [HttpGet("{certificateId}")]
-        [Authorize(Roles = "Caregiver,Admin")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
         public async Task<IActionResult> GetCertificateAsync(string certificateId)
         {
             try
@@ -600,7 +736,14 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Retrieving certificate: {certificateId}");
 
+                if (!User.IsInRole("Caregiver") && !await IsOperationsAdminAsync())
+                    return ForbiddenResult("Your department is not permitted to view caregiver certificates.");
+
                 var certificate = await certificationService.GetCertificateAsync(certificateId);
+
+                // Not the owner -> 404, identical to a missing certificate (do not reveal existence).
+                if (User.IsInRole("Caregiver") && certificate.CaregiverId != CurrentUserId())
+                    return CertificateNotFound(certificateId);
 
                 return Ok(new
                 {
@@ -643,13 +786,22 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Deleting all certificates for caregiver: {caregiverId}");
 
+                var countBefore = await careProDbContext.Certifications.CountAsync(c => c.CaregiverId == caregiverId);
+
                 await certificationService.DeleteAllCaregiverCertificatesAsync(caregiverId);
+
+                await WriteAdminAuditAsync("CertificateAdminBulkDelete", caregiverId, caregiverId,
+                    "Admin deleted all of a caregiver's certificates", $"{{\"certificatesDeleted\":{countBefore}}}");
 
                 return Ok(new
                 {
                     success = true,
                     message = "All certificates deleted successfully"
                 });
+            }
+            catch (CertificateFileDeletionException ex)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = ex.Message });
             }
             catch (ApplicationException appEx) when (appEx.Message.Contains("legacy data schema"))
             {
@@ -674,7 +826,7 @@ namespace CarePro_Api.Controllers.Content
         /// Delete a specific certificate
         /// </summary>
         [HttpDelete("{certificateId}")]
-        [Authorize(Roles = "Caregiver,Admin")]
+        [Authorize(Roles = "Caregiver,Admin,SuperAdmin")] // non-caregivers must additionally pass OperationsPolicy (checked in the action)
         public async Task<IActionResult> DeleteCertificateAsync(string certificateId)
         {
             try
@@ -686,7 +838,31 @@ namespace CarePro_Api.Controllers.Content
 
                 logger.LogInformation($"Deleting certificate: {certificateId}");
 
+                if (!User.IsInRole("Caregiver") && !await IsOperationsAdminAsync())
+                    return ForbiddenResult("Your department is not permitted to delete caregiver certificates.");
+
+                // Look up first: a non-owner caregiver gets the same 404 as a missing certificate, and the rule below needs the status.
+                var existing = await certificationService.GetCertificateAsync(certificateId);
+                var isCaregiver = User.IsInRole("Caregiver");
+                if (isCaregiver && existing.CaregiverId != CurrentUserId())
+                    return CertificateNotFound(certificateId);
+
+                // RULE (owner can reverse): a caregiver cannot remove an APPROVED certificate - that would silently drop an eligibility
+                // requirement. Pending, under-review and rejected ones can still be removed by their owner; Operations admins can
+                // remove any, and every admin delete is audited.
+                if (isCaregiver && (existing.VerificationStatus == DocumentVerificationStatus.Verified || existing.IsVerified))
+                {
+                    return ForbiddenResult("Approved certificates cannot be removed here. Please contact support.");
+                }
+
                 await certificationService.DeleteCertificateAsync(certificateId);
+
+                if (!isCaregiver)
+                {
+                    await WriteAdminAuditAsync("CertificateAdminDelete", certificateId, existing.CaregiverId ?? string.Empty,
+                        "Admin deleted a caregiver's certificate",
+                        $"{{\"certificateName\":{JsonSerializer.Serialize(existing.CertificateName)},\"statusBeforeDelete\":\"{existing.VerificationStatus}\"}}");
+                }
 
                 return Ok(new
                 {
@@ -697,6 +873,11 @@ namespace CarePro_Api.Controllers.Content
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { message = ex.Message });
+            }
+            catch (CertificateFileDeletionException ex)
+            {
+                // The file is still in storage, so the record was kept: say so instead of reporting success.
+                return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -791,7 +972,13 @@ namespace CarePro_Api.Controllers.Content
                 // Validate base64 format
                 try
                 {
-                    Convert.FromBase64String(addCertificationRequest.Certificate);
+                    var decoded = Convert.FromBase64String(addCertificationRequest.Certificate);
+                    // No content type on this path, so magic bytes only: PDF, JPG or PNG.
+                    var fileError = CertificateFileValidator.Validate(decoded, declaredContentType: null);
+                    if (fileError != null)
+                    {
+                        ModelState.AddModelError(nameof(addCertificationRequest.Certificate), fileError);
+                    }
                 }
                 catch (FormatException)
                 {

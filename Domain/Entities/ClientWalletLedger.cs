@@ -54,5 +54,7 @@ namespace Domain.Entities
         public const string CreditApplied = "CreditApplied";
         public const string Adjustment = "Adjustment";
         public const string RefundDebit = "RefundDebit";
+        /// <summary>Credit issued to the client when a dispute is resolved as FullRefund / PartialRefund.</summary>
+        public const string DisputeRefundCredit = "DisputeRefundCredit";
     }
 }

@@ -15,6 +15,8 @@ namespace Application.Interfaces.Content
 
         Task<AdminUserResponse> GetAdminUserByIdAsync(string adminUserId);
 
+        Task<AdminUserResponse> UpdateAdminApprovalStatusAsync(string adminUserId, string status);
+
         Task<DashboardStatsResponse> GetDashboardStatsAsync();
 
         Task<GrantClientOnboardingResetAccessResponse> GrantClientOnboardingResetAccessAsync(GrantClientOnboardingResetAccessRequest request);

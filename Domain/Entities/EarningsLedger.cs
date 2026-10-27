@@ -16,7 +16,7 @@ namespace Domain.Entities
 
         /// <summary>
         /// The type of financial event.
-        /// Values: "OrderReceived", "FundsReleased", "WithdrawalCompleted", "Refund", "DisputeHold", "Adjustment"
+        /// Values: "OrderReceived", "FundsReleased", "WithdrawalCompleted", "Refund", "DisputeHold", "Adjustment", "VisitApproved", "OrderCancelled", "PayrollCredit"
         /// </summary>
         public string Type { get; set; } = string.Empty;
 
@@ -74,6 +74,11 @@ namespace Domain.Entities
         public string? WithdrawalRequestId { get; set; }
 
         /// <summary>
+        /// The Payroll record this entry credits (null for non-payroll entries).
+        /// </summary>
+        public string? PayrollId { get; set; }
+
+        /// <summary>
         /// Release reason for FundsReleased entries:
         /// "ClientApproved", "AutoReleased", "RecurringPayment", "InitialSubscription"
         /// </summary>
@@ -95,6 +100,7 @@ namespace Domain.Entities
         public const string Adjustment = "Adjustment";
         public const string VisitApproved = "VisitApproved";
         public const string OrderCancelled = "OrderCancelled";
+        public const string PayrollCredit = "PayrollCredit";
     }
 
     /// <summary>

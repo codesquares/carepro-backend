@@ -34,6 +34,19 @@ namespace Application.Interfaces.Authentication
         /// </summary>
         (bool IsValid, string? UserId, string? Email, string? PreferenceScope, string? Error) ValidateEmailUnsubscribeToken(string token);
 
+        /// <summary>
+        /// Generates a signed 14-day token embedded in the guarantor self-serve
+        /// confirmation link. Carries a "purpose" claim of "guarantor_confirmation"
+        /// and identifies the guarantor via a "guarantorId" claim (not "userId" —
+        /// guarantors are not platform users).
+        /// </summary>
+        string GenerateGuarantorConfirmationToken(string guarantorId);
+
+        /// <summary>
+        /// Validates and parses a signed guarantor confirmation token.
+        /// </summary>
+        (bool IsValid, string? GuarantorId, string? Error) ValidateGuarantorConfirmationToken(string token);
+
         //string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30);
         string GenerateEmailVerificationToken(string userId, string email, string secretKey, int expireMinutes = 30);
 

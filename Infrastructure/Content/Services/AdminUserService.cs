@@ -62,7 +62,7 @@ namespace Infrastructure.Content.Services
                 Id = ObjectId.GenerateNewId(),
                 Role = addAdminUserRequest.Role,
                 Department = addAdminUserRequest.Role == "SuperAdmin" ? null : addAdminUserRequest.Department,
-                // Status = true,
+                Status = AdminUserStatus.PendingApproval,
                 IsDeleted = false,
 
 
@@ -190,6 +190,35 @@ namespace Infrastructure.Content.Services
                 ActiveSubscriptions = activeSubscriptions,
                 PendingWithdrawals = pendingWithdrawals,
                 TotalAdmins = totalAdmins,
+            };
+        }
+
+        public async Task<AdminUserResponse> UpdateAdminApprovalStatusAsync(string adminUserId, string status)
+        {
+            if (status != AdminUserStatus.Approved && status != AdminUserStatus.Rejected)
+                throw new InvalidOperationException($"Status must be '{AdminUserStatus.Approved}' or '{AdminUserStatus.Rejected}'.");
+
+            var adminUser = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Id.ToString() == adminUserId);
+            if (adminUser == null)
+                throw new KeyNotFoundException($"Admin user with ID '{adminUserId}' not found.");
+
+            adminUser.Status = status;
+            careProDbContext.AdminUsers.Update(adminUser);
+            await careProDbContext.SaveChangesAsync();
+
+            return new AdminUserResponse
+            {
+                Id = adminUser.Id.ToString(),
+                FirstName = adminUser.FirstName,
+                MiddleName = adminUser.MiddleName,
+                LastName = adminUser.LastName,
+                Email = adminUser.Email,
+                PhoneNo = adminUser.PhoneNo,
+                Role = adminUser.Role,
+                Department = adminUser.Department,
+                IsDeleted = adminUser.IsDeleted,
+                Status = adminUser.Status,
+                CreatedAt = adminUser.CreatedAt,
             };
         }
 

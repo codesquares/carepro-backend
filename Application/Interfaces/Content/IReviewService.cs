@@ -11,11 +11,11 @@ namespace Application.Interfaces.Content
     {
         Task<string> CreateReviewAsync(AddReviewRequest addReviewRequest);
 
-        Task<IEnumerable<ReviewResponse>> GetAllGigReviewAsync(string gigId);
+        Task<IEnumerable<ReviewResponse>> GetReviewsByAssignmentAsync(string assignmentId);
 
-        Task<ReviewResponse> GetGigReviewAsync(string reviewId);
+        Task<ReviewResponse> GetReviewAsync(string reviewId);
 
-        Task<int> GetReviewCountAsync(string gigId);
+        Task<int> GetReviewCountAsync(string assignmentId);
 
         Task<IEnumerable<ReviewResponse>> GetCaregiverReviewsAsync(string caregiverId);
     }

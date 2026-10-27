@@ -148,6 +148,16 @@ builder.Services.AddScoped<IGigImageModerationService, GigImageModerationService
 builder.Services.AddScoped<IClientOrderService, ClientOrderService>();
 builder.Services.AddScoped<ICertificationService, CertificationService>();
 builder.Services.AddScoped<ICaregiverProfileService, CaregiverProfileService>();
+builder.Services.AddScoped<ICaregiverVettingService, CaregiverVettingService>();
+builder.Services.AddScoped<IGuarantorService, GuarantorService>();
+builder.Services.AddScoped<IPoliceClearanceFileStore, CloudinaryPoliceClearanceFileStore>();
+builder.Services.AddScoped<IPoliceClearanceNotifier, PoliceClearanceNotifier>();
+builder.Services.AddScoped<IPoliceClearanceService, PoliceClearanceService>();
+builder.Services.AddScoped<IPoliceClearanceAdminService, PoliceClearanceAdminService>();
+builder.Services.AddScoped<IAddressProofNotifier, AddressProofNotifier>();
+builder.Services.AddScoped<IAddressProofService, AddressProofService>();
+builder.Services.AddScoped<IAddressProofAdminService, AddressProofAdminService>();
+builder.Services.AddScoped<IVettingNoticeService, VettingNoticeService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 builder.Services.AddScoped<IWebhookLogService, WebhookLogService>();
@@ -161,10 +171,6 @@ builder.Services.AddScoped<ICaregiverEligibilityChangeNotifier, CaregiverEligibi
 builder.Services.AddScoped<IClientPreferenceService, ClientPreferenceService>();
 builder.Services.AddScoped<ICaregiverPreferenceService, CaregiverPreferenceService>();
 builder.Services.AddScoped<IClientOnboardingService, ClientOnboardingService>();
-builder.Services.AddScoped<ICareRequestService, CareRequestService>();
-builder.Services.AddScoped<ICareRequestResponseService, CareRequestResponseService>();
-builder.Services.AddScoped<IGigPriceNegotiationService, GigPriceNegotiationService>();
-builder.Services.AddScoped<IClientRecommendationService, ClientRecommendationService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReferralService, ReferralService>();
 
@@ -212,6 +218,14 @@ builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
+builder.Services.AddScoped<IPackageService, PackageService>();
+builder.Services.AddScoped<ICaregiverPayRateService, CaregiverPayRateService>();
+builder.Services.AddScoped<IPayrollService, PayrollService>();
+builder.Services.AddScoped<IOpsAlertService, OpsAlertService>();
+builder.Services.AddScoped<IPackageRequestService, PackageRequestService>();
+builder.Services.AddScoped<IPackageContractService, PackageContractService>();
+builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<IPackageVisitAdminService, PackageVisitAdminService>();
 
 // Secure payment services
 builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
@@ -219,9 +233,16 @@ builder.Services.AddScoped<IPendingPaymentService, PendingPaymentService>();
 // Booking commitment (gig access fee) services
 builder.Services.AddScoped<IBookingCommitmentService, BookingCommitmentService>();
 
+// Admin-initiated Package payment link generation + webhook completion (Option A)
+builder.Services.AddScoped<IPackagePaymentService, PackagePaymentService>();
+
 // Subscription & recurring billing services
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHostedService<RecurringBillingService>();
+
+// Phase 10 — recurring Package billing (repointed renewal engine, never Gig/ClientOrder-anchored)
+builder.Services.AddScoped<IPackageSubscriptionService, PackageSubscriptionService>();
+builder.Services.AddHostedService<PackageRecurringBillingService>();
 
 // Content sanitization (XSS prevention)
 builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
@@ -229,6 +250,7 @@ builder.Services.AddSingleton<IContentSanitizer, ContentSanitizer>();
 // Contact pattern detection & chat compliance (off-platform leakage prevention)
 builder.Services.AddSingleton<IContactPatternDetector, ContactPatternDetector>();
 builder.Services.AddScoped<IChatComplianceService, ChatComplianceService>();
+builder.Services.AddScoped<IChatAccessService, ChatAccessService>();
 
 // Location services
 builder.Services.AddScoped<ILocationService, LocationService>();
@@ -237,17 +259,9 @@ builder.Services.AddHttpClient<GeocodingService>();
 
 // Contract services (Smart Contract Generation feature)
 builder.Services.AddScoped<IContractService, ContractService>();
-builder.Services.AddScoped<IContractNotificationService, ContractNotificationService>();
-builder.Services.AddScoped<IContractLLMService, OpenAIContractService>();
 builder.Services.AddScoped<IContractTemplateService, ContractTemplateService>();
 builder.Services.AddScoped<IContractPdfService, ContractPdfService>();
 builder.Services.AddScoped<IReceiptPdfService, ReceiptPdfService>();
-
-// Order Tasks services (Enhanced Contract Generation feature)
-builder.Services.AddScoped<IOrderTasksService, OrderTasksService>();
-
-// Order Negotiation services (Pre-Contract Negotiation Phase)
-builder.Services.AddScoped<IOrderNegotiationService, OrderNegotiationService>();
 
 // Task Sheets services (Caregiver visit session tracking)
 builder.Services.AddScoped<ITaskSheetService, TaskSheetService>();
@@ -257,6 +271,7 @@ builder.Services.AddScoped<IVisitCheckinService, VisitCheckinService>();
 builder.Services.AddScoped<IObservationReportService, ObservationReportService>();
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 builder.Services.AddScoped<IVisitCancellationService, VisitCancellationService>();
+builder.Services.AddScoped<IVisitAbsenceService, VisitAbsenceService>();
 builder.Services.AddScoped<IClientWalletService, ClientWalletService>();
 builder.Services.AddScoped<IRefundRequestService, RefundRequestService>();
 
@@ -300,16 +315,12 @@ builder.Services.AddScoped<IEmailNotificationTrackingService, EmailNotificationT
 builder.Services.AddHostedService<ImmediateNotificationProcessor>();
 builder.Services.AddHostedService<DailyBatchNotificationProcessor>();
 builder.Services.AddHostedService<ContractReminderProcessor>();
-
-// Care request matching background processor
-builder.Services.AddHostedService<CareRequestMatchingProcessor>();
-builder.Services.AddHostedService<CareRequestPostedEmailProcessor>();
+builder.Services.AddHostedService<ContractCancellationWindowProcessor>();
+builder.Services.AddHostedService<VisitAbsenceEscalationProcessor>();
+builder.Services.AddHostedService<AssignmentRecoveryProcessor>();
 
 // GDPR: Hard-delete gigs past 30-day grace period (runs daily)
 builder.Services.AddHostedService<GigHardDeleteProcessor>();
-
-// Price negotiation: expire stale negotiations after 48h of inactivity (runs every 4h)
-builder.Services.AddHostedService<NegotiationExpiryProcessor>();
 
 // GDPR: Send deletion reminder notifications at 25 and 29 days (runs daily)
 builder.Services.AddHostedService<GigDeletionReminderProcessor>();
@@ -523,8 +534,7 @@ builder.Services.AddEndpointsApiExplorer();
 /// Add Swagger
 builder.Services.AddSwaggerGen(options =>
 {
-    // Disambiguate types that share a simple name across namespaces (e.g.
-    // Domain.Entities.CareRequestResponse vs Application.DTOs.CareRequestResponse).
+    // Disambiguate types that share a simple name across namespaces.
     // Without this, Swashbuckle throws while building /swagger/v1/swagger.json
     // and the endpoint returns HTTP 500.
     options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
@@ -730,6 +740,25 @@ using (var scope = app.Services.CreateScope())
     {
         var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         seedLogger.LogError(ex, "Gig template seeding failed - app will continue normally");
+    }
+}
+
+// Seed real Package pricing data from CarePro Subscription Plans.doc (one-time,
+// per environment; idempotent per row on Category+TierLabel — see PackageService.SeedPackagesAsync)
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var packageService = scope.ServiceProvider.GetRequiredService<IPackageService>();
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        var seedData = PackageSeedData.GetSeedData();
+        var insertedCount = await packageService.SeedPackagesAsync(seedData);
+        seedLogger.LogInformation("Package seed check completed: {InsertedCount} row(s) inserted", insertedCount);
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        seedLogger.LogError(ex, "Package seeding failed - app will continue normally");
     }
 }
 

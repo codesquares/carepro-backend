@@ -63,6 +63,21 @@ namespace Infrastructure.Content.Services
 
         }
 
+        /// <summary>
+        /// Profile-card "Services" tags. Previously scraped from active Gig SubCategory text
+        /// (the old browse-and-book marketplace); the Package/Assignment model now carries this
+        /// as structured data on the caregiver record, so we read it directly instead.
+        /// </summary>
+        private static List<string> GetDisplayedServices(Caregiver caregiver)
+        {
+            var services = new List<string>();
+            if (caregiver.CaregiverType.HasValue)
+                services.Add(caregiver.CaregiverType.Value.ToString());
+            if (!string.IsNullOrWhiteSpace(caregiver.Specialty))
+                services.Add(caregiver.Specialty.Trim());
+            return services;
+        }
+
         private bool IsValidEmail(string email)
         {
             if (string.IsNullOrWhiteSpace(email))
@@ -613,19 +628,7 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
 
-            //var services = await gigServices.GetAllSubCategoriesForCaregiverAsync(caregiverId);
-            var subCategories = await careProDbContext.Gigs
-                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.CaregiverId == caregiverId)
-                .Select(x => x.SubCategory)
-                .ToListAsync();
-
-            var allSubCategories = subCategories
-                .Where(sc => !string.IsNullOrEmpty(sc))
-                .SelectMany(sc => sc.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                .Select(sc => sc.Trim())
-                .Distinct()
-                .ToList();
-
+            var displayedServices = GetDisplayedServices(caregiver);
 
             var clientOrders = await careProDbContext.ClientOrders
                 .Where(x => x.CaregiverId == caregiverId)
@@ -672,7 +675,7 @@ namespace Infrastructure.Content.Services
                 IsAvailable = caregiver.IsAvailable,
                 IntroVideo = caregiver.IntroVideo,
                 //IntroVideo = await cloudinaryService.DownloadVideoAsBase64Async(caregiver.IntroVideo),
-                Services = allSubCategories,
+                Services = displayedServices,
 
                 TotalEarning = totalEarning,
                 // NoOfHoursSpent = noOfHoursSpent,
@@ -748,17 +751,7 @@ namespace Infrastructure.Content.Services
                 throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
             }
 
-            var subCategories = await careProDbContext.Gigs
-                .Where(x => (x.Status == "Published" || x.Status == "Active") && x.CaregiverId == caregiverId)
-                .Select(x => x.SubCategory)
-                .ToListAsync();
-
-            var allSubCategories = subCategories
-                .Where(sc => !string.IsNullOrEmpty(sc))
-                .SelectMany(sc => sc.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                .Select(sc => sc.Trim())
-                .Distinct()
-                .ToList();
+            var displayedServices = GetDisplayedServices(caregiver);
 
             var clientOrders = await careProDbContext.ClientOrders
                 .Where(x => x.CaregiverId == caregiverId)
@@ -784,7 +777,7 @@ namespace Infrastructure.Content.Services
                         : caregiver.AboutMe.Substring(0, 150) + "...",
                 Location = caregiver.Location,
                 IntroVideo = caregiver.IntroVideo,
-                Services = allSubCategories,
+                Services = displayedServices,
                 TotalEarning = totalEarning,
                 NoOfOrders = noOfOrders,
                 ProfileImage = caregiver.ProfileImage,
@@ -795,6 +788,39 @@ namespace Infrastructure.Content.Services
             };
 
             return caregiverDTO;
+        }
+
+        public async Task<CaregiverSelfProfileResponse> GetMyProfileAsync(string caregiverId)
+        {
+            var caregiver = await careProDbContext.CareGivers.FirstOrDefaultAsync(x => x.Id.ToString() == caregiverId);
+
+            if (caregiver == null)
+            {
+                throw new KeyNotFoundException($"Caregiver with ID '{caregiverId}' not found.");
+            }
+
+            return new CaregiverSelfProfileResponse
+            {
+                Id = caregiver.Id.ToString(),
+                FirstName = caregiver.FirstName,
+                LastName = caregiver.LastName,
+                Email = caregiver.Email,
+                ProfileImage = caregiver.ProfileImage,
+                AccountDeletionRequestedAt = caregiver.AccountDeletionRequestedAt,
+                AboutMe = caregiver.AboutMe,
+                Location = caregiver.Location,
+                ServiceCity = caregiver.ServiceCity,
+                ServiceState = caregiver.ServiceState,
+                ServiceAddress = caregiver.ServiceAddress,
+                HomeAddress = caregiver.HomeAddress,
+                Latitude = caregiver.Latitude,
+                Longitude = caregiver.Longitude,
+                IsAvailable = caregiver.IsAvailable,
+                Status = caregiver.Status,
+                IntroVideo = caregiver.IntroVideo,
+                Services = GetDisplayedServices(caregiver),
+                CreatedAt = caregiver.CreatedAt,
+            };
         }
 
         public async Task<string> SoftDeleteCaregiverAsync(string caregiverId)

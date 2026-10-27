@@ -69,5 +69,48 @@ namespace Domain.Entities
         // data 30 days after DeletedOn. Can be cleared if user cancels within grace period.
         public DateTime? AccountDeletionRequestedAt { get; set; }
 
+        // ── Vetting: professional classification (Phase 2) ──
+        // Nullable so legacy MongoDB documents without the field continue to
+        // deserialize (the MongoDB EF Core provider rejects missing non-nullable
+        // properties). Null = caregiver has not yet declared a type.
+        public CaregiverType? CaregiverType { get; set; }
+
+        // Free-text sub-specialty, e.g. "Midwifery". Only meaningful when
+        // CaregiverType == RegisteredNurse, but stored as a general nullable
+        // field rather than being type-restricted at the schema level.
+        public string? Specialty { get; set; }
+
+        // ── Payroll: experience classification (Phase 9.1) ──
+        // Nullable for the same reason as CaregiverType: legacy documents
+        // without the field must keep deserializing, and null = not yet
+        // classified. Admin-set (drives CaregiverPayRate lookup), not
+        // self-declared by the caregiver.
+        public ExperienceTier? ExperienceTier { get; set; }
+
+    }
+
+    /// <summary>
+    /// Professional classification of a caregiver, captured during vetting.
+    /// Distinct from uploaded <see cref="Certification"/> documents and from
+    /// LinkedIn-style <see cref="CaregiverQualification"/> entries — this is a
+    /// single high-level category, not a credential record.
+    /// </summary>
+    public enum CaregiverType
+    {
+        AuxiliaryNurse = 0,
+        CHEW = 1,
+        RegisteredNurse = 2
+    }
+
+    /// <summary>
+    /// Experience classification used for payroll rate lookup (Phase 9), alongside
+    /// <see cref="CaregiverType"/> in <see cref="CaregiverPayRate"/>. Admin-assigned,
+    /// not self-declared, since it directly determines pay.
+    /// </summary>
+    public enum ExperienceTier
+    {
+        Junior = 0,
+        Mid = 1,
+        Senior = 2
     }
 }

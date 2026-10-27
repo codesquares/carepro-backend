@@ -18,6 +18,12 @@ using System.Threading.Tasks;
 
 namespace Infrastructure.Content.Services
 {
+    /// <summary>The stored file could not be removed, so the certificate record was kept.</summary>
+    public class CertificateFileDeletionException : Exception
+    {
+        public CertificateFileDeletionException(string message) : base(message) { }
+    }
+
     public class CertificationService : ICertificationService
     {
         private readonly CareProDbContext careProDbContext;
@@ -76,15 +82,22 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException($"Invalid certificate issuer. Expected issuer for this certificate type is: {expectedIssuer}", nameof(addCertificationRequest.CertificateIssuer));
             }
 
-            // Check for duplicate certificate type
-            var existingCertificate = await careProDbContext.Certifications
-                .FirstOrDefaultAsync(c => c.CaregiverId == addCertificationRequest.CaregiverId 
-                                       && c.CertificateName == addCertificationRequest.CertificateName);
-            
-            if (existingCertificate != null)
+            // Check for duplicate certificate type. Only the CURRENT (non-superseded) records count. Pending, under-review,
+            // verification-failed and Verified ones block a second upload; a REJECTED (Invalid) one does not - it is replaced.
+            // var existingCertificate = await careProDbContext.Certifications
+            //     .FirstOrDefaultAsync(c => c.CaregiverId == addCertificationRequest.CaregiverId
+            //                            && c.CertificateName == addCertificationRequest.CertificateName); // was: any record blocked, so a rejected caregiver was stuck
+            var currentOfThisType = await careProDbContext.Certifications
+                .Where(c => c.CaregiverId == addCertificationRequest.CaregiverId
+                         && c.CertificateName == addCertificationRequest.CertificateName
+                         && c.SupersededAt == null)
+                .ToListAsync();
+
+            if (currentOfThisType.Any(c => c.VerificationStatus != DocumentVerificationStatus.Invalid))
             {
                 throw new InvalidOperationException($"A certificate of type '{addCertificationRequest.CertificateName}' has already been uploaded for this caregiver.");
             }
+            var rejectedToReplace = currentOfThisType;   // everything left is Invalid (rejected)
 
             // Reject expired certificates at upload time
             if (addCertificationRequest.ExpiryDate.HasValue && addCertificationRequest.ExpiryDate.Value < DateTime.UtcNow)
@@ -142,8 +155,15 @@ namespace Infrastructure.Content.Services
 
                 LogAuditEvent($"Certificate uploaded and queued for admin review. Type: {certification.CertificateName}, Issuer: {certification.CertificateIssuer}", addCertificationRequest.CaregiverId);
 
-                // Save to database
+                // Save to database. The rejected record(s) this upload replaces are marked superseded in the same save: kept as
+                // history, but no longer counted anywhere.
                 await careProDbContext.Certifications.AddAsync(certification);
+                var supersededNow = DateTime.UtcNow;
+                foreach (var old in rejectedToReplace)
+                {
+                    old.SupersededAt = supersededNow;
+                    old.SupersededByCertificateId = certification.Id.ToString();
+                }
                 await careProDbContext.SaveChangesAsync();
 
                 LogAuditEvent($"Certificate uploaded and saved. ID: {certification.Id}", addCertificationRequest.CaregiverId);
@@ -189,7 +209,7 @@ namespace Infrastructure.Content.Services
             {
                 // Handle potential schema migration issues with legacy documents
                 certificates = await careProDbContext.Certifications
-                    .Where(x => x.CaregiverId == caregiverId)
+                    .Where(x => x.CaregiverId == caregiverId && x.SupersededAt == null) // superseded (replaced) records are history only
                     .OrderBy(x => x.SubmittedOn)
                     .ToListAsync();
             }
@@ -229,7 +249,9 @@ namespace Infrastructure.Content.Services
                     VerificationDate = certificate.VerificationDate,
                     VerificationConfidence = certificate.VerificationConfidence,
                     SubmittedOn = certificate.SubmittedOn,
-                    ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null
+                    ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
+                    AdminReviewNotes = CaregiverVisibleReviewNotes(certificate),
+                    ReviewedAt = certificate.ReviewedAt
                 };
                 
                 certificatesDTOs.Add(certificateDTO);
@@ -261,7 +283,9 @@ namespace Infrastructure.Content.Services
                 VerificationDate = certificate.VerificationDate,
                 VerificationConfidence = certificate.VerificationConfidence,
                 SubmittedOn = certificate.SubmittedOn,
-                ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null
+                ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
+                AdminReviewNotes = CaregiverVisibleReviewNotes(certificate),
+                ReviewedAt = certificate.ReviewedAt
             };
 
             return certificateDTO;
@@ -446,12 +470,10 @@ namespace Infrastructure.Content.Services
 
             try
             {
-                // Delete from Cloudinary if CloudinaryPublicId exists
-                if (!string.IsNullOrEmpty(certificate.CloudinaryPublicId))
-                {
-                    await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId);
-                    logger.LogInformation($"Deleted certificate image from Cloudinary: {certificate.CloudinaryPublicId}");
-                }
+                // Delete the file FIRST and check the result. If Cloudinary fails, the row is kept and the caller gets an
+                // error, so we never report success while the file (a caregiver's credential) is still publicly served.
+                // was: await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId); // wrong resource type (raw), result ignored
+                await RemoveCertificateFileAsync(certificate, Array.Empty<ObjectId>());
 
                 // Delete from database
                 careProDbContext.Certifications.Remove(certificate);
@@ -463,6 +485,39 @@ namespace Infrastructure.Content.Services
             {
                 logger.LogError(ex, "Error deleting certificate {CertificateId}", certificateId);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Removes the stored file for a certificate. NotFound counts as success (already gone). A file that another
+        /// certificate row (outside <paramref name="alsoDeleting"/>) still points at is left alone. A Cloudinary failure
+        /// throws <see cref="CertificateFileDeletionException"/> and logs a warning with the public id (never the URL).
+        /// </summary>
+        private async Task RemoveCertificateFileAsync(Certification certificate, IReadOnlyCollection<ObjectId> alsoDeleting)
+        {
+            var publicId = certificate.CloudinaryPublicId;
+            if (string.IsNullOrWhiteSpace(publicId)) return;
+
+            var stillReferenced = await careProDbContext.Certifications
+                .AnyAsync(c => c.CloudinaryPublicId == publicId && c.Id != certificate.Id && !alsoDeleting.Contains(c.Id));
+            if (stillReferenced)
+            {
+                logger.LogInformation("Certificate file {PublicId} is still referenced by another certificate; leaving the stored file in place", publicId);
+                return;
+            }
+
+            var outcome = await cloudinaryService.DeleteCertificateFileAsync(publicId, certificate.CloudinaryUrl);
+            switch (outcome)
+            {
+                case CloudinaryDeleteOutcome.Deleted:
+                    logger.LogInformation("Deleted certificate file from Cloudinary: {PublicId}", publicId);
+                    break;
+                case CloudinaryDeleteOutcome.NotFound:
+                    logger.LogInformation("Certificate file {PublicId} was already absent from Cloudinary", publicId);
+                    break;
+                default:
+                    logger.LogWarning("Failed to delete certificate file from Cloudinary: {PublicId}. The certificate record was kept.", publicId);
+                    throw new CertificateFileDeletionException("The certificate file could not be removed from storage; nothing was deleted. Please try again.");
             }
         }
 
@@ -492,27 +547,34 @@ namespace Infrastructure.Content.Services
                     return;
                 }
 
-                // Delete from Cloudinary if applicable
+                // Delete the files first; a row whose file could not be removed is KEPT so nothing is orphaned silently.
+                var deletingIds = certificates.Select(c => c.Id).ToList();
+                var deletable = new List<Certification>();
+                var kept = 0;
                 foreach (var certificate in certificates)
                 {
                     try
                     {
-                        if (!string.IsNullOrEmpty(certificate.CloudinaryPublicId))
-                        {
-                            await cloudinaryService.DeleteFileAsync(certificate.CloudinaryPublicId);
-                        }
+                        await RemoveCertificateFileAsync(certificate, deletingIds);
+                        deletable.Add(certificate);
                     }
-                    catch (Exception ex)
+                    catch (CertificateFileDeletionException)
                     {
-                        logger.LogWarning(ex, "Failed to delete image from Cloudinary for certificate {CertificateId}", certificate.Id);
+                        kept++; // already logged with the public id
                     }
                 }
 
                 // Delete from database
-                careProDbContext.Certifications.RemoveRange(certificates);
+                careProDbContext.Certifications.RemoveRange(deletable);
                 await careProDbContext.SaveChangesAsync();
 
-                LogAuditEvent($"Deleted {certificates.Count} certificates for caregiver", caregiverId);
+                LogAuditEvent($"Deleted {deletable.Count} certificates for caregiver", caregiverId);
+
+                if (kept > 0)
+                {
+                    throw new CertificateFileDeletionException(
+                        $"{kept} certificate file(s) could not be removed from storage; those records were kept. Please try again.");
+                }
             }
             catch (Exception ex)
             {
@@ -587,21 +649,27 @@ namespace Infrastructure.Content.Services
                         notificationTitle = "Certificate Verified Successfully";
                         notificationContent = $"Your {certification.CertificateName} has been successfully verified and approved.";
                         emailSubject = "Certificate Verification Successful - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! Your {certification.CertificateName} has been successfully verified and approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"Great news! Your {certification.CertificateName} has been successfully verified and approved.<br /><br />You can now proceed with your profile setup.";
                         break;
 
                     case DocumentVerificationStatus.ManualReviewRequired:
                         notificationTitle = "Certificate Under Review";
                         notificationContent = $"Your {certification.CertificateName} is under manual review. We'll notify you once the review is complete.";
                         emailSubject = "Certificate Under Manual Review - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nYour {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.\\n\\nWe'll notify you as soon as the review is complete.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"Your {certification.CertificateName} requires manual review by our team. This typically takes 1-2 business days.<br /><br />We'll notify you as soon as the review is complete.";
                         break;
 
                     case DocumentVerificationStatus.VerificationFailed:
                         notificationTitle = "Certificate Verification Error";
                         notificationContent = $"There was an error verifying your {certification.CertificateName}. Please try again or contact support.";
                         emailSubject = "Certificate Verification Error - CarePro";
-                        emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team";
+                        // emailContent = $"Dear {caregiver.FirstName},\\n\\nWe encountered a technical error while verifying your {certification.CertificateName}.\\n\\nPlease try uploading again, or contact our support team if the issue persists.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                        // emailContent = $"Dear {caregiver.FirstName},<br /><br />We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                        emailContent = $"We encountered a technical error while verifying your {certification.CertificateName}.<br /><br />Please try uploading again, or contact our support team if the issue persists.";
                         break;
 
                     default:
@@ -801,6 +869,10 @@ namespace Infrastructure.Content.Services
                 certificate.VerificationStatus = DocumentVerificationStatus.Verified;
                 certificate.IsVerified = true;
                 certificate.VerificationDate = DateTime.UtcNow;
+                // Every review path records who/when/why (previously only ReviewCertificateAsync did).
+                certificate.ReviewedByAdminId = adminId;
+                certificate.ReviewedAt = DateTime.UtcNow;
+                certificate.AdminReviewNotes = approvalNotes;
 
                 await careProDbContext.SaveChangesAsync();
 
@@ -850,6 +922,10 @@ namespace Infrastructure.Content.Services
                 certificate.VerificationStatus = DocumentVerificationStatus.Invalid;
                 certificate.IsVerified = false;
                 certificate.VerificationDate = DateTime.UtcNow;
+                // Every review path records who/when/why (previously only ReviewCertificateAsync did).
+                certificate.ReviewedByAdminId = adminId;
+                certificate.ReviewedAt = DateTime.UtcNow;
+                certificate.AdminReviewNotes = rejectionReason;
 
                 await careProDbContext.SaveChangesAsync();
 
@@ -875,6 +951,15 @@ namespace Infrastructure.Content.Services
             }
         }
 
+        /// <summary>The caregiver only ever sees the REJECTION reason; approval notes are internal.</summary>
+        private static string? CaregiverVisibleReviewNotes(Certification c) =>
+            c.VerificationStatus == DocumentVerificationStatus.Invalid ? c.AdminReviewNotes : null;
+
+        // The generic email wrapper renders `content` as HTML inside a <p>, so a "\n" (real or literal) collapses to a
+        // space. Certificate emails therefore use <br /> breaks, and any staff-typed text is HTML-encoded first.
+        private static string EncodeForEmail(string? text) =>
+            System.Net.WebUtility.HtmlEncode(text ?? string.Empty).Replace("\r\n", "\n").Replace("\n", "<br />");
+
         private AdminCertificationResponse MapToAdminCertificationResponse(Certification certificate, CaregiverResponse? caregiver)
         {
             return new AdminCertificationResponse
@@ -894,6 +979,9 @@ namespace Infrastructure.Content.Services
                 ExtractedInfo = certificate.ExtractedCertificateInfo != null ? ParseExtractedInfo(certificate.ExtractedCertificateInfo) : null,
                 DojahRawResponse = certificate.DojahVerificationResponse,
                 VerificationAttempts = certificate.VerificationAttempts,
+                AdminReviewNotes = certificate.AdminReviewNotes,
+                ReviewedAt = certificate.ReviewedAt,
+                SupersededAt = certificate.SupersededAt,
                 CaregiverDetails = caregiver != null ? new CaregiverDetailsDTO
                 {
                     FirstName = caregiver.FirstName,
@@ -912,16 +1000,19 @@ namespace Infrastructure.Content.Services
                 string notificationContent = $"Your {certificate.CertificateName} has been manually reviewed and approved by our team.";
                 
                 string emailSubject = "Certificate Approved - CarePro";
-                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
-                    $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.\n\n";
+                // Real "\n" collapses in the HTML wrapper -> <br />; staff-typed notes are HTML-encoded.
+                // string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                string emailContent = string.Empty +
+                    $"Great news! Your {certificate.CertificateName} has been manually reviewed and approved by our admin team.<br /><br />";
                 
                 if (!string.IsNullOrWhiteSpace(approvalNotes))
                 {
-                    emailContent += $"Admin Notes: {approvalNotes}\n\n";
+                    emailContent += $"Admin Notes: {EncodeForEmail(approvalNotes)}<br /><br />";
                 }
                 
-                emailContent += "You can now proceed with your profile activities.\n\n" +
-                    "Best regards,\nCarePro Team";
+                emailContent += "You can now proceed with your profile activities.<br /><br />" +
+                    // "Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    "";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -952,19 +1043,23 @@ namespace Infrastructure.Content.Services
             try
             {
                 string notificationTitle = "Certificate Rejected After Review";
-                string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Please upload a corrected certificate.";
+                // string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Please upload a corrected certificate."; // was: no reason
+                string notificationContent = $"Your {certificate.CertificateName} has been reviewed and rejected. Reason: {rejectionReason} Please upload a corrected certificate.";
                 
                 string emailSubject = "Certificate Rejected - Action Required - CarePro";
-                string emailContent = $"Dear {caregiver.FirstName},\n\n" +
-                    $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.\n\n" +
-                    $"Rejection Reason: {rejectionReason}\n\n" +
-                    "Please upload a corrected certificate to continue with your profile setup. Ensure that:\n" +
-                    "- The certificate image is clear and readable\n" +
-                    "- Your name on the certificate matches your profile name\n" +
-                    "- The certificate is genuine and issued by the stated institution\n" +
-                    "- All information is accurate and up-to-date\n\n" +
-                    "If you have questions or need assistance, please contact our support team.\n\n" +
-                    "Best regards,\nCarePro Team";
+                // Real "\n" collapses in the HTML wrapper -> <br />; the staff-typed reason is HTML-encoded.
+                // string emailContent = $"Dear {caregiver.FirstName},<br /><br />" +  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                string emailContent = string.Empty +
+                    $"After reviewing your {certificate.CertificateName}, our admin team has found issues that prevent approval.<br /><br />" +
+                    $"Rejection Reason: {EncodeForEmail(rejectionReason)}<br /><br />" +
+                    "Please upload a corrected certificate to continue with your profile setup. Ensure that:<br />" +
+                    "- The certificate image is clear and readable<br />" +
+                    "- Your name on the certificate matches your profile name<br />" +
+                    "- The certificate is genuine and issued by the stated institution<br />" +
+                    "- All information is accurate and up-to-date<br /><br />" +
+                    "If you have questions or need assistance, please contact our support team.<br /><br />" +
+                    // "Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    "";
 
                 await mediator.Send(new SendNotificationCommand(
                     RecipientId: caregiver.Id,
@@ -1196,15 +1291,22 @@ namespace Infrastructure.Content.Services
                     notificationTitle = "Certificate Approved";
                     notificationContent = $"Your {certification.CertificateName} has been reviewed and approved by our admin team.";
                     emailSubject = "Certificate Approved - CarePro";
-                    emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},\\n\\nGreat news! After manual review, your {certification.CertificateName} has been approved.\\n\\nYou can now proceed with your profile setup.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                    // emailContent = $"Dear {caregiver.FirstName},<br /><br />Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    emailContent = $"Great news! After manual review, your {certification.CertificateName} has been approved.<br /><br />You can now proceed with your profile setup.";
                 }
                 else
                 {
                     // Admin rejected certificate
                     notificationTitle = "Certificate Not Approved";
-                    notificationContent = $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate.";
+                    // notificationContent = $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate."; // was: no reason
+                    notificationContent = string.IsNullOrWhiteSpace(adminNotes)
+                        ? $"Your {certification.CertificateName} was reviewed but could not be approved. Please re-upload a valid certificate."
+                        : $"Your {certification.CertificateName} was reviewed but could not be approved. Reason: {adminNotes} Please re-upload a valid certificate.";
                     emailSubject = "Certificate Review Decision - CarePro";
-                    emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team";
+                    // emailContent = $"Dear {caregiver.FirstName},\\n\\nAfter careful review, we are unable to approve your {certification.CertificateName}.\\n\\nReason: {adminNotes ?? "Please contact support for details."}\\n\\nPlease upload a valid certificate or contact our support team for assistance.\\n\\nBest regards,\\nCarePro Team"; // was: literal "\\n" collapses in the HTML wrapper
+                    // emailContent = $"Dear {caregiver.FirstName},<br /><br />After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.<br /><br />Best regards,<br />CarePro Team";  // was: duplicated the greeting / sign-off the generic email wrapper already adds
+                    emailContent = $"After careful review, we are unable to approve your {certification.CertificateName}.<br /><br />Reason: {EncodeForEmail(string.IsNullOrWhiteSpace(adminNotes) ? "Please contact support for details." : adminNotes)}<br /><br />Please upload a valid certificate or contact our support team for assistance.";
                 }
 
                 // Send in-app notification
@@ -1240,7 +1342,7 @@ namespace Infrastructure.Content.Services
             try
             {
                 var certifications = await careProDbContext.Certifications
-                    .Where(c => c.CaregiverId == caregiverId)
+                    .Where(c => c.CaregiverId == caregiverId && c.SupersededAt == null) // superseded (replaced) records are history only
                     .OrderByDescending(c => c.SubmittedOn)
                     .ToListAsync();
 

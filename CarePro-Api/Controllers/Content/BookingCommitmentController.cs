@@ -1,7 +1,9 @@
 using Application.DTOs;
 using Application.Interfaces;
+using Domain.Settings;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using System.Text;
 
@@ -13,15 +15,18 @@ namespace CarePro_Api.Controllers.Content
     {
         private readonly IBookingCommitmentService _commitmentService;
         private readonly FlutterwaveService _flutterwaveService;
+        private readonly IOptions<CommitmentFeeSettings> _commitmentFeeSettings;
         private readonly ILogger<BookingCommitmentController> _logger;
 
         public BookingCommitmentController(
             IBookingCommitmentService commitmentService,
             FlutterwaveService flutterwaveService,
+            IOptions<CommitmentFeeSettings> commitmentFeeSettings,
             ILogger<BookingCommitmentController> logger)
         {
             _commitmentService = commitmentService;
             _flutterwaveService = flutterwaveService;
+            _commitmentFeeSettings = commitmentFeeSettings;
             _logger = logger;
         }
 
@@ -33,6 +38,21 @@ namespace CarePro_Api.Controllers.Content
         [Authorize]
         public async Task<IActionResult> InitiateCommitment([FromBody] BookingCommitmentRequest request)
         {
+            // Server-side circuit breaker: CommitmentFeeSettings.Enabled previously only gated
+            // GetCommitmentStatusAsync (the frontend "is payment required" check) — this endpoint,
+            // the one that actually charges the client via Flutterwave, had no guard of its own and
+            // was reachable regardless of the flag. Reject here so the flag genuinely stops new
+            // commitment payments, not just the UI nudge toward paying.
+            if (!_commitmentFeeSettings.Value.Enabled)
+            {
+                _logger.LogWarning("Blocked booking-commitment initiation — CommitmentFeeSettings.Enabled is false.");
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    message = "Booking commitment payments are currently disabled."
+                });
+            }
+
             var clientId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("sub")?.Value
                 ?? User.FindFirst("userId")?.Value;

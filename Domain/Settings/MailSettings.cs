@@ -16,5 +16,9 @@ namespace Domain.Settings
 
         // SMTP login/username, when the provider issues one distinct from FromEmail (e.g. Brevo). Falls back to FromEmail if unset.
         public string? SmtpUsername { get; set; }
+
+        // LOCAL/TEST ONLY: when set (and the environment is not Production/Staging), outgoing mail is written as .eml files to this
+        // directory instead of being sent over SMTP — a mail sink so local runs can never deliver a real email.
+        public string? SinkDirectory { get; set; }
     }
 }

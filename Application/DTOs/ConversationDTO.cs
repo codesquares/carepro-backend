@@ -13,5 +13,8 @@ namespace Application.DTOs
         public DateTime LastMessageTimestamp { get; set; }
         public bool IsRead { get; set; }
         public int UnreadCount { get; set; }
+        /// <summary>Active | Ended | Archived — see <see cref="ChatAccessStates"/>.</summary>
+        public string? AccessState { get; set; }
+        public bool CanSend { get; set; }
     }
 }

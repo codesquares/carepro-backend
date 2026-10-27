@@ -111,6 +111,25 @@ namespace Infrastructure.Content.Services.Authentication
             var clientAppUser = await careProDbContext.Clients.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
             var adminAppUser = await careProDbContext.AdminUsers.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
 
+            // Admin accounts must be explicitly approved by a SuperAdmin before they can
+            // log in - this is a second line of defense behind the SuperAdmin-only creation
+            // endpoint, so a created-but-not-yet-approved account has no working access even
+            // if that endpoint's authorization were ever accidentally weakened. Accounts with
+            // no Status (created before this field existed) are treated as already Approved
+            // so they aren't retroactively locked out.
+            if (adminAppUser != null)
+            {
+                var effectiveStatus = string.IsNullOrWhiteSpace(adminAppUser.Status)
+                    ? AdminUserStatus.Approved
+                    : adminAppUser.Status;
+
+                if (string.Equals(effectiveStatus, AdminUserStatus.Rejected, StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("This admin account has been rejected. Contact a SuperAdmin for assistance.");
+
+                if (!string.Equals(effectiveStatus, AdminUserStatus.Approved, StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("This admin account is pending approval by a SuperAdmin. Please check back later.");
+            }
+
             // Map AppUserDTO (optional intermediate step if you still want it for consistency)
             var appUserDetails = new AppUserDTO
             {
@@ -156,6 +175,7 @@ namespace Infrastructure.Content.Services.Authentication
                 LastName = appUserDetails.LastName ?? string.Empty,
                 Email = appUserDetails.Email,
                 Role = appUserDetails.Role,
+                Department = appUserDetails.Department,
                 Token = token,
                 RefreshToken = refreshToken,
                 IsFirstLogin = isFirstLogin
@@ -232,7 +252,8 @@ namespace Infrastructure.Content.Services.Authentication
             {
                 Token = newAccessToken,
                 RefreshToken = newRefreshToken,
-                ExpiresAt = DateTime.UtcNow.AddHours(tokenExpirationHours)
+                ExpiresAt = DateTime.UtcNow.AddHours(tokenExpirationHours),
+                Department = appUserDetails.Department
             };
         }
 

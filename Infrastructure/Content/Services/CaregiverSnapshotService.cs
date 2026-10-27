@@ -2,6 +2,7 @@ using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -12,11 +13,13 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _context;
         private readonly ILogger<CaregiverSnapshotService> _logger;
+        private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
-        public CaregiverSnapshotService(CareProDbContext context, ILogger<CaregiverSnapshotService> logger)
+        public CaregiverSnapshotService(CareProDbContext context, ILogger<CaregiverSnapshotService> logger, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
         {
             _context = context;
             _logger = logger;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -57,12 +60,19 @@ namespace Infrastructure.Content.Services
             var educationTask = _context.CaregiverEducations
                 .ToListAsync();
 
+            var guarantorsTask = _context.Guarantors
+                .ToListAsync();
+
+            var addressHistoryTask = _context.CaregiverAddressHistories
+                .ToListAsync();
+
             var existingSnapshotsTask = _context.CaregiverJourneySnapshots
                 .ToListAsync();
 
             await Task.WhenAll(
                 assessmentsTask, certificationsTask, gigsTask,
                 workExperienceTask, qualificationsTask, educationTask,
+                guarantorsTask, addressHistoryTask,
                 existingSnapshotsTask);
 
             // ── Group by CaregiverId for O(1) lookup ──────────────────────────
@@ -71,6 +81,7 @@ namespace Infrastructure.Content.Services
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             var certsByCaregiver = certificationsTask.Result
+                .Where(c => c.SupersededAt == null) // replaced (superseded) records are history, not "uploaded"
                 .GroupBy(c => c.CaregiverId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
@@ -90,8 +101,19 @@ namespace Infrastructure.Content.Services
                 .GroupBy(e => e.CaregiverId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
+            var guarantorsByCaregiver = guarantorsTask.Result
+                .GroupBy(g => g.CaregiverId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var addressHistoryByCaregiver = addressHistoryTask.Result
+                .GroupBy(a => a.CaregiverId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             var snapshotsByCaregiverId = existingSnapshotsTask.Result
                 .ToDictionary(s => s.CaregiverId);
+
+            var vettingNow = DateTime.UtcNow;
+            var addressProofEnforced = AddressProofSettings.Load(_configuration).IsEnforced(vettingNow);
 
             // ── Compute and upsert ────────────────────────────────────────────
             int created = 0, updated = 0;
@@ -132,6 +154,17 @@ namespace Infrastructure.Content.Services
                     var hasQuals = qualsByCaregiver.GetValueOrDefault(caregiverId) > 0;
                     var hasEdu = educationByCaregiver.GetValueOrDefault(caregiverId) > 0;
 
+                    var guarantors = guarantorsByCaregiver.GetValueOrDefault(caregiverId)
+                        ?? new List<Guarantor>();
+                    var confirmedGuarantorCount = guarantors.Count(g =>
+                        string.Equals(g.Status, GuarantorStatuses.Confirmed, StringComparison.Ordinal));
+                    var hasTwoConfirmedGuarantors =
+                        confirmedGuarantorCount >= IGuarantorService.RequiredGuarantorCount;
+                    var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(
+                        addressHistoryByCaregiver.GetValueOrDefault(caregiverId) ?? new List<CaregiverAddressHistory>(),
+                        vettingNow, addressProofEnforced);
+                    var caregiverTypeName = caregiver.CaregiverType?.ToString();
+
                     var journeyStage = ComputeJourneyStage(
                         caregiver, passedAssessments.Count > 0, certsVerified > 0, gigsPublished > 0);
 
@@ -159,6 +192,12 @@ namespace Infrastructure.Content.Services
                         existing.HasWorkExperience = hasWorkExp;
                         existing.HasQualifications = hasQuals;
                         existing.HasEducation = hasEdu;
+                        existing.GuarantorCount = guarantors.Count;
+                        existing.ConfirmedGuarantorCount = confirmedGuarantorCount;
+                        existing.HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors;
+                        existing.AddressHistoryComplete = addressHistoryComplete;
+                        existing.CaregiverTypeSet = caregiver.CaregiverType != null;
+                        existing.CaregiverType = caregiverTypeName;
                         existing.GigsDraftCount = gigsDraft;
                         existing.GigsPublishedCount = gigsPublished;
                         existing.GigsDeletedCount = gigsDeleted;
@@ -194,6 +233,12 @@ namespace Infrastructure.Content.Services
                             HasWorkExperience = hasWorkExp,
                             HasQualifications = hasQuals,
                             HasEducation = hasEdu,
+                            GuarantorCount = guarantors.Count,
+                            ConfirmedGuarantorCount = confirmedGuarantorCount,
+                            HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors,
+                            AddressHistoryComplete = addressHistoryComplete,
+                            CaregiverTypeSet = caregiver.CaregiverType != null,
+                            CaregiverType = caregiverTypeName,
                             GigsDraftCount = gigsDraft,
                             GigsPublishedCount = gigsPublished,
                             GigsDeletedCount = gigsDeleted,
@@ -292,6 +337,12 @@ namespace Infrastructure.Content.Services
                     HasWorkExperience = s.HasWorkExperience,
                     HasQualifications = s.HasQualifications,
                     HasEducation = s.HasEducation,
+                    GuarantorCount = s.GuarantorCount ?? 0,
+                    ConfirmedGuarantorCount = s.ConfirmedGuarantorCount ?? 0,
+                    HasTwoConfirmedGuarantors = s.HasTwoConfirmedGuarantors ?? false,
+                    AddressHistoryComplete = s.AddressHistoryComplete ?? false,
+                    CaregiverTypeSet = s.CaregiverTypeSet ?? false,
+                    CaregiverType = s.CaregiverType,
                     GigsDraftCount = s.GigsDraftCount,
                     GigsPublishedCount = s.GigsPublishedCount,
                     GigsDeletedCount = s.GigsDeletedCount,

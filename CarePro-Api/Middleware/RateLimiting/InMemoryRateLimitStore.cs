@@ -45,6 +45,42 @@ namespace CarePro_Api.Middleware.RateLimiting
         /// Removes entries that have no recent requests and are not currently blocked.
         /// Called periodically by the cleanup hosted service.
         /// </summary>
+        public Task<(bool IsBlocked, int RetryAfterSeconds)> CheckBlockedAsync(string key, CancellationToken ct = default)
+        {
+            if (!_store.TryGetValue(key, out var entry)) return Task.FromResult((false, 0));
+            lock (entry)
+            {
+                var now = DateTime.UtcNow;
+                if (entry.BlockedUntil.HasValue && entry.BlockedUntil > now)
+                    return Task.FromResult((true, (int)Math.Ceiling((entry.BlockedUntil.Value - now).TotalSeconds)));
+                return Task.FromResult((false, 0));
+            }
+        }
+
+        public Task<(bool IsBlocked, int RetryAfterSeconds)> RecordFailureAsync(string key, RateLimitBucket bucket, CancellationToken ct = default)
+        {
+            var entry = _store.GetOrAdd(key, _ => new Entry());
+            lock (entry)
+            {
+                var now = DateTime.UtcNow;
+                entry.Requests.RemoveAll(r => r < now.AddSeconds(-bucket.WindowSeconds));
+                entry.Requests.Add(now);
+                if (entry.Requests.Count >= bucket.MaxRequests)
+                {
+                    entry.BlockedUntil = now.AddSeconds(bucket.BlockDurationSeconds);
+                    entry.Requests.Clear();
+                    return Task.FromResult((true, bucket.BlockDurationSeconds));
+                }
+                return Task.FromResult((false, 0));
+            }
+        }
+
+        public Task ResetAsync(string key, CancellationToken ct = default)
+        {
+            _store.TryRemove(key, out _);
+            return Task.CompletedTask;
+        }
+
         public static int Cleanup()
         {
             var cutoff = DateTime.UtcNow.AddHours(-1);

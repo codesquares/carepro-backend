@@ -1,7 +1,10 @@
 using Application.DTOs;
 using Application.Interfaces.Content;
+using Domain.Entities;
+using Infrastructure.Content.Helpers;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
@@ -16,15 +19,42 @@ namespace Infrastructure.Content.Services
         private readonly CareProDbContext _dbContext;
         private readonly IEligibilityService _eligibilityService;
         private readonly ILogger<CaregiverReadinessService> _logger;
+        private readonly IConfiguration? _configuration;
+        private readonly TimeProvider _time;
 
+        // configuration/time are optional so existing callers and tests keep compiling; with no configuration the
+        // police clearance step is never enforced (fail open, same as an unset PoliceClearance:EnforcementDate).
         public CaregiverReadinessService(
             CareProDbContext dbContext,
             IEligibilityService eligibilityService,
-            ILogger<CaregiverReadinessService> logger)
+            ILogger<CaregiverReadinessService> logger,
+            IConfiguration? configuration = null,
+            TimeProvider? time = null)
         {
             _dbContext = dbContext;
             _eligibilityService = eligibilityService;
             _logger = logger;
+            _configuration = configuration;
+            _time = time ?? TimeProvider.System;
+        }
+
+        /// <summary>
+        /// Applies the police clearance step to one caregiver's result. Before the enforcement date (or if it is unset)
+        /// the reason is informational only; at/after it, the reason is added to the blocking list.
+        /// </summary>
+        private void ApplyPoliceClearance(string clearanceStatus, List<string> reasons, CaregiverReadinessResult informationHolder)
+        {
+            var settings = PoliceClearanceSettings.Load(_configuration);
+            var enforced = settings.IsEnforced(_time.GetUtcNow().UtcDateTime);
+            informationHolder.PoliceClearanceStatus = clearanceStatus;
+            informationHolder.PoliceClearanceApproved = clearanceStatus == "approved";
+            informationHolder.PoliceClearanceEnforced = enforced;
+            informationHolder.PoliceClearanceEnforcementDate = settings.EnforcementDateUtc;
+
+            var reason = PoliceClearanceLogic.ReadinessReason(clearanceStatus);
+            if (reason == null) return;
+            if (enforced) reasons.Add(reason);
+            else informationHolder.InformationalReasons.Add(reason);
         }
 
         public async Task<CaregiverReadinessResult> GetReadinessAsync(
@@ -35,7 +65,7 @@ namespace Infrastructure.Content.Services
                 return new CaregiverReadinessResult
                 {
                     IsReady = false,
-                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                 };
             }
 
@@ -45,7 +75,7 @@ namespace Infrastructure.Content.Services
                 return new CaregiverReadinessResult
                 {
                     IsReady = false,
-                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                    IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                 };
             }
 
@@ -69,20 +99,47 @@ namespace Infrastructure.Content.Services
                 }
             }
 
+            // ── Phase 2 vetting gates ──
+            var caregiverTypeSet = caregiver.CaregiverType != null;
+
+            var confirmedGuarantorCount = await _dbContext.Guarantors
+                .CountAsync(g => g.CaregiverId == caregiverId && g.Status == GuarantorStatuses.Confirmed);
+            var hasTwoConfirmedGuarantors = confirmedGuarantorCount >= IGuarantorService.RequiredGuarantorCount;
+
+            var addressHistory = await _dbContext.CaregiverAddressHistories
+                .Where(a => a.CaregiverId == caregiverId)
+                .ToListAsync();
+            var addressState = CaregiverAddressHistoryCoverage.Evaluate(addressHistory, DateTime.UtcNow,
+                AddressProofSettings.Load(_configuration).IsEnforced(DateTime.UtcNow));
+            var addressHistoryComplete = addressState == AddressVettingState.Complete;
+
+            var clearances = await _dbContext.PoliceClearances.Where(c => c.CaregiverId == caregiverId).ToListAsync();
+            var clearanceStatus = PoliceClearanceLogic.StatusName(PoliceClearanceLogic.Latest(clearances));
+
             var reasons = new List<string>();
             if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
-            if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
+            // RETIRED — gigs are retired for caregivers; having no active gig is no longer a readiness blocker.
+            // if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
             if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
             if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
+            if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
+            if (addressState == AddressVettingState.AwaitingReview) reasons.Add(CaregiverReadinessReasons.AddressProofPending);
+            else if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+            if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
-            return new CaregiverReadinessResult
+            var result = new CaregiverReadinessResult
             {
-                IsReady = reasons.Count == 0,
-                IneligibilityReasons = reasons,
                 IsIdentityVerified = isIdentityVerified,
                 HasActiveGig = hasActiveGig,
-                AssessmentPassed = assessmentPassed
+                AssessmentPassed = assessmentPassed,
+                HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors,
+                AddressHistoryComplete = addressHistoryComplete,
+                CaregiverTypeSet = caregiverTypeSet
             };
+            ApplyPoliceClearance(clearanceStatus, reasons, result);
+            result.IneligibilityReasons = reasons;
+            result.IsReady = reasons.Count == 0;
+            return result;
         }
 
         public async Task<Dictionary<string, CaregiverReadinessResult>> GetReadinessBulkAsync(
@@ -124,6 +181,29 @@ namespace Infrastructure.Content.Services
                 .Select(g => g.CaregiverId)
                 .ToHashSet();
 
+            // ── Phase 2 vetting gates, batched for the whole id set ──
+            var confirmedGuarantorCounts = (await _dbContext.Guarantors
+                    .Where(g => ids.Contains(g.CaregiverId) && g.Status == GuarantorStatuses.Confirmed)
+                    .ToListAsync())
+                .GroupBy(g => g.CaregiverId)
+                .ToDictionary(grp => grp.Key, grp => grp.Count());
+
+            var addressHistoryByCaregiver = (await _dbContext.CaregiverAddressHistories
+                    .Where(a => ids.Contains(a.CaregiverId))
+                    .ToListAsync())
+                .GroupBy(a => a.CaregiverId)
+                .ToDictionary(grp => grp.Key, grp => grp.ToList());
+
+            var vettingNow = DateTime.UtcNow;
+            var addressProofEnforced = AddressProofSettings.Load(_configuration).IsEnforced(vettingNow);
+
+            // One batched read for the police clearance step (like the guarantor counts above).
+            var clearancesByCaregiver = (await _dbContext.PoliceClearances
+                    .Where(c => ids.Contains(c.CaregiverId!))
+                    .ToListAsync())
+                .GroupBy(c => c.CaregiverId ?? string.Empty)
+                .ToDictionary(grp => grp.Key, grp => PoliceClearanceLogic.StatusName(PoliceClearanceLogic.Latest(grp)));
+
             foreach (var id in ids)
             {
                 var caregiver = caregivers.FirstOrDefault(c => c.Id.ToString() == id);
@@ -132,7 +212,7 @@ namespace Infrastructure.Content.Services
                     result[id] = new CaregiverReadinessResult
                     {
                         IsReady = false,
-                        IneligibilityReasons = new List<string> { CaregiverReadinessReasons.NoActiveGig }
+                        IneligibilityReasons = new List<string> { CaregiverReadinessReasons.CaregiverNotFound }
                     };
                     continue;
                 }
@@ -152,20 +232,39 @@ namespace Infrastructure.Content.Services
                     }
                 }
 
+                var caregiverTypeSet = caregiver.CaregiverType != null;
+                var hasTwoConfirmedGuarantors =
+                    (confirmedGuarantorCounts.TryGetValue(id, out var gc) ? gc : 0)
+                    >= IGuarantorService.RequiredGuarantorCount;
+                var addressState = CaregiverAddressHistoryCoverage.Evaluate(
+                    addressHistoryByCaregiver.TryGetValue(id, out var addrs) ? addrs : new List<CaregiverAddressHistory>(),
+                    vettingNow, addressProofEnforced);
+                var addressHistoryComplete = addressState == AddressVettingState.Complete;
+
                 var reasons = new List<string>();
                 if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
-                if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
+                // RETIRED — gigs are retired for caregivers; having no active gig is no longer a readiness blocker.
+            // if (!hasActiveGig) reasons.Add(CaregiverReadinessReasons.NoActiveGig);
                 if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
                 if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
+                if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
+                if (addressState == AddressVettingState.AwaitingReview) reasons.Add(CaregiverReadinessReasons.AddressProofPending);
+                else if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+                if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
-                result[id] = new CaregiverReadinessResult
+                var entry = new CaregiverReadinessResult
                 {
-                    IsReady = reasons.Count == 0,
-                    IneligibilityReasons = reasons,
                     IsIdentityVerified = isIdentityVerified,
                     HasActiveGig = hasActiveGig,
-                    AssessmentPassed = assessmentPassed
+                    AssessmentPassed = assessmentPassed,
+                    HasTwoConfirmedGuarantors = hasTwoConfirmedGuarantors,
+                    AddressHistoryComplete = addressHistoryComplete,
+                    CaregiverTypeSet = caregiverTypeSet
                 };
+                ApplyPoliceClearance(clearancesByCaregiver.TryGetValue(id, out var cs) ? cs : "none", reasons, entry);
+                entry.IneligibilityReasons = reasons;
+                entry.IsReady = reasons.Count == 0;
+                result[id] = entry;
             }
 
             return result;

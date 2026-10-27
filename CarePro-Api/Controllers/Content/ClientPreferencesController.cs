@@ -44,6 +44,30 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                var callerId = CurrentClientId();
+                if (string.IsNullOrEmpty(callerId))
+                {
+                    return Unauthorized(new { Message = "User not authenticated." });
+                }
+
+                // Writes only ever target the caller's own record. A clientId in the body that names anyone else is
+                // rejected outright; a blank one is filled from the token.
+                if (addClientPreferenceRequest != null
+                    && !string.IsNullOrWhiteSpace(addClientPreferenceRequest.ClientId)
+                    && addClientPreferenceRequest.ClientId != callerId)
+                {
+                    logger.LogWarning("Blocked preference write for another client. CallerId: {CallerId}, RequestedClientId: {Requested}", callerId, addClientPreferenceRequest.ClientId);
+                    return Forbid();
+                }
+
+                // A body with no `data` used to overwrite the record with an empty list. Require it explicitly.
+                if (addClientPreferenceRequest?.Data == null)
+                {
+                    return BadRequest(new { Message = "Preference data is required." });
+                }
+
+                addClientPreferenceRequest.ClientId = callerId;
+
                 // Pass Domain Object to Repository, to Persisit this
                 var clientPreference = await clientPreferenceService.CreateClientPreferenceAsync(addClientPreferenceRequest);
 
@@ -76,6 +100,19 @@ namespace CarePro_Api.Controllers.Content
                 logger.LogError(ex, "An unexpected error occurred"); return StatusCode(500, new { ErrorMessage = "An error occurred on the server." });
             }
 
+        }
+
+        // Identity comes from the JWT, never from a clientId supplied in the body/route/query — those are
+        // attacker-controlled. (The class-level [Authorize(Roles = "Client")] already excludes other roles.)
+        private string? CurrentClientId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirst("sub")?.Value
+            ?? User.FindFirst("userId")?.Value;
+
+        private bool IsOwnClient(string? clientId)
+        {
+            var callerId = CurrentClientId();
+            return !string.IsNullOrEmpty(callerId) && callerId == clientId;
         }
 
         // GET: api/ClientPreferences/unsubscribe?token=...
@@ -149,6 +186,11 @@ namespace CarePro_Api.Controllers.Content
 
             try
             {
+                if (!IsOwnClient(clientId))
+                {
+                    return Forbid();
+                }
+
                 logger.LogInformation($"Retrieving Preferences for Client with ID '{clientId}'.");
 
                 var clientPreference = await clientPreferenceService.GetClientPreferenceAsync(clientId);
@@ -186,6 +228,24 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                // The route takes a preference RECORD id, so ownership is whatever client that record belongs to.
+                var ownerId = await clientPreferenceService.GetPreferenceOwnerIdAsync(preferenceId);
+                if (ownerId == null)
+                {
+                    return NotFound(new { message = $"Preference with ID '{preferenceId}' not found." });
+                }
+
+                if (!IsOwnClient(ownerId))
+                {
+                    logger.LogWarning("Blocked preference update by non-owner. PreferenceId: {PreferenceId}, CallerId: {CallerId}", preferenceId, CurrentClientId());
+                    return Forbid();
+                }
+
+                if (updateClientPreferenceRequest?.Data == null)
+                {
+                    return BadRequest(new { Message = "Preference data is required." });
+                }
+
                 var result = await clientPreferenceService.UpdateClientPreferenceAsync(preferenceId, updateClientPreferenceRequest);
                 logger.LogInformation($"Client Preference  with ID: {preferenceId} updated.");
                 return Ok(result);
@@ -214,6 +274,11 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                if (!IsOwnClient(clientId))
+                {
+                    return Forbid();
+                }
+
                 logger.LogInformation($"Retrieving notification preferences for Client with ID '{clientId}'.");
 
                 var preferences = await clientPreferenceService.GetNotificationPreferencesAsync(clientId);
@@ -253,6 +318,12 @@ namespace CarePro_Api.Controllers.Content
         {
             try
             {
+                // Marketing-email consent lives here: another client must never be able to read or flip it.
+                if (!IsOwnClient(clientId))
+                {
+                    return Forbid();
+                }
+
                 logger.LogInformation($"Updating notification preferences for Client with ID '{clientId}'.");
 
                 var updatedPreferences = await clientPreferenceService.UpdateNotificationPreferencesAsync(clientId, updateRequest);

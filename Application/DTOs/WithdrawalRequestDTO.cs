@@ -28,7 +28,11 @@ namespace Application.DTOs
 
     public class CreateWithdrawalRequestRequest
     {
-        public string CaregiverId { get; set; }
+        // Server-set only: the controller overwrites this from the JWT. Ignored on
+        // deserialization so a client can never supply it, and nullable so model
+        // validation doesn't demand it.
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? CaregiverId { get; set; }
         public decimal AmountRequested { get; set; }
         public string? AccountNumber { get; set; }
         public string? BankName { get; set; }

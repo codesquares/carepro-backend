@@ -323,6 +323,84 @@ namespace Infrastructure.Services
             await SendEmailAsync(message);
         }
 
+        public async Task SendGuarantorConfirmationEmailAsync(string toEmail, string guarantorName, string caregiverName, string confirmationLink)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"Please confirm you are a guarantor for {caregiverName}";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Hello {guarantorName},</h3>
+                    <p>{caregiverName} has listed you as a guarantor as part of their CarePro caregiver vetting.</p>
+                    <p>You do not need a CarePro account. Please click the link below and answer a few short questions about {caregiverName} (it takes about two minutes). Your answers confirm that you know them and that you agree to act as their guarantor:</p>
+                    <p><a href=""{confirmationLink}"">Answer the questions and confirm as guarantor for {caregiverName}</a></p>
+                    <br />
+                    <p>Or copy and paste this link into your browser:<br /> {confirmationLink}</p>
+                    <br />
+                    <p>If you do not know {caregiverName} or did not expect this email, you can ignore it and nothing will be recorded. The link is valid for 14 days.</p>
+                    <p>Thanks,<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendClientGigRecommendationEmailAsync(string toEmail, string clientFirstName,
+            string caregiverFirstName, string gigTitle, string? gigPhotoUrl, int price,
+            string category, string? blurb, string gigLink)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"A caregiver match for you: {gigTitle} - CarePro";
+
+            var formattedPrice = price.ToString("N0");
+
+            // Email clients (Gmail in particular) frequently ignore max-width:100% on <img>
+            // with no intrinsic size hint, rendering it at native resolution. The width
+            // attribute (not just CSS) is the email-safe way to cap it — confirmed via a
+            // real send that CSS-only sizing rendered the photo oversized in Gmail.
+            var photoSection = string.IsNullOrWhiteSpace(gigPhotoUrl)
+                ? string.Empty
+                : $"<img src='{gigPhotoUrl}' alt='{gigTitle}' width='560' style='width: 100%; max-width: 560px; height: auto; border-radius: 8px; margin: 15px 0; display: block;' />";
+
+            var blurbSection = string.IsNullOrWhiteSpace(blurb)
+                ? string.Empty
+                : $"<p>{blurb}</p>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                        <h3>Dear {clientFirstName},</h3>
+                        <p>Following up on your recent conversation with our team, here's a caregiver we think is a great fit for you:</p>
+                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;'>
+                            {photoSection}
+                            <h4 style='margin: 10px 0 5px;'>{gigTitle}</h4>
+                            <p style='margin: 5px 0;'><strong>Caregiver:</strong> {caregiverFirstName}</p>
+                            <p style='margin: 5px 0;'><strong>Service Type:</strong> {category}</p>
+                            <p style='margin: 5px 0;'><strong>Price:</strong> ₦{formattedPrice}</p>
+                            {blurbSection}
+                        </div>
+                        <div style='text-align: center; margin: 20px 0;'>
+                            <a href='{gigLink}'
+                               style='background-color: #667eea; color: white; padding: 12px 30px;
+                                      text-decoration: none; border-radius: 5px; display: inline-block;'>
+                                View {caregiverFirstName}'s Profile
+                            </a>
+                        </div>
+                        <p>You can view full details, message {caregiverFirstName}, or hire directly from the link above.</p>
+                        <p>Thanks,<br />The CarePro Team</p>
+                    </div>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Payment-related notification methods
         public async Task SendPaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string service, string transactionId)
         {
@@ -346,6 +424,57 @@ namespace Infrastructure.Services
                     <p>Your payment has been successfully processed. Your caregiver will be notified and will contact you soon.</p>
                     <p>You can track your service progress in your CarePro dashboard.</p>
                     <p>Thanks for choosing CarePro!<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendPackagePaymentConfirmationEmailAsync(string toEmail, string firstName, decimal amount, string packageLabel, string transactionId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "Payment received & request submitted - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <h4 style='color: #28a745;'>✅ Payment Confirmed &amp; Request Submitted</h4>
+                    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                        <p><strong>Package:</strong> {packageLabel}</p>
+                        <p><strong>Amount:</strong> ₦{amount:N2}</p>
+                        <p><strong>Transaction ID:</strong> {transactionId}</p>
+                        <p><strong>Status:</strong> <span style='color: #28a745;'>Confirmed</span></p>
+                    </div>
+                    <p>Your payment has been successfully processed and your care request has been created.</p>
+                    <p>Our team will now match you with a suitable caregiver. We'll email you as soon as your caregiver is confirmed.</p>
+                    <p>You can follow progress in your CarePro dashboard.</p>
+                    <p>Thanks for choosing CarePro!<br />The CarePro Team</p>"
+            };
+
+            message.Body = builder.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
+        public async Task SendPackagePaymentIssueEmailAsync(string toEmail, string firstName, decimal amount, string transactionId)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "We received your payment - action by our team in progress - CarePro";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = $@"
+                    <h3>Dear {firstName},</h3>
+                    <br />
+                    <p>We received your payment of <strong>₦{amount:N2}</strong> (Transaction ID: {transactionId}), but something went wrong while creating your care request.</p>
+                    <p><strong>Your payment is safe and has been recorded.</strong> Our team has been alerted and will follow up with you shortly to complete your request — you don't need to pay again.</p>
+                    <p>If you'd like to reach us sooner, contact <a href='mailto:support@oncarepro.com'>support@oncarepro.com</a> and quote the transaction ID above.</p>
+                    <p>We're sorry for the inconvenience.<br />The CarePro Team</p>"
             };
 
             message.Body = builder.ToMessageBody();
@@ -613,7 +742,14 @@ namespace Infrastructure.Services
             await SendEmailAsync(emailMessage);
         }
 
-        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes)
+        public async Task SendContractPdfEmailAsync(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
+        {
+            var emailMessage = BuildContractPdfEmailMessage(toEmail, firstName, contractId, gigTitle, pdfBytes, acknowledgementText);
+            await SendEmailAsync(emailMessage);
+        }
+
+        /// <summary>Builds (does not send) the contract email — separated so the exact rendered body can be inspected/tested.</summary>
+        public MimeMessage BuildContractPdfEmailMessage(string toEmail, string firstName, string contractId, string gigTitle, byte[] pdfBytes, string? acknowledgementText = null)
         {
             var emailMessage = new MimeMessage();
             emailMessage.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
@@ -632,6 +768,7 @@ namespace Infrastructure.Services
                             <p><strong>Service:</strong> {gigTitle}</p>
                             <p><strong>Contract ID:</strong> {contractId}</p>
                         </div>
+                        {(string.IsNullOrWhiteSpace(acknowledgementText) ? "" : $"<div style='background-color: #fff8e1; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #f59e0b;'><p><strong>{Application.Content.ContractWording.CancellationHeading}</strong></p>{string.Concat(acknowledgementText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => $"<p>{System.Net.WebUtility.HtmlEncode(l)}</p>"))}</div>")}
                         <p>You can also view and download the contract anytime from your CarePro dashboard.</p>
                         <p>Thanks,<br />The CarePro Team</p>
                     </div>"
@@ -640,7 +777,7 @@ namespace Infrastructure.Services
             builder.Attachments.Add($"CarePro-Contract-{contractId}.pdf", pdfBytes, new MimeKit.ContentType("application", "pdf"));
 
             emailMessage.Body = builder.ToMessageBody();
-            await SendEmailAsync(emailMessage);
+            return emailMessage;
         }
 
         public async Task SendPaymentReceiptEmailAsync(string toEmail, string firstName, string receiptFileName, string description, byte[] pdfBytes)
@@ -881,9 +1018,31 @@ Prefer fewer updates? <a href='{unsubscribeUrl}'>Unsubscribe from lifecycle/prom
             await SendEmailAsync(message);
         }
 
+        public async Task SendVettingNoticeEmailAsync(string toEmail, string subject, string htmlBody, string textBody)
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(emailSettings.FromName, emailSettings.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = subject;
+            message.Body = new BodyBuilder { HtmlBody = htmlBody, TextBody = textBody }.ToMessageBody();
+            await SendEmailAsync(message);
+        }
+
         // Centralized SMTP send with full logging
         private async Task SendEmailAsync(MimeMessage message)
         {
+            // Mail sink (local/test only): write the message to disk and never touch SMTP.
+            var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+            if (!string.IsNullOrWhiteSpace(emailSettings.SinkDirectory)
+                && !env.Equals("Production", StringComparison.OrdinalIgnoreCase) && !env.Equals("Staging", StringComparison.OrdinalIgnoreCase))
+            {
+                System.IO.Directory.CreateDirectory(emailSettings.SinkDirectory);
+                var file = System.IO.Path.Combine(emailSettings.SinkDirectory, $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.eml");
+                using (var fs = System.IO.File.Create(file)) message.WriteTo(fs);
+                _logger.LogInformation("Mail sink: message written to the sink directory (not sent).");
+                return;
+            }
+
             var to = message.To.ToString();
             var subject = message.Subject;
             var smtpUsername = string.IsNullOrEmpty(emailSettings.SmtpUsername) ? emailSettings.FromEmail : emailSettings.SmtpUsername;

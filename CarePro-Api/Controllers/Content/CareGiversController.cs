@@ -46,6 +46,19 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
+        /// Verify the authenticated user owns the requested caregiver record or is an admin.
+        /// Prevents IDOR attacks where one user modifies another caregiver's profile.
+        /// </summary>
+        private bool IsAuthorizedForCaregiver(string caregiverId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirst("sub")?.Value
+                ?? User.FindFirst("userId")?.Value;
+            var role = User.FindFirstValue(ClaimTypes.Role);
+            return userId == caregiverId || role == "Admin" || role == "SuperAdmin";
+        }
+
+        /// <summary>
         /// Sign up as Caregiver using Google account
         /// User has selected "Caregiver" on the role selection screen
         /// </summary>
@@ -252,46 +265,6 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Get all caregivers - public endpoint returns limited info (no email/phone/address)
-        /// </summary>
-        [HttpGet]
-        [Route("AllCaregivers")]
-        public async Task<IActionResult> GetAllCaregiverAsync()
-        {
-            try
-            {
-                logger.LogInformation("Retrieving all Caregivers (public)");
-                // Use public response to protect PII (no email, phone, address)
-                var caregivers = await careGiverService.GetAllCaregiverUserPublicAsync();
-                return Ok(caregivers);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { Message = ex.Message }); // Or BadRequest
-            }
-            catch (AuthenticationException authEx)
-            {
-                // Handle authentication-related exceptions
-                return BadRequest(new { StatusCode = 400, ErrorMessage = authEx.Message });
-            }
-            catch (HttpRequestException httpEx)
-            {
-                // Handle HTTP request-related exceptions
-                return StatusCode(500, new { StatusCode = 500, ErrorMessage = httpEx.Message });
-            }
-            catch (DbUpdateException dbEx)
-            {
-                // Handle database update-related exceptions
-                return StatusCode(500, new { StatusCode = 500, ErrorMessage = dbEx.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
-            }
-
-        }
-
-        /// <summary>
         /// Get all caregivers with full details - Admin only
         /// </summary>
         [HttpGet]
@@ -311,30 +284,6 @@ namespace CarePro_Api.Controllers.Content
             }
         }
 
-
-        /// <summary>
-        /// Get single caregiver - public endpoint returns limited info (no email/phone/address)
-        /// </summary>
-        [HttpGet]
-        [Route("{caregiverId}")]
-        public async Task<IActionResult> GetCaregiverAsync(string caregiverId)
-        {
-            try
-            {
-                logger.LogInformation("Retrieving Caregiver {CaregiverId} (public)", caregiverId);
-                // Use public response to protect PII
-                var caregiver = await careGiverService.GetCaregiverUserPublicAsync(caregiverId);
-                return Ok(caregiver);
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { StatusCode = 500, ErrorMessage = ex.Message });
-            }
-        }
 
         /// <summary>
         /// Get single caregiver with full details - Admin only
@@ -370,9 +319,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateCaregiverInfo/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize]
         public async Task<IActionResult> UpdateCaregiverAdditionalInfoAsync(string caregiverId, [FromForm] UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 logger.LogInformation($"Caregiver with ID: {caregiverId} additional Information has been updated.");
@@ -398,9 +350,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateProfilePicture/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize]
         public async Task<IActionResult> UpdateProfilePictureAsync(string caregiverId, [FromForm] UpdateProfilePictureRequest updateProfilePictureRequest)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 logger.LogInformation($"Caregiver with ID: {caregiverId} Profile Picture has been updated.");
@@ -426,9 +381,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateCaregiverAboutMeInfo/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize]
         public async Task<IActionResult> UpdateCaregiverAboutMeAsync(string caregiverId, UpdateCaregiverAdditionalInfoRequest updateCaregiverAdditionalInfoRequest)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 logger.LogInformation($"Caregiver with ID: {caregiverId} additional Information has been updated.");
@@ -454,9 +412,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateCaregiverAvailability/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize]
         public async Task<IActionResult> UpdateCaregiverAvailabilityAsync(string caregiverId, UpdateCaregiverAvailabilityRequest updateCaregiverAvailabilityRequest)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 logger.LogInformation($"Caregiver with ID: {caregiverId} additional Information has been updated.");
@@ -478,9 +439,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("UpdateCaregiverLocation/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Admin")]
+        [Authorize]
         public async Task<IActionResult> UpdateCaregiverLocationAsync(string caregiverId, [FromBody] UpdateCaregiverLocationRequest request)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 if (!ModelState.IsValid)
@@ -523,9 +487,12 @@ namespace CarePro_Api.Controllers.Content
 
         [HttpPut]
         [Route("SoftDeleteCaregiver/{caregiverId}")]
-        //[Authorize(Roles = "Caregiver, Client, Admin")]
+        [Authorize]
         public async Task<IActionResult> SoftDeleteCaregiverAsync(string caregiverId)
         {
+            if (!IsAuthorizedForCaregiver(caregiverId))
+                return Forbid();
+
             try
             {
                 logger.LogInformation($"Caregiver with ID: {caregiverId} Soft Deleted");
@@ -706,6 +673,39 @@ namespace CarePro_Api.Controllers.Content
         }
 
 
+
+        #endregion
+
+        #region Self Profile
+
+        /// <summary>
+        /// Get the authenticated caregiver's own profile (name, photo, bio, location, availability, intro video, services,
+        /// pending-deletion status) for their dashboard. The caregiver ID is
+        /// always taken from the JWT, never from a route parameter, so a
+        /// caregiver can never fetch another caregiver's data through this
+        /// endpoint. Replaces the removed public GET {caregiverId} route.
+        /// </summary>
+        [HttpGet("me")]
+        [Authorize(Roles = "Caregiver")]
+        public async Task<IActionResult> GetMyProfile()
+        {
+            var caregiverId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? User.FindFirst("sub")?.Value
+                              ?? User.FindFirst("userId")?.Value;
+
+            if (string.IsNullOrEmpty(caregiverId))
+                return Unauthorized(new { message = "Unable to identify user." });
+
+            try
+            {
+                var profile = await careGiverService.GetMyProfileAsync(caregiverId);
+                return Ok(profile);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+        }
 
         #endregion
 

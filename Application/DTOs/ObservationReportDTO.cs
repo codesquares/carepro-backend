@@ -8,8 +8,11 @@ namespace Application.DTOs
 
     public class CreateObservationReportRequest
     {
-        [Required]
-        public string OrderId { get; set; } = string.Empty;
+        /// <summary>Legacy order-based report. Exactly one of OrderId / AssignmentId must be supplied.</summary>
+        public string? OrderId { get; set; }
+
+        /// <summary>Package-assignment report (alternative to OrderId).</summary>
+        public string? AssignmentId { get; set; }
 
         [Required]
         public string TaskSheetId { get; set; } = string.Empty;
@@ -36,6 +39,8 @@ namespace Application.DTOs
     {
         public string Id { get; set; } = string.Empty;
         public string OrderId { get; set; } = string.Empty;
+        public string? AssignmentId { get; set; }
+        public string? PackageRequestId { get; set; }
         public string TaskSheetId { get; set; } = string.Empty;
         public string CaregiverId { get; set; } = string.Empty;
         public string Category { get; set; } = string.Empty;

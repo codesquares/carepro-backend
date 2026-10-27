@@ -83,6 +83,16 @@ namespace Application.DTOs
     }
 
 
+    /// <summary>
+    /// SuperAdmin-only: approve or reject a PendingApproval admin account.
+    /// </summary>
+    public class UpdateAdminApprovalStatusRequest
+    {
+        [Required(ErrorMessage = "Status is required")]
+        [RegularExpression("^(Approved|Rejected)$", ErrorMessage = "Status must be 'Approved' or 'Rejected'")]
+        public string Status { get; set; }
+    }
+
     public class AdminUserResponse
     {
         public string Id { get; set; }

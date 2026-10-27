@@ -8,9 +8,8 @@ namespace Application.Interfaces.Content
     /// <summary>
     /// Consolidated hire-readiness gate: identity verification + assessment/certificate
     /// eligibility (delegated to IEligibilityService) + active-gig existence.
-    /// Enforced at hire time (CareRequestResponseService.HireResponderAsync) and at
-    /// negotiation-agree / payment-completion time (the backstop for a caregiver who
-    /// becomes ineligible after being hired but before the order is created) — not at
+    /// Enforced at payment-completion time (the backstop for a caregiver who becomes
+    /// ineligible after being assigned but before the order is created) — not at
     /// browse/matching/outreach time, which surface full inventory by design (see
     /// discussion: filtering discovery collapsed visible marketplace supply and worked
     /// against the conversion goal this service exists to support).

@@ -233,6 +233,80 @@ namespace Infrastructure.Content.Services.Authentication
             }
         }
 
+        public string GenerateGuarantorConfirmationToken(string guarantorId)
+        {
+            var secretKey = configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JWT Secret not found");
+            var issuer = configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not found");
+            var audience = configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not found");
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new[]
+            {
+                new Claim("guarantorId", guarantorId),
+                new Claim("purpose", "guarantor_confirmation"),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var token = new JwtSecurityToken(
+                issuer,
+                audience,
+                claims,
+                expires: DateTime.UtcNow.AddDays(14),
+                signingCredentials: creds);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        public (bool IsValid, string? GuarantorId, string? Error) ValidateGuarantorConfirmationToken(string token)
+        {
+            var secretKey = configuration["JwtSettings:Secret"];
+            var issuer = configuration["JwtSettings:Issuer"];
+            var audience = configuration["JwtSettings:Audience"];
+
+            if (string.IsNullOrWhiteSpace(secretKey) || string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience))
+            {
+                return (false, null, "Token validation configuration is missing.");
+            }
+
+            var handler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(secretKey);
+
+            try
+            {
+                var principal = handler.ValidateToken(token, new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidIssuer = issuer,
+                    ValidAudience = audience,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    ClockSkew = TimeSpan.Zero
+                }, out _);
+
+                var purpose = principal.FindFirst("purpose")?.Value;
+                if (!string.Equals(purpose, "guarantor_confirmation", StringComparison.Ordinal))
+                {
+                    return (false, null, "Invalid token purpose.");
+                }
+
+                var guarantorId = principal.FindFirst("guarantorId")?.Value;
+                if (string.IsNullOrWhiteSpace(guarantorId))
+                {
+                    return (false, null, "Token payload is incomplete.");
+                }
+
+                return (true, guarantorId, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, null, ex.Message);
+            }
+        }
+
         //public static string GenerateEmailVerificationToken(AppUser user, string jwtSecret, int expireMinutes = 30)
         //{
         //    var tokenHandler = new JwtSecurityTokenHandler();

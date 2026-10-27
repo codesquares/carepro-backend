@@ -8,6 +8,18 @@ namespace Domain.Entities
     {
         public ObjectId Id { get; set; } = ObjectId.GenerateNewId();
         public string OrderId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Set instead of OrderId for a package-assignment task sheet (Phase 9.5) — the
+        /// legacy Gig/ClientOrder flow keeps using OrderId unchanged. Same nullable/
+        /// alternate-reference pattern as Contract.PackageRequestId/PackageId (Phase 6).
+        /// </summary>
+        public string? AssignmentId { get; set; }
+
+        /// <summary>Set alongside AssignmentId. Denormalised from Assignment.PackageRequestId
+        /// for convenient querying without a join.</summary>
+        public string? PackageRequestId { get; set; }
+
         public string CaregiverId { get; set; } = string.Empty;
         public int SheetNumber { get; set; }
         public int BillingCycleNumber { get; set; } = 1;

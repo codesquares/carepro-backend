@@ -148,6 +148,10 @@ namespace Infrastructure.Content.Services
             if (request.AmountRequested <= 0)
                 throw new ArgumentException("Withdrawal amount must be greater than zero.");
 
+            // CaregiverId is server-set (from the JWT) and never bound from the client body.
+            if (string.IsNullOrEmpty(request.CaregiverId))
+                throw new ArgumentException("Caregiver could not be identified for this withdrawal request.");
+
             // Check if there's already a pending withdrawal for this caregiver
             bool hasPending = await HasPendingRequest(request.CaregiverId);
             if (hasPending)
@@ -468,9 +472,11 @@ namespace Infrastructure.Content.Services
                                    $"<p>Please log in to the admin portal to review and process this request.</p>";
 
                 // Target: SuperAdmin users + Finance department admins
-                var admins = await _dbContext.AdminUsers
-                    .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
-                    .ToListAsync();
+                // var admins = await _dbContext.AdminUsers
+                //     .Where(a => !a.IsDeleted && (a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance))
+                //     .ToListAsync();   // bypassed the Approved-admin rule
+                var admins = await AdminRecipients.GetApprovedAsync(_dbContext,
+                    a => a.Role == "SuperAdmin" || a.Department == AdminDepartments.Finance);
 
                 foreach (var admin in admins)
                 {

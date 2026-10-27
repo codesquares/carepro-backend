@@ -187,6 +187,38 @@ namespace Application.DTOs
         public bool IsIdentityVerified { get; set; }
     }
 
+    /// <summary>
+    /// Self-service profile response for the authenticated caregiver's own
+    /// dashboard, Settings and Profile pages (profile card, profile header,
+    /// account-deletion banner). Only cheap, caregiver-owned fields — no order
+    /// or earnings aggregation. Never keyed by a route parameter — always
+    /// resolved server-side from the caller's own JWT.
+    /// </summary>
+    public class CaregiverSelfProfileResponse
+    {
+        public string Id { get; set; } = null!;
+        public string FirstName { get; set; } = null!;
+        public string LastName { get; set; } = null!;
+        public string? Email { get; set; }
+        public string? ProfileImage { get; set; }
+        public DateTime? AccountDeletionRequestedAt { get; set; }
+
+        public string? AboutMe { get; set; }
+        public string? Location { get; set; }
+        public string? ServiceCity { get; set; }
+        public string? ServiceState { get; set; }
+        public string? ServiceAddress { get; set; }
+        public string? HomeAddress { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
+        public bool IsAvailable { get; set; }
+        public bool Status { get; set; }
+        public string? IntroVideo { get; set; }
+        public List<string> Services { get; set; } = new();
+        public DateTime CreatedAt { get; set; }
+    }
+
     public class UpdateCaregiverAdditionalInfoRequest
     {
 

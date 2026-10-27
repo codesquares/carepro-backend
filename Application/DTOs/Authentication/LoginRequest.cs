@@ -42,6 +42,8 @@ namespace Application.DTOs.Authentication
 
         public string Role { get; set; }
 
+        public string? Department { get; set; }
+
         public string? Message { get; set; }
 
         public bool IsDeleted { get; set; }

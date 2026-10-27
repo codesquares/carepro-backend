@@ -548,6 +548,22 @@ namespace Infrastructure.Content.Services.Authentication
             // Get role-specific data
             var careGiverAppUser = await _context.CareGivers.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
             var clientAppUser = await _context.Clients.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
+            var adminAppUser = await _context.AdminUsers.FirstOrDefaultAsync(x => x.Id == appUser.AppUserId);
+
+            // Same approval gate as the password login path (AuthService.AuthenticateUserLoginAsync):
+            // a linked-Google admin account must not be able to bypass PendingApproval/Rejected.
+            if (adminAppUser != null)
+            {
+                var effectiveStatus = string.IsNullOrWhiteSpace(adminAppUser.Status)
+                    ? AdminUserStatus.Approved
+                    : adminAppUser.Status;
+
+                if (string.Equals(effectiveStatus, AdminUserStatus.Rejected, StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("This admin account has been rejected. Contact a SuperAdmin for assistance.");
+
+                if (!string.Equals(effectiveStatus, AdminUserStatus.Approved, StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("This admin account is pending approval by a SuperAdmin. Please check back later.");
+            }
 
             var appUserDetails = new AppUserDTO
             {
@@ -559,6 +575,7 @@ namespace Infrastructure.Content.Services.Authentication
                 PhoneNo = careGiverAppUser?.PhoneNo ?? clientAppUser?.PhoneNo ?? "Not Provided",
                 HomeAddress = clientAppUser?.HomeAddress ?? careGiverAppUser?.HomeAddress ?? "Not Provided",
                 Role = appUser.Role,
+                Department = adminAppUser?.Department,
                 QaAccess = appUser.QaAccess ?? false,
                 OnboardingResetAccess = appUser.OnboardingResetAccess ?? false,
                 CreatedAt = appUser.CreatedAt,
@@ -597,6 +614,7 @@ namespace Infrastructure.Content.Services.Authentication
                 LastName = appUserDetails.LastName ?? string.Empty,
                 Email = appUserDetails.Email,
                 Role = appUserDetails.Role,
+                Department = appUserDetails.Department,
                 Token = token,
                 RefreshToken = refreshToken,
                 ProfilePicture = profilePicture,

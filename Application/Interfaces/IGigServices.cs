@@ -27,6 +27,9 @@ namespace Application.Interfaces
 
         Task<GigDTO> GetGigAsync(string serviceId);
 
+        /// <summary>Owning caregiver id of a gig, including soft-deleted ones; null if the gig doesn't exist. Used to authorize writes.</summary>
+        Task<string?> GetGigOwnerIdAsync(string gigId);
+
         Task<string> UpdateGigStatusToPauseAsync(string gigId, UpdateGigStatusToPauseRequest updateGigStatusToPauseRequest);
 
         Task<GigDTO> UpdateGigAsync(string gigId, UpdateGigRequest updateGigRequest);

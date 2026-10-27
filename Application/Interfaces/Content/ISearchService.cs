@@ -10,7 +10,5 @@ namespace Application.Interfaces.Content
     public interface ISearchService
     {
         Task<List<string>> GetCaregiverAndServicesAsync(string? firstName, string? lastName, string? serviceName);
-
-        Task<IEnumerable<CaregiverResponse>> SearchCaregiversWithServicesAsync(string searchTerm);
     }
 }

@@ -133,6 +133,36 @@ namespace Application.DTOs
         public const string CertificateManualRejection = "certificate_manual_rejection";
         public const string CertificateReview = "certificate_review";
 
+        // ── Police clearance (caregiver vetting step) ──
+        /// <summary>To Approved admins (in-app only): a caregiver submitted a police clearance for review.</summary>
+        public const string PoliceClearanceSubmitted = "police_clearance_submitted";
+        /// <summary>To the caregiver (in-app + email): staff approved their police clearance.</summary>
+        public const string PoliceClearanceApproved = "police_clearance_approved";
+        /// <summary>To the caregiver (in-app + email, with the reason): staff rejected their police clearance.</summary>
+        public const string PoliceClearanceRejected = "police_clearance_rejected";
+        /// <summary>To the caregiver (in-app + email, with the reason): a previously approved clearance was revoked.</summary>
+        public const string PoliceClearanceRevoked = "police_clearance_revoked";
+        /// <summary>To Approved admins (in-app only): a clearance was rejected/revoked after enforcement for a caregiver who has active assignments — a human must decide.</summary>
+        public const string PoliceClearanceAssignmentsAtRisk = "police_clearance_assignments_at_risk";
+
+        // ── Address proof (utility bill for the current address) ──
+        /// <summary>To Approved admins (in-app only): a caregiver submitted an address bill for review.</summary>
+        public const string AddressProofSubmitted = "address_proof_submitted";
+        /// <summary>To the caregiver (in-app + email): staff approved their address bill.</summary>
+        public const string AddressProofApproved = "address_proof_approved";
+        /// <summary>To the caregiver (in-app + email, with the reason): staff rejected their address bill.</summary>
+        public const string AddressProofRejected = "address_proof_rejected";
+
+        // ── Guarantors ──
+        /// <summary>To Approved admins (in-app only): a guarantor's questionnaire was flagged and needs a staff decision.</summary>
+        public const string GuarantorNeedsReview = "guarantor_needs_review";
+        /// <summary>To the caregiver (in-app): staff rejected one of their guarantors after review.</summary>
+        public const string GuarantorRejected = "guarantor_rejected";
+
+        // ── Vetting enforcement notice ──
+        /// <summary>To a caregiver (in-app + email): vetting steps are missing and an enforcement date is coming.</summary>
+        public const string VettingEnforcementNotice = "vetting_enforcement_notice";
+
         // ── Subscriptions ──
         public const string SubscriptionCreated = "subscription_created";
         public const string SubscriptionCancellationScheduled = "subscription_cancellation_scheduled";
@@ -198,6 +228,38 @@ namespace Application.DTOs
         public const string CareRequestReopened = "care_request_reopened";
         public const string CareRequestCreated = "care_request_created";
         public const string ShortlistRemoved = "care_request_shortlist_removed";
+
+        // ── Phase 4: Internal Package Assignment ──
+        /// <summary>To the caregiver: staff/system assigned you to a package request — accept or decline.</summary>
+        public const string PackageAssignmentOffered = "package_assignment_offered";
+        /// <summary>To the client: your assigned caregiver accepted and is now confirmed.</summary>
+        public const string PackageAssignmentConfirmed = "package_assignment_confirmed";
+        /// <summary>To ops staff: an assigned caregiver declined — no auto-reassignment, needs action.</summary>
+        public const string PackageAssignmentDeclined = "package_assignment_declined";
+        /// <summary>To the caregiver: staff withdrew the assignment.</summary>
+        public const string PackageAssignmentCancelled = "package_assignment_cancelled";
+
+        // ── Ops alerts (to admins) ──
+        /// <summary>To ops staff: a new package request is pending and needs a caregiver assigned.</summary>
+        public const string PackageRequestReceived = "package_request_received";
+        /// <summary>To ops staff: a client's payment succeeded but the package request could not be created — manual follow-up.</summary>
+        public const string PackagePaymentRequestFailed = "package_payment_request_failed";
+        /// <summary>To ops staff: a confirmed package's contract was not generated or delivered — manual follow-up.</summary>
+        public const string PackageContractDeliveryFailed = "package_contract_delivery_failed";
+        /// <summary>To ops staff: a client cancelled within the cancellation window — a manual refund decision is needed.</summary>
+        public const string PackageRequestCancelledByClient = "package_request_cancelled_by_client";
+        /// <summary>To ops staff: a package-visit check-in was flagged with a HARD reason (far from service location) — review it.</summary>
+        public const string PackageVisitFlagged = "package_visit_flagged";
+
+        // ── Phase 6: Auto-generated package contract ──
+        /// <summary>To client + caregiver: the care agreement for a confirmed package request has been generated.</summary>
+        public const string PackageContractGenerated = "package_contract_generated";
+
+        // ── Phase 9: Payroll (package assignments are paid via admin-approved payroll) ──
+        /// <summary>To the caregiver: an admin approved their payroll and the amount was credited to their wallet.</summary>
+        public const string PayrollApproved = "payroll_approved";
+        /// <summary>To the caregiver: their approved payroll has been marked paid out.</summary>
+        public const string PayrollPaid = "payroll_paid";
         /// <summary>Sent to the client when a caregiver they've hired (negotiation still in flight,
         /// not yet Agreed) loses hire-readiness — e.g. identity verification fails.</summary>
         public const string CaregiverBecameIneligible = "caregiver_became_ineligible";
@@ -245,6 +307,8 @@ namespace Application.DTOs
         public const string VisitCancelledByClient = "visit_cancelled_by_client";
         public const string VisitCancellationRequested = "visit_cancellation_requested";
         public const string VisitRescheduled = "visit_rescheduled";
+        /// <summary>Package caregiver told client + admins they cannot attend a day (no money moves). RelatedEntityId = PackageRequestId.</summary>
+        public const string VisitAbsenceNotified = "visit_absence_notified";
 
         // ── Account Deletion (GDPR right-to-erasure) ──
         public const string AccountDeletionScheduled = "account_deletion_scheduled";
