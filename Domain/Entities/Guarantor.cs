@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using System;
+using System.Collections.Generic;
 
 namespace Domain.Entities
 {
@@ -31,7 +32,16 @@ namespace Domain.Entities
 
         public string Address { get; set; } = string.Empty;
 
-        /// <summary>"pending" | "confirmed" — mirrors Verification.VerificationStatus.</summary>
+        /// <summary>
+        /// One of <see cref="GuarantorRelationshipCategories"/>. Declared by the caregiver and compared
+        /// against what the guarantor says. Null on guarantors added before the questionnaire existed.
+        /// </summary>
+        public string? RelationshipCategory { get; set; }
+
+        /// <summary>Years the caregiver says they have known the guarantor. Null on pre-questionnaire guarantors.</summary>
+        public int? YearsKnown { get; set; }
+
+        /// <summary>"pending" | "needs_review" | "confirmed" | "rejected" — see <see cref="GuarantorStatuses"/>.</summary>
         public string Status { get; set; } = GuarantorStatuses.Pending;
 
         /// <summary>Set when the guarantor confirms (self-serve link OR staff override). Null while pending.</summary>
@@ -50,6 +60,53 @@ namespace Domain.Entities
 
         /// <summary>Email of the staff member who performed a manual override. Null for self-serve.</summary>
         public string? ConfirmedByAdminEmail { get; set; }
+
+        // ── Guarantor's own questionnaire answers (anonymous submission via the emailed link) ──
+        // Flat nullable fields so pre-existing documents deserialize unchanged.
+
+        /// <summary>When the guarantor submitted the questionnaire. Null until they do.</summary>
+        public DateTime? ResponsesSubmittedAt { get; set; }
+
+        /// <summary>The caregiver's full name as the guarantor typed it.</summary>
+        public string? RespCaregiverName { get; set; }
+
+        /// <summary>One of <see cref="GuarantorRelationshipCategories"/>, chosen by the guarantor.</summary>
+        public string? RespRelationshipCategory { get; set; }
+
+        public int? RespYearsKnown { get; set; }
+
+        /// <summary>One of <see cref="GuarantorLastContact"/>.</summary>
+        public string? RespLastContact { get; set; }
+
+        /// <summary>Where the guarantor says the caregiver lives. Shown to staff only — never auto-checked.</summary>
+        public string? RespCaregiverArea { get; set; }
+
+        /// <summary>Free text: how they know the caregiver and what they have seen of how they treat others.</summary>
+        public string? RespHowTheyKnow { get; set; }
+
+        /// <summary>One of <see cref="GuarantorTrustAnswers"/>.</summary>
+        public string? RespTrustAnswer { get; set; }
+
+        public string? RespTrustExplanation { get; set; }
+
+        /// <summary>Optional phone number the guarantor typed, compared with <see cref="PhoneNo"/>.</summary>
+        public string? RespPhoneNo { get; set; }
+
+        /// <summary>
+        /// Auto-check outcome: names of the checks that did not pass (see <see cref="GuarantorCheckNames"/>).
+        /// Null before submission; empty after a clean submission.
+        /// </summary>
+        public List<string>? ReviewFlags { get; set; }
+
+        // ── Staff review (needs_review → confirmed | rejected) ──
+
+        public string? ReviewedByAdminId { get; set; }
+
+        public string? ReviewedByAdminEmail { get; set; }
+
+        public DateTime? ReviewedAt { get; set; }
+
+        public string? ReviewNote { get; set; }
 
         public DateTime CreatedAt { get; set; }
 
@@ -75,11 +132,71 @@ namespace Domain.Entities
     {
         public const string Pending = "pending";
         public const string Confirmed = "confirmed";
+
+        /// <summary>Guarantor answered the questionnaire but at least one auto-check flagged; staff decide.</summary>
+        public const string NeedsReview = "needs_review";
+
+        /// <summary>Staff rejected the guarantor after review. The caregiver must remove and re-add.</summary>
+        public const string Rejected = "rejected";
     }
 
     public static class GuarantorConfirmationMethods
     {
         public const string SelfServe = "self_serve";
         public const string StaffOverride = "staff_override";
+
+        /// <summary>Guarantor's answers were flagged and a staff member approved them after reading them.</summary>
+        public const string StaffReview = "staff_review";
+    }
+
+    public static class GuarantorRelationshipCategories
+    {
+        public const string Relative = "relative";
+        public const string Friend = "friend";
+        public const string FormerEmployerOrClient = "former_employer_or_client";
+        public const string Neighbour = "neighbour";
+        public const string ReligiousLeader = "religious_leader";
+        public const string Colleague = "colleague";
+        public const string Other = "other";
+
+        public static readonly string[] All =
+        {
+            Relative, Friend, FormerEmployerOrClient, Neighbour, ReligiousLeader, Colleague, Other
+        };
+    }
+
+    public static class GuarantorLastContact
+    {
+        public const string ThisWeek = "this_week";
+        public const string ThisMonth = "this_month";
+        public const string Within6Months = "within_6_months";
+        public const string WithinYear = "within_year";
+        public const string OverYear = "over_year";
+
+        public static readonly string[] All = { ThisWeek, ThisMonth, Within6Months, WithinYear, OverYear };
+    }
+
+    public static class GuarantorTrustAnswers
+    {
+        public const string Yes = "yes";
+        public const string YesWithReservations = "yes_with_reservations";
+        public const string No = "no";
+
+        public static readonly string[] All = { Yes, YesWithReservations, No };
+    }
+
+    /// <summary>Stable identifiers for the soft-gate auto-checks; persisted in <see cref="Guarantor.ReviewFlags"/>.</summary>
+    public static class GuarantorCheckNames
+    {
+        public const string NameMismatch = "name_mismatch";
+        public const string RelationshipMismatch = "relationship_mismatch";
+        public const string YearsBelowMinimum = "years_below_minimum";
+        public const string YearsMismatch = "years_mismatch";
+        public const string StaleContact = "stale_contact";
+        public const string TrustReservation = "trust_reservation";
+        public const string PhoneMismatch = "phone_mismatch";
+
+        /// <summary>The caregiver's declared relationship/years are missing (guarantor predates the questionnaire).</summary>
+        public const string NoDeclaredData = "no_declared_data";
     }
 }

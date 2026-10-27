@@ -1,9 +1,11 @@
 using Application.DTOs;
 using Application.Interfaces.Authentication;
 using Application.Interfaces.Common;
+using Application.Interfaces.Content;
 using Application.Interfaces.Email;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Infrastructure.Content.Services;
 using Infrastructure.Content.Services.Authentication;
 using Microsoft.EntityFrameworkCore;
@@ -249,6 +251,8 @@ public class CaregiverVettingTests
     {
         public required GuarantorService Service { get; init; }
         public required List<string> SentLinks { get; init; }
+        public required List<(string Type, string RelatedEntityId)> AdminAlerts { get; init; }
+        public required Mock<MediatR.IMediator> Mediator { get; init; }
     }
 
     private static GuarantorHarness CreateGuarantorService(CareProDbContext db)
@@ -268,11 +272,18 @@ public class CaregiverVettingTests
             ["FrontendUrl"] = "https://oncarepro.com"
         }).Build();
 
+        var adminAlerts = new List<(string Type, string RelatedEntityId)>();
+        var ops = new Mock<IOpsAlertService>();
+        ops.Setup(o => o.NotifyAdminsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .Callback<string, string, string, string, bool>((type, _, _, related, _) => adminAlerts.Add((type, related)))
+            .Returns(Task.CompletedTask);
+        var mediator = new Mock<MediatR.IMediator>();
+
         var service = new GuarantorService(
             db, RealTokenHandler(), email.Object, config, origin.Object,
-            Mock.Of<ILogger<GuarantorService>>());
+            Mock.Of<ILogger<GuarantorService>>(), ops.Object, mediator.Object);
 
-        return new GuarantorHarness { Service = service, SentLinks = sentLinks };
+        return new GuarantorHarness { Service = service, SentLinks = sentLinks, AdminAlerts = adminAlerts, Mediator = mediator };
     }
 
     private static string TokenFromLink(string link)
@@ -286,9 +297,24 @@ public class CaregiverVettingTests
     {
         Name = $"Guarantor {suffix}",
         RelationshipToCaregiver = "Former employer",
+        RelationshipCategory = "former_employer_or_client",
+        YearsKnown = 5,
         PhoneNo = "+2348012345678",
         Email = $"guarantor-{suffix}-{Guid.NewGuid():N}@example.com",
         Address = "12 Marina Road, Lagos"
+    };
+
+    /// <summary>Answers that agree with <see cref="SampleGuarantor"/> and the seeded "Vetting Subject" caregiver.</summary>
+    private static SubmitGuarantorResponsesRequest GoodAnswers() => new()
+    {
+        CaregiverName = "Vetting Subject",
+        RelationshipCategory = "former_employer_or_client",
+        YearsKnown = 5,
+        LastContact = "this_week",
+        CaregiverArea = "Yaba, Lagos",
+        HowTheyKnow = string.Join(' ', Enumerable.Repeat("worked", 30)),
+        TrustAnswer = "yes",
+        Declaration = true,
     };
 
     [Fact]
@@ -345,12 +371,10 @@ public class CaregiverVettingTests
         using (var db = CreateDb(dbName))
         {
             var harness = CreateGuarantorService(db);
-            var result = await harness.Service.ConfirmByTokenAsync(token);
+            var result = await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
 
             Assert.True(result.Success);
-            Assert.True(result.NewlyConfirmed);
             Assert.Equal(guarantorId, result.GuarantorId);
-            Assert.Equal(cgId, result.CaregiverId);
         }
 
         // Persisted?
@@ -363,9 +387,8 @@ public class CaregiverVettingTests
 
             var harness = CreateGuarantorService(db);
             // Second click is idempotent, not an error.
-            var again = await harness.Service.ConfirmByTokenAsync(token);
+            var again = await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
             Assert.True(again.Success);
-            Assert.False(again.NewlyConfirmed);
         }
     }
 
@@ -391,7 +414,7 @@ public class CaregiverVettingTests
         using var db = CreateDb(NewDbName());
         var harness = CreateGuarantorService(db);
 
-        var result = await harness.Service.ConfirmByTokenAsync("not-a-real-token");
+        var result = await harness.Service.SubmitResponsesAsync("not-a-real-token", GoodAnswers());
         Assert.False(result.Success);
     }
 
@@ -414,7 +437,7 @@ public class CaregiverVettingTests
 
         using (var db = CreateDb(dbName))
         {
-            await CreateGuarantorService(db).Service.ConfirmByTokenAsync(token);
+            await CreateGuarantorService(db).Service.SubmitResponsesAsync(token, GoodAnswers());
         }
 
         using (var db = CreateDb(dbName))
@@ -476,7 +499,10 @@ public class CaregiverVettingTests
         using var db = CreateDb(NewDbName());
         var caregiver = SeedCaregiver(db);
         var cgId = caregiver.Id.ToString();
-        var service = CreateService(db);
+        // Bill enforcement already reached, so the approved-bill part of the rule applies.
+        var service = new CaregiverVettingService(db, Mock.Of<ILogger<CaregiverVettingService>>(), null,
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["AddressProof:EnforcementDate"] = "2020-01-01" }).Build());
 
         var before = await service.GetAddressHistoryCoverageAsync(cgId);
         Assert.False(before.IsComplete);
@@ -499,8 +525,22 @@ public class CaregiverVettingTests
             MovedOut = null
         });
 
+        // Dates now cover five years, but with no approved bill for the current address the step is NOT complete.
+        var datesOnly = await service.GetAddressHistoryCoverageAsync(cgId);
+        Assert.False(datesOnly.IsComplete);
+        Assert.True(datesOnly.DatesCovered);
+        Assert.Equal("incomplete", datesOnly.State);
+
+        var current = await db.CaregiverAddressHistories.FirstAsync(a => a.CaregiverId == cgId && a.MovedOut == null);
+        current.ProofStatus = AddressProofStatuses.Pending;
+        await db.SaveChangesAsync();
+        Assert.Equal("awaiting_review", (await service.GetAddressHistoryCoverageAsync(cgId)).State);
+
+        current.ProofStatus = AddressProofStatuses.Approved;
+        await db.SaveChangesAsync();
         var complete = await service.GetAddressHistoryCoverageAsync(cgId);
         Assert.True(complete.IsComplete);
+        Assert.Equal("complete", complete.State);
         Assert.Equal(2, complete.RecordCount);
         Assert.Equal(5, complete.RequiredYears);
     }
@@ -660,7 +700,7 @@ public class CaregiverVettingTests
         }
         using (var db = CreateDb(dbName))
         {
-            await CreateGuarantorService(db).Service.ConfirmByTokenAsync(token);
+            await CreateGuarantorService(db).Service.SubmitResponsesAsync(token, GoodAnswers());
         }
 
         using (var db = CreateDb(dbName))
@@ -706,9 +746,8 @@ public class CaregiverVettingTests
         using (var db = CreateDb(dbName))
         {
             var harness = CreateGuarantorService(db);
-            var result = await harness.Service.ConfirmByTokenAsync(token);
+            var result = await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
             Assert.True(result.Success);
-            Assert.False(result.NewlyConfirmed);
 
             var raw = await db.Guarantors.FirstAsync(x => x.Id == ObjectId.Parse(guarantorId));
             Assert.Equal("staff_override", raw.ConfirmationMethod); // override attribution preserved
@@ -789,7 +828,7 @@ public class CaregiverVettingTests
         db.CaregiverAddressHistories.Add(new CaregiverAddressHistory
         {
             Id = ObjectId.GenerateNewId(), CaregiverId = caregiver.Id.ToString(),
-            Address = "New", MovedIn = DateTime.UtcNow.AddYears(-2), MovedOut = null,
+            Address = "New", MovedIn = DateTime.UtcNow.AddYears(-2), MovedOut = null, ProofStatus = AddressProofStatuses.Approved,
             CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
         });
     }
@@ -864,5 +903,346 @@ public class CaregiverVettingTests
         Assert.True(dto.AddressHistoryComplete);
         Assert.True(dto.CaregiverTypeSet);
         Assert.Equal("RegisteredNurse", dto.CaregiverType);
+    }
+
+    // ───────────────── Guarantor questionnaire (soft gate) ─────────────────
+
+    /// <summary>Seeds a caregiver with one pending guarantor and returns what a submission needs.</summary>
+    private static async Task<(string DbName, string CgId, string GuarantorId, string Token)> SeedPendingGuarantor(
+        Func<AddGuarantorRequest, AddGuarantorRequest>? tweak = null)
+    {
+        var dbName = NewDbName();
+        using var db = CreateDb(dbName);
+        var caregiver = SeedCaregiver(db);
+        var cgId = caregiver.Id.ToString();
+        var harness = CreateGuarantorService(db);
+        var req = SampleGuarantor("A");
+        var g = await harness.Service.AddGuarantorAsync(cgId, tweak != null ? tweak(req) : req);
+        await harness.Service.SendConfirmationLinkAsync(cgId, g.Id, origin: null);
+        return (dbName, cgId, g.Id, TokenFromLink(harness.SentLinks[0]));
+    }
+
+    [Fact]
+    public async Task Questionnaire_AllChecksPass_AutoConfirms_AndStoresAnswers()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+
+        var result = await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
+
+        Assert.True(result.Success);
+        var raw = await db.Guarantors.FirstAsync(g => g.Id == ObjectId.Parse(guarantorId));
+        Assert.Equal("confirmed", raw.Status);
+        Assert.Equal("self_serve", raw.ConfirmationMethod);
+        Assert.NotNull(raw.VerifiedAt);
+        Assert.NotNull(raw.ResponsesSubmittedAt);
+        Assert.Empty(raw.ReviewFlags!);
+        Assert.Equal("Yaba, Lagos", raw.RespCaregiverArea); // stored for staff, never checked
+        Assert.Empty(harness.AdminAlerts);
+    }
+
+    [Fact]
+    public async Task Questionnaire_AreaIsNeverAutoChecked()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var answers = GoodAnswers();
+        answers.CaregiverArea = "Somewhere nobody has ever heard of";
+
+        await CreateGuarantorService(db).Service.SubmitResponsesAsync(token, answers);
+
+        var raw = await db.Guarantors.FirstAsync(g => g.Id == ObjectId.Parse(guarantorId));
+        Assert.Equal("confirmed", raw.Status);
+    }
+
+    [Theory]
+    [InlineData("name", "name_mismatch")]
+    [InlineData("category", "relationship_mismatch")]
+    [InlineData("years_far", "years_mismatch")]
+    [InlineData("years_low", "years_below_minimum")]
+    [InlineData("stale", "stale_contact")]
+    [InlineData("trust", "trust_reservation")]
+    [InlineData("phone", "phone_mismatch")]
+    public async Task Questionnaire_AnyFlag_GoesToNeedsReview_WithSameResultWording(string scenario, string expectedFlag)
+    {
+        // years_low needs a caregiver claim that also sits low, so only the minimum check fires.
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor(
+            scenario == "years_low" ? r => { r.YearsKnown = 3; return r; } : null);
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var answers = GoodAnswers();
+        switch (scenario)
+        {
+            case "name": answers.CaregiverName = "Someone Else"; break;
+            case "category": answers.RelationshipCategory = "neighbour"; break;
+            case "years_far": answers.YearsKnown = 9; break;
+            case "years_low": answers.YearsKnown = 1; break;
+            case "stale": answers.LastContact = "over_year"; break;
+            case "trust": answers.TrustAnswer = "yes_with_reservations"; answers.TrustExplanation = "Only met them twice."; break;
+            case "phone": answers.PhoneNo = "+2349000000000"; break;
+        }
+
+        var result = await harness.Service.SubmitResponsesAsync(token, answers);
+
+        Assert.True(result.Success);
+        Assert.Equal("Thank you. Your responses have been recorded.", result.Message); // no outcome leak
+        var raw = await db.Guarantors.FirstAsync(g => g.Id == ObjectId.Parse(guarantorId));
+        Assert.Equal("needs_review", raw.Status);
+        Assert.Null(raw.VerifiedAt);
+        Assert.Contains(expectedFlag, raw.ReviewFlags!);
+        Assert.Contains(harness.AdminAlerts, a => a.Type == "guarantor_needs_review" && a.RelatedEntityId == guarantorId);
+    }
+
+    [Fact]
+    public async Task Questionnaire_ConfirmedAndFlaggedResults_HaveIdenticalMessage()
+    {
+        var (dbName1, _, _, token1) = await SeedPendingGuarantor();
+        var (dbName2, _, _, token2) = await SeedPendingGuarantor();
+        using var db1 = CreateDb(dbName1);
+        using var db2 = CreateDb(dbName2);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+
+        var ok = await CreateGuarantorService(db1).Service.SubmitResponsesAsync(token1, GoodAnswers());
+        var bad = await CreateGuarantorService(db2).Service.SubmitResponsesAsync(token2, flagged);
+
+        Assert.Equal(ok.Message, bad.Message);
+        Assert.Equal(ok.Success, bad.Success);
+    }
+
+    [Fact]
+    public async Task Questionnaire_NameMatch_IgnoresCaseOrderAccentsMiddleNameAndOneTypo()
+    {
+        Assert.True(GuarantorResponseEvaluator.NameMatches("Vetting", "Subject", "subject vetting"));
+        Assert.True(GuarantorResponseEvaluator.NameMatches("Vetting", "Subject", "Vetting Chidi Subject"));
+        Assert.True(GuarantorResponseEvaluator.NameMatches("José", "Subject", "Jose Subject"));
+        Assert.True(GuarantorResponseEvaluator.NameMatches("Vetting", "Subject", "Vettinng Subject")); // 1 typo on a long name
+        Assert.False(GuarantorResponseEvaluator.NameMatches("Vetting", "Subject", "Vetting"));          // surname missing
+        Assert.False(GuarantorResponseEvaluator.NameMatches("Ann", "Lee", "Amn Lee"));                  // short names get no typo allowance
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Questionnaire_PhoneMatch_ComparesLastTenDigits()
+    {
+        Assert.True(GuarantorResponseEvaluator.PhonesMatch("+2348012345678", "08012345678"));
+        Assert.True(GuarantorResponseEvaluator.PhonesMatch("+234 801 234 5678", "0801-234-5678"));
+        Assert.False(GuarantorResponseEvaluator.PhonesMatch("+2348012345678", "08012345679"));
+        Assert.False(GuarantorResponseEvaluator.PhonesMatch("+2348012345678", ""));
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Questionnaire_PreQuestionnaireGuarantor_NeverAutoConfirms()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using (var db = CreateDb(dbName))
+        {
+            // Simulate a guarantor created before the questionnaire existed.
+            var g = await db.Guarantors.FirstAsync(x => x.Id == ObjectId.Parse(guarantorId));
+            g.RelationshipCategory = null;
+            g.YearsKnown = null;
+            await db.SaveChangesAsync();
+        }
+        using (var db = CreateDb(dbName))
+        {
+            await CreateGuarantorService(db).Service.SubmitResponsesAsync(token, GoodAnswers());
+            var raw = await db.Guarantors.FirstAsync(x => x.Id == ObjectId.Parse(guarantorId));
+            Assert.Equal("needs_review", raw.Status);
+            Assert.Contains("no_declared_data", raw.ReviewFlags!);
+        }
+    }
+
+    [Fact]
+    public async Task Questionnaire_SecondSubmission_IsNoOp_AndCannotUpgradeAFlaggedGuarantor()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        // The guarantor (or the caregiver, who may control the inbox) retries with the "right" answers.
+        var retry = await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
+
+        Assert.True(retry.Success);
+        var raw = await db.Guarantors.FirstAsync(g => g.Id == ObjectId.Parse(guarantorId));
+        Assert.Equal("needs_review", raw.Status);
+        Assert.Equal("Wrong Person", raw.RespCaregiverName);
+    }
+
+    [Fact]
+    public async Task Questionnaire_TooShortDescription_Rejected_WithoutStateChange()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var answers = GoodAnswers();
+        answers.HowTheyKnow = "A good person.";
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateGuarantorService(db).Service.SubmitResponsesAsync(token, answers));
+
+        var raw = await db.Guarantors.FirstAsync(g => g.Id == ObjectId.Parse(guarantorId));
+        Assert.Equal("pending", raw.Status);
+        Assert.Null(raw.ResponsesSubmittedAt);
+    }
+
+    [Fact]
+    public async Task Questionnaire_ReservationWithoutExplanation_Rejected()
+    {
+        var (dbName, _, _, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var answers = GoodAnswers();
+        answers.TrustAnswer = "no";
+        answers.TrustExplanation = "  ";
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateGuarantorService(db).Service.SubmitResponsesAsync(token, answers));
+    }
+
+    [Fact]
+    public async Task QuizInfo_ValidToken_ReturnsOnlyNameAndState_InvalidReturnsNull()
+    {
+        var (dbName, _, _, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+
+        var info = await harness.Service.GetQuizInfoAsync(token);
+        Assert.NotNull(info);
+        Assert.Equal("Guarantor A", info!.GuarantorName);
+        Assert.False(info.AlreadyResponded);
+        // The type itself carries no declared data to leak.
+        Assert.Equal(new[] { "AlreadyResponded", "GuarantorName" },
+            typeof(GuarantorQuizInfo).GetProperties().Select(p => p.Name).OrderBy(n => n).ToArray());
+
+        await harness.Service.SubmitResponsesAsync(token, GoodAnswers());
+        Assert.True((await harness.Service.GetQuizInfoAsync(token))!.AlreadyResponded);
+        Assert.Null(await harness.Service.GetQuizInfoAsync("garbage"));
+    }
+
+    [Fact]
+    public async Task CaregiverView_NeverExposesAnswersOrFlags()
+    {
+        var (dbName, cgId, _, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        var view = (await harness.Service.GetGuarantorsAsync(cgId)).Single();
+
+        Assert.Equal("needs_review", view.Status);
+        Assert.IsNotType<AdminGuarantorResponse>(view);
+        Assert.False(typeof(GuarantorResponse).GetProperties().Any(p => p.Name.StartsWith("Resp") || p.Name == "ReviewFlags"));
+    }
+
+    [Fact]
+    public async Task NeedsReviewGuarantor_CannotBeEditedOrResentALink()
+    {
+        var (dbName, cgId, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => harness.Service.UpdateGuarantorAsync(cgId, guarantorId, new UpdateGuarantorRequest
+            {
+                Name = "X Y", RelationshipToCaregiver = "Friend", RelationshipCategory = "friend", YearsKnown = 3,
+                PhoneNo = "+2348012345678", Email = "x@example.com", Address = "Somewhere"
+            }));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => harness.Service.AdminResendConfirmationLinkAsync(guarantorId, "admin-1", "ops@carepro.com", null));
+    }
+
+    [Fact]
+    public async Task Review_Approve_Confirms_WithStaffReviewAttribution_AndAudit()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        var listed = (await harness.Service.AdminGetNeedsReviewAsync()).Single();
+        Assert.Equal("Vetting Subject", listed.CaregiverName);
+        Assert.Contains("name_mismatch", listed.ReviewFlags!);
+
+        var result = await harness.Service.AdminReviewGuarantorAsync(guarantorId, "admin-1", "ops@carepro.com",
+            new AdminReviewGuarantorRequest { Decision = "approve", Note = "Called them, nickname." });
+
+        Assert.Equal("confirmed", result.Status);
+        Assert.Equal("staff_review", result.ConfirmationMethod);
+        Assert.Equal("ops@carepro.com", result.ReviewedByAdminEmail);
+        Assert.Empty(await harness.Service.AdminGetNeedsReviewAsync());
+        Assert.Single(await db.AdminAuditLogs.Where(a => a.TargetEntityId == guarantorId && a.Action == "GuarantorReviewApproved").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Review_Reject_SetsRejected_AuditsAndNotifiesCaregiver()
+    {
+        var (dbName, cgId, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        var result = await harness.Service.AdminReviewGuarantorAsync(guarantorId, "admin-1", "ops@carepro.com",
+            new AdminReviewGuarantorRequest { Decision = "reject", Note = "Could not verify." });
+
+        Assert.Equal("rejected", result.Status);
+        Assert.Null(result.VerifiedAt);
+        Assert.Single(await db.AdminAuditLogs.Where(a => a.TargetEntityId == guarantorId && a.Action == "GuarantorReviewRejected").ToListAsync());
+        harness.Mediator.Verify(m => m.Send(It.IsAny<Application.Commands.SendNotificationCommand>(), It.IsAny<System.Threading.CancellationToken>()), Times.Once);
+
+        // A rejected guarantor does not count toward readiness.
+        var all = (await harness.Service.GetGuarantorsAsync(cgId)).ToList();
+        Assert.DoesNotContain(all, g => g.Status == "confirmed");
+    }
+
+    [Fact]
+    public async Task Review_OnlyFromNeedsReview_AndNoteRequired()
+    {
+        var (dbName, _, guarantorId, token) = await SeedPendingGuarantor();
+        using var db = CreateDb(dbName);
+        var harness = CreateGuarantorService(db);
+
+        // Still pending → cannot be reviewed.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AdminReviewGuarantorAsync(
+            guarantorId, "admin-1", null, new AdminReviewGuarantorRequest { Decision = "approve", Note = "Looks fine." }));
+
+        var flagged = GoodAnswers();
+        flagged.CaregiverName = "Wrong Person";
+        await harness.Service.SubmitResponsesAsync(token, flagged);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.AdminReviewGuarantorAsync(
+            guarantorId, "admin-1", null, new AdminReviewGuarantorRequest { Decision = "approve", Note = "ok" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.AdminReviewGuarantorAsync(
+            guarantorId, "admin-1", null, new AdminReviewGuarantorRequest { Decision = "maybe", Note = "Not sure at all." }));
+
+        await harness.Service.AdminReviewGuarantorAsync(guarantorId, "admin-1", null,
+            new AdminReviewGuarantorRequest { Decision = "approve", Note = "Verified by phone." });
+        // Already decided → cannot be decided again.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AdminReviewGuarantorAsync(
+            guarantorId, "admin-2", null, new AdminReviewGuarantorRequest { Decision = "reject", Note = "Changed my mind." }));
+    }
+
+    [Fact]
+    public async Task AddGuarantor_PersistsCategoryAndYearsKnown()
+    {
+        using var db = CreateDb(NewDbName());
+        var caregiver = SeedCaregiver(db);
+        var harness = CreateGuarantorService(db);
+
+        var g = await harness.Service.AddGuarantorAsync(caregiver.Id.ToString(), SampleGuarantor("A"));
+
+        Assert.Equal("former_employer_or_client", g.RelationshipCategory);
+        Assert.Equal(5, g.YearsKnown);
     }
 }

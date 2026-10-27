@@ -335,12 +335,12 @@ namespace Infrastructure.Services
                 HtmlBody = $@"
                     <h3>Hello {guarantorName},</h3>
                     <p>{caregiverName} has listed you as a guarantor as part of their CarePro caregiver vetting.</p>
-                    <p>You do not need a CarePro account. Please click the link below to confirm that you agree to act as their guarantor:</p>
-                    <p><a href=""{confirmationLink}"">Confirm I am a guarantor for {caregiverName}</a></p>
+                    <p>You do not need a CarePro account. Please click the link below and answer a few short questions about {caregiverName} (it takes about two minutes). Your answers confirm that you know them and that you agree to act as their guarantor:</p>
+                    <p><a href=""{confirmationLink}"">Answer the questions and confirm as guarantor for {caregiverName}</a></p>
                     <br />
                     <p>Or copy and paste this link into your browser:<br /> {confirmationLink}</p>
                     <br />
-                    <p>If you do not know {caregiverName} or did not expect this email, you can ignore it and no confirmation will be recorded.</p>
+                    <p>If you do not know {caregiverName} or did not expect this email, you can ignore it and nothing will be recorded. The link is valid for 14 days.</p>
                     <p>Thanks,<br />The CarePro Team</p>"
             };
 

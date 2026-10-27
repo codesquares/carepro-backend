@@ -85,6 +85,7 @@ public class CaregiverReadinessAndSafeguardsTests
             Address = "Current address",
             MovedIn = DateTime.UtcNow.AddYears(-2),
             MovedOut = null,
+            ProofStatus = AddressProofStatuses.Approved,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });

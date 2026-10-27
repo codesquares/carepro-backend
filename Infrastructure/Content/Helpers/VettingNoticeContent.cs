@@ -65,7 +65,7 @@ namespace Infrastructure.Content.Helpers
                     case VettingSteps.Guarantors:
                         steps.Add(("Add two guarantors", "They only need to be added now; their confirmation can come later.")); break;
                     case VettingSteps.AddressHistory:
-                        steps.Add(("Complete your address history", "List the places you have lived over the last 5 years, with no gaps.")); break;
+                        steps.Add(("Complete your address history", "List the places you have lived over the last 5 years, with no gaps and, where asked, a recent power-holding (NEPA) bill for your current address.")); break;
                     case VettingSteps.PoliceClearance:
                     {
                         var by = clearanceDeadlineUtc.HasValue && clearanceDeadlineUtc.Value != deadlineUtc

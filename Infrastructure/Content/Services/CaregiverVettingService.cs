@@ -3,6 +3,8 @@ using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
 using Microsoft.EntityFrameworkCore;
+using Infrastructure.Content.Helpers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System;
@@ -22,11 +24,17 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext db;
         private readonly ILogger<CaregiverVettingService> logger;
+        private readonly IPoliceClearanceFileStore? fileStore;
+        private readonly IConfiguration? configuration;
 
-        public CaregiverVettingService(CareProDbContext db, ILogger<CaregiverVettingService> logger)
+        // fileStore/configuration are optional so tests that don't touch address proof can keep the 2-arg constructor.
+        public CaregiverVettingService(CareProDbContext db, ILogger<CaregiverVettingService> logger,
+            IPoliceClearanceFileStore? fileStore = null, IConfiguration? configuration = null)
         {
             this.db = db;
             this.logger = logger;
+            this.fileStore = fileStore;
+            this.configuration = configuration;
         }
 
         private static ObjectId ParseCaregiverId(string caregiverId)
@@ -175,12 +183,25 @@ namespace Infrastructure.Content.Services
 
             ValidateAddressPeriod(request.MovedIn, request.MovedOut);
 
-            entity.Address = request.Address.Trim();
+            var newAddress = request.Address.Trim();
+            // A bill proves a specific address from a specific date. Changing either invalidates it, so the caregiver
+            // can't get a bill approved and then edit the address underneath it. The move-in comparison is by DATE: the form sends
+            // date-only values, so an unchanged save must not look like a change just because the stored time-of-day differs.
+            var staleFiles = new List<PoliceClearanceFile>();
+            if (entity.ProofStatus != null
+                && (!string.Equals(entity.Address, newAddress, StringComparison.Ordinal) || entity.MovedIn.Date != request.MovedIn.Date))
+            {
+                staleFiles.AddRange(entity.ProofFiles ?? new List<PoliceClearanceFile>());
+                ClearProof(entity);
+            }
+
+            entity.Address = newAddress;
             entity.MovedIn = request.MovedIn;
             entity.MovedOut = request.MovedOut;
             entity.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync();
+            await DeleteProofFilesAsync(staleFiles);
             return Map(entity);
         }
 
@@ -194,8 +215,38 @@ namespace Infrastructure.Content.Services
             if (!string.Equals(entity.CaregiverId, caregiverId, StringComparison.Ordinal))
                 throw new UnauthorizedAccessException("You are not authorised to access this address-history record.");
 
+            var proofFiles = (entity.ProofFiles ?? new List<PoliceClearanceFile>()).ToList();
             db.CaregiverAddressHistories.Remove(entity);
             await db.SaveChangesAsync();
+            await DeleteProofFilesAsync(proofFiles);
+        }
+
+        private static void ClearProof(CaregiverAddressHistory a)
+        {
+            a.ProofStatus = null;
+            a.ProofFiles = null;
+            a.ProofNameOnBill = null;
+            a.ProofBillDate = null;
+            a.ProofSubmittedAt = null;
+            a.ProofReviewedAt = null;
+            a.ProofReviewedByAdminId = null;
+            a.ProofReviewedByAdminEmail = null;
+            a.ProofReviewNotes = null;
+            a.ProofRejectionReason = null;
+            a.ProofChecklist = null;
+        }
+
+        /// <summary>Best-effort removal of private bill files that nothing references any more. A failure is logged, never thrown.</summary>
+        private async Task DeleteProofFilesAsync(IEnumerable<PoliceClearanceFile> files)
+        {
+            if (fileStore == null) return;
+            foreach (var f in files)
+            {
+                if (string.IsNullOrWhiteSpace(f.PublicId)) continue;
+                var outcome = await fileStore.DeleteAsync(f.PublicId, f.ResourceType);
+                if (outcome == ClearanceFileDeleteOutcome.Failed)
+                    logger.LogError("Orphaned address proof file (public id {PublicId}) — needs manual cleanup", f.PublicId);
+            }
         }
 
         public async Task<CaregiverAddressHistoryCoverageResponse> GetAddressHistoryCoverageAsync(string caregiverId)
@@ -205,9 +256,22 @@ namespace Infrastructure.Content.Services
                 .Where(a => a.CaregiverId == caregiverId)
                 .ToListAsync();
 
+            var now = DateTime.UtcNow;
+            var proofSettings = AddressProofSettings.Load(configuration);
+            var proofRequired = proofSettings.IsEnforced(now);
+            var state = CaregiverAddressHistoryCoverage.Evaluate(items, now, proofRequired);
             return new CaregiverAddressHistoryCoverageResponse
             {
-                IsComplete = CaregiverAddressHistoryCoverage.IsComplete(items, DateTime.UtcNow),
+                IsComplete = state == AddressVettingState.Complete,
+                State = state switch
+                {
+                    AddressVettingState.Complete => "complete",
+                    AddressVettingState.AwaitingReview => "awaiting_review",
+                    _ => "incomplete"
+                },
+                DatesCovered = CaregiverAddressHistoryCoverage.HasDateCoverage(items, now),
+                ProofRequired = proofRequired,
+                ProofEnforcementDate = proofSettings.EnforcementDateUtc,
                 RecordCount = items.Count,
                 RequiredCount = CaregiverAddressHistoryCoverage.RequiredCount,
                 RequiredYears = CaregiverAddressHistoryCoverage.RequiredYears,
@@ -224,8 +288,9 @@ namespace Infrastructure.Content.Services
                 throw new ArgumentException("MovedOut cannot be earlier than MovedIn.");
         }
 
-        private static CaregiverAddressHistoryResponse Map(CaregiverAddressHistory a) => new()
+        private CaregiverAddressHistoryResponse Map(CaregiverAddressHistory a) => new()
         {
+            Proof = AddressProofMapper.Info(a, AddressProofSettings.Load(configuration)),
             Id = a.Id.ToString(),
             CaregiverId = a.CaregiverId,
             Address = a.Address,

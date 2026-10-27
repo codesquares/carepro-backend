@@ -145,6 +145,20 @@ namespace Application.DTOs
         /// <summary>To Approved admins (in-app only): a clearance was rejected/revoked after enforcement for a caregiver who has active assignments — a human must decide.</summary>
         public const string PoliceClearanceAssignmentsAtRisk = "police_clearance_assignments_at_risk";
 
+        // ── Address proof (utility bill for the current address) ──
+        /// <summary>To Approved admins (in-app only): a caregiver submitted an address bill for review.</summary>
+        public const string AddressProofSubmitted = "address_proof_submitted";
+        /// <summary>To the caregiver (in-app + email): staff approved their address bill.</summary>
+        public const string AddressProofApproved = "address_proof_approved";
+        /// <summary>To the caregiver (in-app + email, with the reason): staff rejected their address bill.</summary>
+        public const string AddressProofRejected = "address_proof_rejected";
+
+        // ── Guarantors ──
+        /// <summary>To Approved admins (in-app only): a guarantor's questionnaire was flagged and needs a staff decision.</summary>
+        public const string GuarantorNeedsReview = "guarantor_needs_review";
+        /// <summary>To the caregiver (in-app): staff rejected one of their guarantors after review.</summary>
+        public const string GuarantorRejected = "guarantor_rejected";
+
         // ── Vetting enforcement notice ──
         /// <summary>To a caregiver (in-app + email): vetting steps are missing and an enforcement date is coming.</summary>
         public const string VettingEnforcementNotice = "vetting_enforcement_notice";

@@ -109,7 +109,9 @@ namespace Infrastructure.Content.Services
             var addressHistory = await _dbContext.CaregiverAddressHistories
                 .Where(a => a.CaregiverId == caregiverId)
                 .ToListAsync();
-            var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(addressHistory, DateTime.UtcNow);
+            var addressState = CaregiverAddressHistoryCoverage.Evaluate(addressHistory, DateTime.UtcNow,
+                AddressProofSettings.Load(_configuration).IsEnforced(DateTime.UtcNow));
+            var addressHistoryComplete = addressState == AddressVettingState.Complete;
 
             var clearances = await _dbContext.PoliceClearances.Where(c => c.CaregiverId == caregiverId).ToListAsync();
             var clearanceStatus = PoliceClearanceLogic.StatusName(PoliceClearanceLogic.Latest(clearances));
@@ -121,7 +123,8 @@ namespace Infrastructure.Content.Services
             if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
             if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
             if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
-            if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+            if (addressState == AddressVettingState.AwaitingReview) reasons.Add(CaregiverReadinessReasons.AddressProofPending);
+            else if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
             if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
             var result = new CaregiverReadinessResult
@@ -192,6 +195,7 @@ namespace Infrastructure.Content.Services
                 .ToDictionary(grp => grp.Key, grp => grp.ToList());
 
             var vettingNow = DateTime.UtcNow;
+            var addressProofEnforced = AddressProofSettings.Load(_configuration).IsEnforced(vettingNow);
 
             // One batched read for the police clearance step (like the guarantor counts above).
             var clearancesByCaregiver = (await _dbContext.PoliceClearances
@@ -232,9 +236,10 @@ namespace Infrastructure.Content.Services
                 var hasTwoConfirmedGuarantors =
                     (confirmedGuarantorCounts.TryGetValue(id, out var gc) ? gc : 0)
                     >= IGuarantorService.RequiredGuarantorCount;
-                var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(
+                var addressState = CaregiverAddressHistoryCoverage.Evaluate(
                     addressHistoryByCaregiver.TryGetValue(id, out var addrs) ? addrs : new List<CaregiverAddressHistory>(),
-                    vettingNow);
+                    vettingNow, addressProofEnforced);
+                var addressHistoryComplete = addressState == AddressVettingState.Complete;
 
                 var reasons = new List<string>();
                 if (!isIdentityVerified) reasons.Add(CaregiverReadinessReasons.NotIdentityVerified);
@@ -243,7 +248,8 @@ namespace Infrastructure.Content.Services
                 if (!assessmentPassed) reasons.Add(CaregiverReadinessReasons.AssessmentNotPassed);
                 if (certificateMissing) reasons.Add(CaregiverReadinessReasons.CertificateMissing);
                 if (!hasTwoConfirmedGuarantors) reasons.Add(CaregiverReadinessReasons.GuarantorsIncomplete);
-                if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
+                if (addressState == AddressVettingState.AwaitingReview) reasons.Add(CaregiverReadinessReasons.AddressProofPending);
+                else if (!addressHistoryComplete) reasons.Add(CaregiverReadinessReasons.AddressHistoryIncomplete);
                 if (!caregiverTypeSet) reasons.Add(CaregiverReadinessReasons.CaregiverTypeNotSet);
 
                 var entry = new CaregiverReadinessResult

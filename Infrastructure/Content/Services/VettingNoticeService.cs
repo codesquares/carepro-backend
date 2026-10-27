@@ -98,13 +98,14 @@ namespace Infrastructure.Content.Services
                     .GroupBy(c => c.CaregiverId ?? string.Empty).ToDictionary(g => g.Key, g => PoliceClearanceLogic.StatusName(PoliceClearanceLogic.Latest(g)))
                 : new Dictionary<string, string>();
 
+            var addressProofRequired = AddressProofSettings.Load(_configuration).IsEnforced(now);
             var result = new List<Recipient>();
             foreach (var c in caregivers)
             {
                 var id = c.Id.ToString();
                 var missing = MissingSteps(plan.Lockout.HasValue, plan.Clearance.HasValue, c.CaregiverType != null,
                     guarantorCounts.GetValueOrDefault(id), addresses.TryGetValue(id, out var a) ? a : new List<CaregiverAddressHistory>(),
-                    clearances.GetValueOrDefault(id, "none"), now);
+                    clearances.GetValueOrDefault(id, "none"), now, addressProofRequired);
                 if (missing.Count > 0) result.Add(new Recipient(c, missing));
             }
             return result;
@@ -112,14 +113,15 @@ namespace Infrastructure.Content.Services
 
         /// <summary>Pure rule, unit-tested. Pending or approved clearance counts as submitted.</summary>
         public static List<string> MissingSteps(bool lockoutSet, bool clearanceSet, bool typeSet, int guarantorsAdded,
-            IEnumerable<CaregiverAddressHistory> addressHistory, string clearanceStatus, DateTime now)
+            IEnumerable<CaregiverAddressHistory> addressHistory, string clearanceStatus, DateTime now, bool addressProofRequired = false)
         {
             var missing = new List<string>();
             if (lockoutSet)
             {
                 if (!typeSet) missing.Add(VettingSteps.Classification);
                 if (guarantorsAdded < 2) missing.Add(VettingSteps.Guarantors);
-                if (!CaregiverAddressHistoryCoverage.IsComplete(addressHistory, now)) missing.Add(VettingSteps.AddressHistory);
+                // Like the lockout, a SUBMITTED bill counts (awaiting review is not 'missing'); only no/rejected bill is.
+                if (CaregiverAddressHistoryCoverage.Evaluate(addressHistory, now, addressProofRequired) == AddressVettingState.Incomplete) missing.Add(VettingSteps.AddressHistory);
             }
             if (clearanceSet && clearanceStatus != "pending" && clearanceStatus != "approved") missing.Add(VettingSteps.PoliceClearance);
             return missing;

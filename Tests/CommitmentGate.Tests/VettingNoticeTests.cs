@@ -78,7 +78,7 @@ public class VettingNoticeTests
         if (address)
         {
             db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "A", MovedIn = Now.AddYears(-6), MovedOut = Now.AddYears(-3), CreatedAt = Now });
-            db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = Now.AddYears(-3), MovedOut = null, CreatedAt = Now });
+            db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = Now.AddYears(-3), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = Now });
         }
         if (clearance != null) db.PoliceClearances.Add(new PoliceClearance { Id = ObjectId.GenerateNewId(), CaregiverId = id, Status = clearance, SubmittedAt = Now, Superseded = false });
         return cg;
@@ -166,10 +166,10 @@ public class VettingNoticeTests
         r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = single.Id.ToString(), Address = "Only", MovedIn = Now.AddYears(-6), MovedOut = null, CreatedAt = Now });
         var smallGap = Cg(r.Db, "gap20d", address: false);
         r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = smallGap.Id.ToString(), Address = "A", MovedIn = Now.AddYears(-6), MovedOut = Now.AddYears(-3), CreatedAt = Now });
-        r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = smallGap.Id.ToString(), Address = "B", MovedIn = Now.AddYears(-3).AddDays(20), MovedOut = null, CreatedAt = Now });
+        r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = smallGap.Id.ToString(), Address = "B", MovedIn = Now.AddYears(-3).AddDays(20), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = Now });
         var bigGap = Cg(r.Db, "gap60d", address: false);
         r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = bigGap.Id.ToString(), Address = "A", MovedIn = Now.AddYears(-6), MovedOut = Now.AddYears(-3), CreatedAt = Now });
-        r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = bigGap.Id.ToString(), Address = "B", MovedIn = Now.AddYears(-3).AddDays(60), MovedOut = null, CreatedAt = Now });
+        r.Db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = bigGap.Id.ToString(), Address = "B", MovedIn = Now.AddYears(-3).AddDays(60), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = Now });
         await r.Db.SaveChangesAsync();
         var p = await r.Service().PreviewAsync("initial");
         Assert.Equal(new[] { "NOTICETEST-gap60d", "NOTICETEST-singleRecord" }, p.Sample.Select(s => s.FirstName).OrderBy(x => x).ToArray());
@@ -368,7 +368,7 @@ public class VettingNoticeHttpTests
             var c = new Caregiver { Id = ObjectId.GenerateNewId(), FirstName = $"NOTICETEST-{tag}", LastName = "H", Email = $"noticetest-{tag}@example.com", Password = "x", Role = "Caregiver", Status = true, IsAvailable = true, CreatedAt = now, CaregiverType = type ? CaregiverType.RegisteredNurse : null }; // pragma: allowlist-secret
             db.CareGivers.Add(c);
             for (var i = 0; i < g; i++) db.Guarantors.Add(new Guarantor { Id = ObjectId.GenerateNewId(), CaregiverId = c.Id.ToString(), Name = "G", RelationshipToCaregiver = "U", PhoneNo = "1", Status = GuarantorStatuses.Pending });
-            if (addr) { db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = c.Id.ToString(), Address = "A", MovedIn = now.AddYears(-6), MovedOut = now.AddYears(-3), CreatedAt = now }); db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = c.Id.ToString(), Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, CreatedAt = now }); }
+            if (addr) { db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = c.Id.ToString(), Address = "A", MovedIn = now.AddYears(-6), MovedOut = now.AddYears(-3), CreatedAt = now }); db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = c.Id.ToString(), Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = now }); }
         }
         Cg("missing1", false, 2, true); Cg("missing3", false, 0, false); Cg("complete", true, 2, true);
         await db.SaveChangesAsync();
