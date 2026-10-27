@@ -50,7 +50,7 @@ public class AssignmentNoGigGateTests
         {
             var now = DateTime.UtcNow;
             db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "A", MovedIn = now.AddYears(-6), MovedOut = now.AddYears(-3), CreatedAt = now });
-            db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, CreatedAt = now });
+            db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = now });
         }
         return cg;
     }

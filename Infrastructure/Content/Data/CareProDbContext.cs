@@ -258,6 +258,10 @@ namespace Infrastructure.Content.Data
             // Superseded is a token too, so two simultaneous resubmissions cannot both supersede the same record.
             modelBuilder.Entity<PoliceClearance>().Property(pc => pc.Superseded).IsConcurrencyToken();
 
+            // Address proof review race guard (same pattern as PoliceClearance.Status above).
+            modelBuilder.Entity<CaregiverAddressHistory>().Property(a => a.ProofStatus).IsConcurrencyToken();
+            modelBuilder.Entity<CaregiverAddressHistory>().Property(a => a.ProofReviewedAt).IsConcurrencyToken();
+
             modelBuilder.Entity<VettingNotice>().ToCollection("VettingNotices");
             modelBuilder.Entity<VettingNotice>().HasKey(n => n.Id);
             modelBuilder.Entity<VettingNotice>().Property(n => n.Id).HasElementName("_id");

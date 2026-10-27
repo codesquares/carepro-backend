@@ -154,6 +154,9 @@ builder.Services.AddScoped<IPoliceClearanceFileStore, CloudinaryPoliceClearanceF
 builder.Services.AddScoped<IPoliceClearanceNotifier, PoliceClearanceNotifier>();
 builder.Services.AddScoped<IPoliceClearanceService, PoliceClearanceService>();
 builder.Services.AddScoped<IPoliceClearanceAdminService, PoliceClearanceAdminService>();
+builder.Services.AddScoped<IAddressProofNotifier, AddressProofNotifier>();
+builder.Services.AddScoped<IAddressProofService, AddressProofService>();
+builder.Services.AddScoped<IAddressProofAdminService, AddressProofAdminService>();
 builder.Services.AddScoped<IVettingNoticeService, VettingNoticeService>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();

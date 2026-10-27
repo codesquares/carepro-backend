@@ -34,10 +34,18 @@ namespace Application.Interfaces.Content
         Task<GuarantorResponse> SendConfirmationLinkAsync(string caregiverId, string guarantorId, string? origin);
 
         /// <summary>
-        /// Consumes a guarantor confirmation token (from the emailed link) and
-        /// flips the guarantor's status to confirmed. Anonymous / unauthenticated.
+        /// Anonymous: validates the emailed token and returns the minimum the questionnaire page needs to
+        /// render. Returns null when the token is invalid, expired or the guarantor no longer exists.
+        /// Carries nothing the caregiver declared.
         /// </summary>
-        Task<GuarantorConfirmationResult> ConfirmByTokenAsync(string token);
+        Task<GuarantorQuizInfo?> GetQuizInfoAsync(string token);
+
+        /// <summary>
+        /// Anonymous: consumes the emailed token plus the guarantor's answers. Runs the soft-gate
+        /// auto-checks — all clear → confirmed (self-serve), any flag → needs_review for staff. The
+        /// result wording is the same either way. One submission per guarantor.
+        /// </summary>
+        Task<GuarantorConfirmationResult> SubmitResponsesAsync(string token, SubmitGuarantorResponsesRequest request);
 
         // ── Staff (OperationsPolicy) actions ──
 
@@ -47,15 +55,25 @@ namespace Application.Interfaces.Content
         /// writes an <c>AdminAuditLog</c> entry. Idempotent: confirming an already-confirmed
         /// guarantor is a safe no-op that leaves the original confirmation intact.
         /// </summary>
-        Task<GuarantorResponse> AdminConfirmGuarantorAsync(string guarantorId, string adminId, string? adminEmail, string reason);
+        Task<AdminGuarantorResponse> AdminConfirmGuarantorAsync(string guarantorId, string adminId, string? adminEmail, string reason);
 
         /// <summary>
         /// Staff resends a guarantor's confirmation link on the caregiver's behalf.
         /// Respects the lifetime attempt cap but bypasses the resend cooldown.
         /// </summary>
-        Task<GuarantorResponse> AdminResendConfirmationLinkAsync(string guarantorId, string adminId, string? adminEmail, string? origin);
+        Task<AdminGuarantorResponse> AdminResendConfirmationLinkAsync(string guarantorId, string adminId, string? adminEmail, string? origin);
 
         /// <summary>Staff view of a caregiver's guarantors (no caller-ownership requirement).</summary>
-        Task<IEnumerable<GuarantorResponse>> AdminGetGuarantorsForCaregiverAsync(string caregiverId);
+        Task<IEnumerable<AdminGuarantorResponse>> AdminGetGuarantorsForCaregiverAsync(string caregiverId);
+
+        /// <summary>Every guarantor waiting on a staff decision (status needs_review), oldest submission first.</summary>
+        Task<IEnumerable<AdminGuarantorResponse>> AdminGetNeedsReviewAsync();
+
+        /// <summary>
+        /// Staff approve or reject a needs_review guarantor after reading their answers. A note is
+        /// required and the decision is audit-logged. Throws <see cref="System.InvalidOperationException"/>
+        /// if the guarantor is not currently in needs_review.
+        /// </summary>
+        Task<AdminGuarantorResponse> AdminReviewGuarantorAsync(string guarantorId, string adminId, string? adminEmail, AdminReviewGuarantorRequest request);
     }
 }

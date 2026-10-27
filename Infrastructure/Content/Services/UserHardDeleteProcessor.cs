@@ -278,6 +278,21 @@ namespace Infrastructure.Content.Services
             // address history), so hard-delete rather than anonymise.
             var guarantors = await dbContext.Guarantors.Where(g => g.CaregiverId == caregiverId).ToListAsync();
             var addressHistory = await dbContext.CaregiverAddressHistories.Where(a => a.CaregiverId == caregiverId).ToListAsync();
+            // Address-proof bills are private files outside the database: delete them first, and retry the whole user next cycle if any fails.
+            var undeletableBills = new List<string>();
+            foreach (var file in addressHistory.SelectMany(a => a.ProofFiles ?? new List<Domain.Entities.PoliceClearanceFile>()))
+            {
+                if (string.IsNullOrWhiteSpace(file.PublicId)) continue;
+                var outcome = await clearanceStore.DeleteAsync(file.PublicId, file.ResourceType);
+                if (outcome == ClearanceFileDeleteOutcome.Failed) undeletableBills.Add(file.PublicId);
+            }
+            if (undeletableBills.Count > 0)
+            {
+                _logger.LogError(
+                    "UserHardDeleteProcessor: Caregiver {CaregiverId} - {Count} address proof file(s) could not be deleted from storage (public ids: {PublicIds}). The account will be retried on the next cycle.",
+                    caregiverId, undeletableBills.Count, string.Join(", ", undeletableBills));
+                throw new InvalidOperationException($"Could not delete {undeletableBills.Count} address proof file(s) for caregiver {caregiverId}.");
+            }
             var socialHandles = await dbContext.CaregiverSocialMediaHandles.Where(s => s.CaregiverId == caregiverId).ToListAsync();
             if (guarantors.Any()) dbContext.Guarantors.RemoveRange(guarantors);
             if (addressHistory.Any()) dbContext.CaregiverAddressHistories.RemoveRange(addressHistory);

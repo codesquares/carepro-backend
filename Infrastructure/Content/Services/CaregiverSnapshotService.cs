@@ -2,6 +2,7 @@ using Application.DTOs;
 using Application.Interfaces.Content;
 using Domain.Entities;
 using Infrastructure.Content.Data;
+using Infrastructure.Content.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -12,11 +13,13 @@ namespace Infrastructure.Content.Services
     {
         private readonly CareProDbContext _context;
         private readonly ILogger<CaregiverSnapshotService> _logger;
+        private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
-        public CaregiverSnapshotService(CareProDbContext context, ILogger<CaregiverSnapshotService> logger)
+        public CaregiverSnapshotService(CareProDbContext context, ILogger<CaregiverSnapshotService> logger, Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
         {
             _context = context;
             _logger = logger;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -110,6 +113,7 @@ namespace Infrastructure.Content.Services
                 .ToDictionary(s => s.CaregiverId);
 
             var vettingNow = DateTime.UtcNow;
+            var addressProofEnforced = AddressProofSettings.Load(_configuration).IsEnforced(vettingNow);
 
             // ── Compute and upsert ────────────────────────────────────────────
             int created = 0, updated = 0;
@@ -158,7 +162,7 @@ namespace Infrastructure.Content.Services
                         confirmedGuarantorCount >= IGuarantorService.RequiredGuarantorCount;
                     var addressHistoryComplete = CaregiverAddressHistoryCoverage.IsComplete(
                         addressHistoryByCaregiver.GetValueOrDefault(caregiverId) ?? new List<CaregiverAddressHistory>(),
-                        vettingNow);
+                        vettingNow, addressProofEnforced);
                     var caregiverTypeName = caregiver.CaregiverType?.ToString();
 
                     var journeyStage = ComputeJourneyStage(

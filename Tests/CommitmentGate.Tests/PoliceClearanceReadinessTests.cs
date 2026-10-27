@@ -42,7 +42,7 @@ public class PoliceClearanceReadinessTests
             db.Guarantors.Add(new Guarantor { Id = ObjectId.GenerateNewId(), CaregiverId = id, Name = $"G{i}", RelationshipToCaregiver = "Uncle", PhoneNo = "0800", Status = GuarantorStatuses.Confirmed });
         var now = DateTime.UtcNow;
         db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "A", MovedIn = now.AddYears(-6), MovedOut = now.AddYears(-3), CreatedAt = now });
-        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, CreatedAt = now });
+        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = id, Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = now });
         return cg;
     }
 
@@ -376,7 +376,7 @@ public class PoliceClearanceReadinessHttpTests
             db.Guarantors.Add(new Guarantor { Id = ObjectId.GenerateNewId(), CaregiverId = cg.Id.ToString(), Name = $"G{i}", RelationshipToCaregiver = "U", PhoneNo = "0800", Status = GuarantorStatuses.Confirmed });
         var now = DateTime.UtcNow;
         db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = cg.Id.ToString(), Address = "A", MovedIn = now.AddYears(-6), MovedOut = now.AddYears(-3), CreatedAt = now });
-        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = cg.Id.ToString(), Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, CreatedAt = now });
+        db.CaregiverAddressHistories.Add(new CaregiverAddressHistory { Id = ObjectId.GenerateNewId(), CaregiverId = cg.Id.ToString(), Address = "B", MovedIn = now.AddYears(-3), MovedOut = null, ProofStatus = AddressProofStatuses.Approved, CreatedAt = now });
         if (clearanceStatus != null)
             db.PoliceClearances.Add(new PoliceClearance { Id = ObjectId.GenerateNewId(), CaregiverId = cg.Id.ToString(), Status = clearanceStatus, SubmittedAt = DateTime.UtcNow, Superseded = false });
         var client = new Client { Id = ObjectId.GenerateNewId(), FirstName = "C", LastName = "L", Email = $"c{Guid.NewGuid():N}@x.com", Password = "x", Role = "Client", Status = true }; // pragma: allowlist-secret

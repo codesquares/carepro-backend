@@ -309,17 +309,38 @@ namespace CarePro_Api.Controllers.Content
         }
 
         /// <summary>
-        /// Self-serve endpoint a guarantor hits by clicking the link in their email.
-        /// No authentication — the signed token IS the authorisation. POST (not GET)
-        /// so email link-prefetchers cannot auto-confirm.
+        /// Anonymous: what the guarantor questionnaire page needs to render. The signed token IS the
+        /// authorisation; nothing the caregiver declared is returned. A GET is safe here because it
+        /// changes no state, so a link prefetcher gains nothing.
         /// </summary>
-        [HttpPost("guarantors/confirm")]
+        [HttpGet("guarantors/quiz")]
         [AllowAnonymous]
-        public async Task<IActionResult> ConfirmGuarantor([FromQuery] string token)
+        public async Task<IActionResult> GetGuarantorQuiz([FromQuery] string token)
         {
             try
             {
-                var result = await guarantorService.ConfirmByTokenAsync(token);
+                var info = await guarantorService.GetQuizInfoAsync(token);
+                return info == null
+                    ? BadRequest(new { message = "This confirmation link is invalid or has expired." })
+                    : Ok(info);
+            }
+            catch (Exception ex) { return HandleException(ex, "GetGuarantorQuiz"); }
+        }
+
+        /// <summary>
+        /// Anonymous: the guarantor submits their answers from the emailed link. The signed token is
+        /// the authorisation. POST (not GET) so email link-prefetchers cannot trigger it. Outcome
+        /// (confirmed vs staff review) is never revealed in the response.
+        /// </summary>
+        [HttpPost("guarantors/confirm")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ConfirmGuarantor([FromQuery] string token, [FromBody] SubmitGuarantorResponsesRequest request)
+        {
+            if (request == null) return BadRequest(new { message = "Your answers are required." });
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            try
+            {
+                var result = await guarantorService.SubmitResponsesAsync(token, request);
                 return result.Success ? Ok(result) : BadRequest(result);
             }
             catch (Exception ex) { return HandleException(ex, "ConfirmGuarantor"); }

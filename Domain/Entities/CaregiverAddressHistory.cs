@@ -27,6 +27,63 @@ namespace Domain.Entities
         public DateTime CreatedAt { get; set; }
 
         public DateTime UpdatedAt { get; set; }
+
+        // ── Proof of the CURRENT address (power-holding / NEPA / electricity bill), reviewed by staff ──
+        // All nullable on purpose: records created before this feature have none of these fields stored, and the EF
+        // provider rejects stored documents that lack a non-nullable property. Only a record with MovedOut == null
+        // (the current address) is ever asked for proof.
+
+        /// <summary><see cref="AddressProofStatuses"/>; null = no proof submitted.</summary>
+        public string? ProofStatus { get; set; }
+
+        /// <summary>Exactly one stored file (PDF or image). Private storage reference only — never a URL.</summary>
+        public List<PoliceClearanceFile>? ProofFiles { get; set; }
+
+        /// <summary>Account holder name as printed on the bill, typed by the caregiver.</summary>
+        public string? ProofNameOnBill { get; set; }
+
+        /// <summary>Date on the bill (UTC date). Validated against AddressProof:MaxBillAgeMonths at submission.</summary>
+        public DateTime? ProofBillDate { get; set; }
+
+        public DateTime? ProofSubmittedAt { get; set; }
+
+        public string? ProofReviewedByAdminId { get; set; }
+
+        public string? ProofReviewedByAdminEmail { get; set; }
+
+        public DateTime? ProofReviewedAt { get; set; }
+
+        public string? ProofReviewNotes { get; set; }
+
+        public string? ProofRejectionReason { get; set; }
+
+        public AddressProofChecklist? ProofChecklist { get; set; }
+    }
+
+    public class AddressProofChecklist
+    {
+        public bool? NameMatchesProfile { get; set; }
+        public bool? AddressMatchesEntry { get; set; }
+        public bool? BillWithinAllowedAge { get; set; }
+        public bool? ScanLegibleAndUnaltered { get; set; }
+    }
+
+    public static class AddressProofStatuses
+    {
+        public const string Pending = "pending";
+        public const string Approved = "approved";
+        public const string Rejected = "rejected";
+    }
+
+    /// <summary>Where a caregiver stands on the address-history vetting step.</summary>
+    public enum AddressVettingState
+    {
+        /// <summary>Dates cover 5 years AND the current address has an approved bill.</summary>
+        Complete,
+        /// <summary>Dates are fine and a bill is waiting for staff review — nothing for the caregiver to do.</summary>
+        AwaitingReview,
+        /// <summary>Dates have gaps/too few records, or the current address has no bill / a rejected one.</summary>
+        Incomplete
     }
 
     /// <summary>
@@ -41,7 +98,27 @@ namespace Domain.Entities
         /// <summary>Gaps up to this many days between consecutive addresses are tolerated.</summary>
         public const int GapToleranceDays = 31;
 
-        public static bool IsComplete(IEnumerable<CaregiverAddressHistory> records, DateTime now)
+        /// <summary>
+        /// The step is complete when the dates cover the window AND, once <paramref name="proofRequired"/> (the AddressProof
+        /// enforcement date has been reached), the current address (MovedOut == null) has a staff-approved utility bill.
+        /// Before enforcement it is judged on dates alone. Single source of truth for the coverage endpoint, readiness
+        /// (single + bulk), snapshots and vetting notices.
+        /// </summary>
+        public static bool IsComplete(IEnumerable<CaregiverAddressHistory> records, DateTime now, bool proofRequired)
+            => Evaluate(records, now, proofRequired) == AddressVettingState.Complete;
+
+        public static AddressVettingState Evaluate(IEnumerable<CaregiverAddressHistory> records, DateTime now, bool proofRequired)
+        {
+            var list = records?.ToList() ?? new List<CaregiverAddressHistory>();
+            if (!HasDateCoverage(list, now)) return AddressVettingState.Incomplete;
+            if (!proofRequired) return AddressVettingState.Complete;
+            var current = list.Where(r => r.MovedOut == null).ToList();
+            if (current.Any(r => r.ProofStatus == AddressProofStatuses.Approved)) return AddressVettingState.Complete;
+            if (current.Any(r => r.ProofStatus == AddressProofStatuses.Pending)) return AddressVettingState.AwaitingReview;
+            return AddressVettingState.Incomplete;
+        }
+
+        public static bool HasDateCoverage(IEnumerable<CaregiverAddressHistory> records, DateTime now)
         {
             var list = records?.ToList() ?? new List<CaregiverAddressHistory>();
             if (list.Count < RequiredCount)

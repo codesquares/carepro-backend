@@ -48,6 +48,8 @@ namespace Application.DTOs
         // ── Phase 2 vetting gates ──
         public const string GuarantorsIncomplete = "guarantors_incomplete";
         public const string AddressHistoryIncomplete = "address_history_incomplete";
+        /// <summary>Address dates are fine and the current-address bill is awaiting staff review. Not actionable — shown as "Under review".</summary>
+        public const string AddressProofPending = "address_proof_pending";
         public const string CaregiverTypeNotSet = "caregiver_type_not_set";
 
         // ── Police clearance (blocks readiness only at/after PoliceClearance:EnforcementDate) ──

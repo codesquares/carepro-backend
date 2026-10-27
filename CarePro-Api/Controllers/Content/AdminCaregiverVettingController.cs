@@ -107,6 +107,38 @@ namespace CarePro_Api.Controllers.Content
             catch (Exception ex) { return HandleException(ex, "AdminGetGuarantors"); }
         }
 
+        /// <summary>Guarantors whose questionnaire was flagged and who wait for a staff decision.</summary>
+        [HttpGet("guarantors/needs-review")]
+        public async Task<IActionResult> GetGuarantorsNeedingReview()
+        {
+            try
+            {
+                return Ok(await _guarantorService.AdminGetNeedsReviewAsync());
+            }
+            catch (Exception ex) { return HandleException(ex, "AdminGetGuarantorsNeedingReview"); }
+        }
+
+        /// <summary>
+        /// Staff approve or reject a needs_review guarantor after reading their answers. A note is
+        /// required; the decision is audit-logged and attributed to the acting admin.
+        /// </summary>
+        [HttpPut("guarantors/{guarantorId}/review")]
+        public async Task<IActionResult> ReviewGuarantor(string guarantorId, [FromBody] AdminReviewGuarantorRequest request)
+        {
+            if (request == null) return BadRequest(new { message = "Request body is required." });
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var (adminId, adminEmail) = CurrentAdmin();
+            if (string.IsNullOrEmpty(adminId))
+                return Unauthorized(new { message = "Unable to identify admin user." });
+
+            try
+            {
+                return Ok(await _guarantorService.AdminReviewGuarantorAsync(guarantorId, adminId, adminEmail, request));
+            }
+            catch (Exception ex) { return HandleException(ex, "AdminReviewGuarantor"); }
+        }
+
         /// <summary>
         /// Staff manually confirms a guarantor (email bounced / link lost / verified by phone),
         /// bypassing the self-serve link flow. Requires a reason; recorded in AdminAuditLogs
